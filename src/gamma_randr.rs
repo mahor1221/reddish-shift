@@ -1,0 +1,623 @@
+use crate::{
+    color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
+    gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
+    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t,
+};
+use libc::{
+    __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror, strcasecmp, strtol, FILE,
+};
+use std::ffi::{c_char, c_double, c_float, c_int, c_uint, c_ulong, c_void};
+use xcb::{
+    ffi::{xcb_connection_t, xcb_generic_error_t},
+    randr::{
+        Crtc, GetCrtcGamma, GetCrtcGammaSize, GetScreenResourcesCurrent, QueryVersion, SetCrtcGamma,
+    },
+    x::Screen,
+    Connection,
+};
+
+// #[derive(Copy, Clone)]
+#[repr(C)]
+pub struct randr_state_t<'a> {
+    pub conn: Connection,
+    pub screen: Option<&'a Screen>,
+    pub preferred_screen: c_int,
+    pub screen_num: c_int,
+    pub crtc_num_count: c_int,
+    pub crtc_num: *mut c_int,
+    pub crtc_count: c_uint,
+    pub crtcs: *mut randr_crtc_state_t,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct randr_crtc_state_t {
+    pub crtc: Crtc,
+    pub ramp_size: c_uint,
+    pub saved_ramps: *mut u16,
+}
+
+unsafe extern "C" fn randr_init(mut state: *mut *mut randr_state_t) -> c_int {
+    *state = malloc(::core::mem::size_of::<randr_state_t>()) as *mut randr_state_t;
+    if (*state).is_null() {
+        return -(1 as c_int);
+    }
+    let mut s: *mut randr_state_t = *state;
+    (*s).screen_num = -(1 as c_int);
+    (*s).crtc_num = 0 as *mut c_int;
+    (*s).crtc_num_count = 0 as c_int;
+    (*s).crtc_count = 0 as c_int as c_uint;
+    (*s).crtcs = 0 as *mut randr_crtc_state_t;
+    let mut error: *mut xcb_generic_error_t = 0 as *mut xcb_generic_error_t;
+
+    // (*s).conn = xcb_connect(0 as *const c_char, &mut (*s).preferred_screen);
+    // let mut ver_cookie: xcb_randr_query_version_cookie_t =
+    //     xcb_randr_query_version((*s).conn, 1 as c_int as u32, 3 as c_int as u32);
+    // let mut ver_reply: *mut xcb_randr_query_version_reply_t =
+    //     xcb_randr_query_version_reply((*s).conn, ver_cookie, &mut error);
+
+    // TODO: Error handling
+    // if !error.is_null() || ver_reply.is_null() {
+    //     let mut ec: c_int = if !error.is_null() {
+    //         (*error).error_code as c_int
+    //     } else {
+    //         -(1 as c_int)
+    //     };
+
+    //     // gettext(
+    //     eprintln!("`{}` returned error {}", "RANDR Query Version", ec);
+    //     // xcb_disconnect((*s).conn);
+    //     free(s as *mut c_void);
+    //     return -(1 as c_int);
+    // }
+
+    // TODO: Error handling
+    ((*s).conn, (*s).preferred_screen) = Connection::connect(None).unwrap();
+
+    let ver_cookie = (*s).conn.send_request(&QueryVersion {
+        major_version: 1,
+        minor_version: 3,
+    });
+    let ver_reply = (*s).conn.wait_for_reply(ver_cookie).unwrap();
+
+    let major_version = ver_reply.major_version();
+    let minor_version = ver_reply.minor_version();
+
+    if major_version != 1 as c_int as u32 || minor_version < 3 as c_int as u32 {
+        // gettext(
+        eprintln!(
+            "Unsupported RANDR version ({}.{})",
+            major_version, minor_version
+        );
+        // free(ver_reply as *mut c_void);
+        // xcb_disconnect((*s).conn);
+        free(s as *mut c_void);
+        return -(1 as c_int);
+    }
+    // free(ver_reply as *mut c_void);
+    return 0 as c_int;
+}
+
+unsafe extern "C" fn randr_start(mut state: *mut randr_state_t) -> c_int {
+    let mut error: *mut xcb_generic_error_t = 0 as *mut xcb_generic_error_t;
+    let mut screen_num: c_int = (*state).screen_num;
+    if screen_num < 0 as c_int {
+        screen_num = (*state).preferred_screen;
+    }
+
+    // let mut setup: *const xcb_setup_t = xcb_get_setup((*state).conn);
+    // let mut iter: xcb_screen_iterator_t = xcb_setup_roots_iterator(setup);
+    let screens = (*state).conn.get_setup().roots();
+
+    // (*state).screen = 0 as *mut Screen;
+    let mut i: c_int = 0 as c_int;
+    for screen in screens {
+        if i == screen_num {
+            (*state).screen = Some(screen);
+            break;
+        } else {
+            i += 1;
+        }
+    }
+    if ((*state).screen).is_none() {
+        // gettext(
+        eprintln!("Screen {} could not be found.", screen_num);
+        return -(1 as c_int);
+    }
+
+    // TODO: Error handling
+    // let mut res_cookie: xcb_randr_get_screen_resources_current_cookie_t =
+    //     xcb_randr_get_screen_resources_current((*state).conn);
+    // let mut res_reply: *mut xcb_randr_get_screen_resources_current_reply_t =
+    //     xcb_randr_get_screen_resources_current_reply((*state).conn, res_cookie, &mut error);
+    // if !error.is_null() {
+    //     fprintf(
+    //         stderr,
+    //         gettext(b"`%s' returned error %d\n\0" as *const u8 as *const c_char),
+    //         b"RANDR Get Screen Resources Current\0" as *const u8 as *const c_char,
+    //         (*error).error_code as c_int,
+    //     );
+    //     return -(1 as c_int);
+    // }
+
+    // TODO: Error handling
+    let res_cookie = (*state).conn.send_request(&GetScreenResourcesCurrent {
+        window: (*state).screen.unwrap().root(),
+    });
+    let res_reply = (*state).conn.wait_for_reply(res_cookie).unwrap();
+
+    (*state).crtc_count = res_reply.crtcs().len() as c_uint;
+    (*state).crtcs = calloc(
+        (*state).crtc_count as usize,
+        ::core::mem::size_of::<randr_crtc_state_t>(),
+    ) as *mut randr_crtc_state_t;
+    if ((*state).crtcs).is_null() {
+        perror(b"malloc\0" as *const u8 as *const c_char);
+        (*state).crtc_count = 0 as c_int as c_uint;
+        return -(1 as c_int);
+    }
+
+    let mut crtcs: *const Crtc = res_reply.crtcs().as_ptr();
+    let mut i_0: c_int = 0 as c_int;
+    while (i_0 as c_uint) < (*state).crtc_count {
+        (*((*state).crtcs).offset(i_0 as isize)).crtc = *crtcs.offset(i_0 as isize);
+        i_0 += 1;
+        i_0;
+    }
+    // free(res_reply as *mut c_void);
+
+    let mut i_1: c_int = 0 as c_int;
+    while (i_1 as c_uint) < (*state).crtc_count {
+        let mut crtc = (*((*state).crtcs).offset(i_1 as isize)).crtc;
+
+        // TODO: Error handling
+        // let mut gamma_size_cookie: xcb_randr_get_crtc_gamma_size_cookie_t =
+        //     xcb_randr_get_crtc_gamma_size((*state).conn, crtc);
+        // let mut gamma_size_reply: *mut xcb_randr_get_crtc_gamma_size_reply_t =
+        //     xcb_randr_get_crtc_gamma_size_reply((*state).conn, gamma_size_cookie, &mut error);
+        // if !error.is_null() {
+        //     fprintf(
+        //         stderr,
+        //         gettext(b"`%s' returned error %d\n\0" as *const u8 as *const c_char),
+        //         b"RANDR Get CRTC Gamma Size\0" as *const u8 as *const c_char,
+        //         (*error).error_code as c_int,
+        //     );
+        //     return -(1 as c_int);
+        // }
+
+        // TODO: Error handling
+        let gamma_size_cookie = (*state).conn.send_request(&GetCrtcGammaSize { crtc });
+        let gamma_size_reply = (*state).conn.wait_for_reply(gamma_size_cookie).unwrap();
+
+        let mut ramp_size = gamma_size_reply.size() as u32;
+        (*((*state).crtcs).offset(i_1 as isize)).ramp_size = ramp_size;
+        // free(gamma_size_reply as *mut c_void);
+        if ramp_size == 0 as c_int as c_uint {
+            // gettext(
+            eprintln!("Gamma ramp size too small: {}", ramp_size,);
+            return -(1 as c_int);
+        }
+
+        // let mut gamma_get_cookie: xcb_randr_get_crtc_gamma_cookie_t =
+        //     xcb_randr_get_crtc_gamma((*state).conn, crtc);
+        // let mut gamma_get_reply: *mut xcb_randr_get_crtc_gamma_reply_t =
+        //     xcb_randr_get_crtc_gamma_reply((*state).conn, gamma_get_cookie, &mut error);
+        // if !error.is_null() {
+        //     fprintf(
+        //         stderr,
+        //         gettext(b"`%s' returned error %d\n\0" as *const u8 as *const c_char),
+        //         b"RANDR Get CRTC Gamma\0" as *const u8 as *const c_char,
+        //         (*error).error_code as c_int,
+        //     );
+        //     return -(1 as c_int);
+        // }
+
+        // TODO: Error handling
+        let gamma_get_cookie = (*state).conn.send_request(&GetCrtcGamma { crtc });
+        let gamma_get_reply = (*state).conn.wait_for_reply(gamma_get_cookie).unwrap();
+
+        let mut gamma_r: *const u16 = gamma_get_reply.red().as_ptr();
+        let mut gamma_g: *const u16 = gamma_get_reply.green().as_ptr();
+        let mut gamma_b: *const u16 = gamma_get_reply.blue().as_ptr();
+        let ref mut fresh0 = (*((*state).crtcs).offset(i_1 as isize)).saved_ramps;
+        *fresh0 = malloc(
+            ((3 as c_int as c_uint).wrapping_mul(ramp_size) as usize)
+                .wrapping_mul(::core::mem::size_of::<u16>()),
+        ) as *mut u16;
+        if ((*((*state).crtcs).offset(i_1 as isize)).saved_ramps).is_null() {
+            perror(b"malloc\0" as *const u8 as *const c_char);
+            // free(gamma_get_reply as *mut c_void);
+            return -(1 as c_int);
+        }
+        memcpy(
+            &mut *((*((*state).crtcs).offset(i_1 as isize)).saved_ramps)
+                .offset((0 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+                as *mut u16 as *mut c_void,
+            gamma_r as *const c_void,
+            (ramp_size as usize).wrapping_mul(::core::mem::size_of::<u16>()),
+        );
+        memcpy(
+            &mut *((*((*state).crtcs).offset(i_1 as isize)).saved_ramps)
+                .offset((1 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+                as *mut u16 as *mut c_void,
+            gamma_g as *const c_void,
+            (ramp_size as usize).wrapping_mul(::core::mem::size_of::<u16>()),
+        );
+        memcpy(
+            &mut *((*((*state).crtcs).offset(i_1 as isize)).saved_ramps)
+                .offset((2 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+                as *mut u16 as *mut c_void,
+            gamma_b as *const c_void,
+            (ramp_size as usize).wrapping_mul(::core::mem::size_of::<u16>()),
+        );
+        // free(gamma_get_reply as *mut c_void);
+        i_1 += 1;
+        i_1;
+    }
+    return 0 as c_int;
+}
+
+unsafe extern "C" fn randr_restore(mut state: *mut randr_state_t) {
+    let mut error: *mut xcb_generic_error_t = 0 as *mut xcb_generic_error_t;
+    let mut i: c_int = 0 as c_int;
+    while (i as c_uint) < (*state).crtc_count {
+        // TODO: Error handling
+        // let mut gamma_set_cookie: xcb_void_cookie_t = xcb_randr_set_crtc_gamma_checked(
+        //     (*state).conn,
+        //     crtc,
+        //     ramp_size as u16,
+        //     gamma_r,
+        //     gamma_g,
+        //     gamma_b,
+        // );
+        // error = xcb_request_check((*state).conn, gamma_set_cookie);
+        // if !error.is_null() {
+        //     fprintf(
+        //         stderr,
+        //         gettext(b"`%s' returned error %d\n\0" as *const u8 as *const c_char),
+        //         b"RANDR Set CRTC Gamma\0" as *const u8 as *const c_char,
+        //         (*error).error_code as c_int,
+        //     );
+        //     fprintf(
+        //         stderr,
+        //         gettext(b"Unable to restore CRTC %i\n\0" as *const u8 as *const c_char),
+        //         i,
+        //     );
+        // }
+
+        let mut crtc = (*((*state).crtcs).offset(i as isize)).crtc;
+        let mut ramp_size = (*((*state).crtcs).offset(i as isize)).ramp_size;
+        let mut gamma_r: *mut u16 = &mut *((*((*state).crtcs).offset(i as isize)).saved_ramps)
+            .offset((0 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+            as *mut u16;
+        let mut gamma_g: *mut u16 = &mut *((*((*state).crtcs).offset(i as isize)).saved_ramps)
+            .offset((1 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+            as *mut u16;
+        let mut gamma_b: *mut u16 = &mut *((*((*state).crtcs).offset(i as isize)).saved_ramps)
+            .offset((2 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+            as *mut u16;
+
+        let ramp_size = ramp_size as usize;
+        let red = std::slice::from_raw_parts(gamma_r, ramp_size);
+        let green = std::slice::from_raw_parts(gamma_g, ramp_size);
+        let blue = std::slice::from_raw_parts(gamma_b, ramp_size);
+
+        let gamma_set_cookie = (*state).conn.send_request_checked(&SetCrtcGamma {
+            crtc,
+            red,
+            green,
+            blue,
+        });
+        // TODO: Error handling
+        (*state).conn.check_request(gamma_set_cookie).unwrap();
+
+        i += 1;
+    }
+}
+
+unsafe extern "C" fn randr_free(mut state: *mut randr_state_t) {
+    let mut i: c_int = 0 as c_int;
+    while (i as c_uint) < (*state).crtc_count {
+        free((*((*state).crtcs).offset(i as isize)).saved_ramps as *mut c_void);
+        i += 1;
+        i;
+    }
+    free((*state).crtcs as *mut c_void);
+    free((*state).crtc_num as *mut c_void);
+    // xcb_disconnect((*state).conn);
+    free(state as *mut c_void);
+}
+
+unsafe extern "C" fn randr_print_help(mut f: *mut FILE) {
+    fputs(
+        // gettext(
+        b"Adjust gamma ramps with the X RANDR extension.\n\0" as *const u8 as *const c_char,
+        // ),
+        f,
+    );
+    fputs(b"\n\0" as *const u8 as *const c_char, f);
+    fputs(
+        // gettext(
+            b"  screen=N\t\tX screen to apply adjustments to\n  crtc=N\tList of comma separated CRTCs to apply adjustments to\n\0"
+                as *const u8 as *const c_char,
+        // ),
+        f,
+    );
+    fputs(b"\n\0" as *const u8 as *const c_char, f);
+}
+
+unsafe extern "C" fn randr_set_option(
+    mut state: *mut randr_state_t,
+    mut key: *const c_char,
+    mut value: *const c_char,
+) -> c_int {
+    if strcasecmp(key, b"screen\0" as *const u8 as *const c_char) == 0 as c_int {
+        (*state).screen_num = atoi(value);
+    } else if strcasecmp(key, b"crtc\0" as *const u8 as *const c_char) == 0 as c_int {
+        let mut tail: *mut c_char = 0 as *mut c_char;
+        let mut local_value: *const c_char = value;
+        loop {
+            *__errno_location() = 0 as c_int;
+            let mut parsed: c_int = strtol(local_value, &mut tail, 0 as c_int) as c_int;
+            if parsed == 0 as c_int
+                && (*__errno_location() != 0 as c_int || tail == local_value as *mut c_char)
+            {
+                // gettext(
+                eprintln!("Unable to read screen number: `{}`.", *value);
+                return -(1 as c_int);
+            } else {
+                (*state).crtc_num_count += 1 as c_int;
+            }
+            local_value = tail;
+            if *local_value as c_int == ',' as i32 {
+                local_value = local_value.offset(1 as c_int as isize);
+            } else if *local_value as c_int == '\0' as i32 {
+                break;
+            }
+        }
+
+        (*state).crtc_num = calloc(
+            (*state).crtc_num_count as usize,
+            ::core::mem::size_of::<c_int>(),
+        ) as *mut c_int;
+        local_value = value;
+        let mut i: c_int = 0 as c_int;
+        while i < (*state).crtc_num_count {
+            *__errno_location() = 0 as c_int;
+            let mut parsed_0: c_int = strtol(local_value, &mut tail, 0 as c_int) as c_int;
+            if parsed_0 == 0 as c_int
+                && (*__errno_location() != 0 as c_int || tail == local_value as *mut c_char)
+            {
+                return -(1 as c_int);
+            } else {
+                *((*state).crtc_num).offset(i as isize) = parsed_0;
+            }
+            local_value = tail;
+            if *local_value as c_int == ',' as i32 {
+                local_value = local_value.offset(1 as c_int as isize);
+            } else if *local_value as c_int == '\0' as i32 {
+                break;
+            }
+            i += 1;
+            i;
+        }
+    } else if strcasecmp(key, b"preserve\0" as *const u8 as *const c_char) == 0 as c_int {
+        // gettext(
+        eprintln!(
+            "Parameter `{}` is now always on;  Use the `{}` command-line option to disable.",
+            *key, "-P",
+        );
+    } else {
+        // gettext(
+        eprintln!("Unknown method parameter: `{}`.", *key);
+        return -(1 as c_int);
+    }
+    return 0 as c_int;
+}
+
+unsafe extern "C" fn randr_set_temperature_for_crtc(
+    mut state: *mut randr_state_t,
+    mut crtc_num: c_int,
+    mut setting: *const color_setting_t,
+    mut preserve: c_int,
+) -> c_int {
+    let mut error: *mut xcb_generic_error_t = 0 as *mut xcb_generic_error_t;
+    if crtc_num as c_uint >= (*state).crtc_count || crtc_num < 0 as c_int {
+        // gettext(
+        eprintln!("CRTC {} does not exist.", crtc_num);
+        if (*state).crtc_count > 1 as c_int as c_uint {
+            // gettext(
+            eprintln!(
+                "Valid CRTCs are [0-{}].",
+                ((*state).crtc_count).wrapping_sub(1 as c_int as c_uint)
+            );
+        } else {
+            // gettext(
+            eprintln!("Only CRTC 0 exists.");
+        }
+        return -(1 as c_int);
+    }
+    let mut crtc = (*((*state).crtcs).offset(crtc_num as isize)).crtc;
+    let mut ramp_size: c_uint = (*((*state).crtcs).offset(crtc_num as isize)).ramp_size;
+    let mut gamma_ramps: *mut u16 = malloc(
+        ((3 as c_int as c_uint).wrapping_mul(ramp_size) as usize)
+            .wrapping_mul(::core::mem::size_of::<u16>()),
+    ) as *mut u16;
+    if gamma_ramps.is_null() {
+        perror(b"malloc\0" as *const u8 as *const c_char);
+        return -(1 as c_int);
+    }
+    let mut gamma_r: *mut u16 = &mut *gamma_ramps
+        .offset((0 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+        as *mut u16;
+    let mut gamma_g: *mut u16 = &mut *gamma_ramps
+        .offset((1 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+        as *mut u16;
+    let mut gamma_b: *mut u16 = &mut *gamma_ramps
+        .offset((2 as c_int as c_uint).wrapping_mul(ramp_size) as isize)
+        as *mut u16;
+    if preserve != 0 {
+        memcpy(
+            gamma_ramps as *mut c_void,
+            (*((*state).crtcs).offset(crtc_num as isize)).saved_ramps as *const c_void,
+            ((3 as c_int as c_uint).wrapping_mul(ramp_size) as usize)
+                .wrapping_mul(::core::mem::size_of::<u16>()),
+        );
+    } else {
+        let mut i: c_int = 0 as c_int;
+        while (i as c_uint) < ramp_size {
+            let mut value: u16 = (i as c_double / ramp_size as c_double
+                * (65535 as c_int + 1 as c_int) as c_double)
+                as u16;
+            *gamma_r.offset(i as isize) = value;
+            *gamma_g.offset(i as isize) = value;
+            *gamma_b.offset(i as isize) = value;
+            i += 1;
+            i;
+        }
+    }
+    colorramp_fill(gamma_r, gamma_g, gamma_b, ramp_size as c_int, setting);
+
+    // TODO: Error handling
+    // let mut gamma_set_cookie: xcb_void_cookie_t = xcb_randr_set_crtc_gamma_checked(
+    //     (*state).conn,
+    //     crtc,
+    //     ramp_size as u16,
+    //     gamma_r,
+    //     gamma_g,
+    //     gamma_b,
+    // );
+    // error = xcb_request_check((*state).conn, gamma_set_cookie);
+    // if !error.is_null() {
+    //     fprintf(
+    //         stderr,
+    //         gettext(b"`%s' returned error %d\n\0" as *const u8 as *const c_char),
+    //         b"RANDR Set CRTC Gamma\0" as *const u8 as *const c_char,
+    //         (*error).error_code as c_int,
+    //     );
+    //     free(gamma_ramps as *mut c_void);
+    //     return -(1 as c_int);
+    // }
+
+    let ramp_size = ramp_size as usize;
+    let red = std::slice::from_raw_parts(gamma_r, ramp_size);
+    let green = std::slice::from_raw_parts(gamma_g, ramp_size);
+    let blue = std::slice::from_raw_parts(gamma_b, ramp_size);
+    let gamma_set_cookie = (*state).conn.send_request_checked(&SetCrtcGamma {
+        crtc,
+        red,
+        green,
+        blue,
+    });
+    // TODO: Error handling
+    (*state).conn.check_request(gamma_set_cookie).unwrap();
+
+    free(gamma_ramps as *mut c_void);
+    return 0 as c_int;
+}
+
+unsafe extern "C" fn randr_set_temperature(
+    mut state: *mut randr_state_t,
+    mut setting: *const color_setting_t,
+    mut preserve: c_int,
+) -> c_int {
+    let mut r: c_int = 0;
+    if (*state).crtc_num_count == 0 as c_int {
+        let mut i: c_int = 0 as c_int;
+        while (i as c_uint) < (*state).crtc_count {
+            r = randr_set_temperature_for_crtc(state, i, setting, preserve);
+            if r < 0 as c_int {
+                return -(1 as c_int);
+            }
+            i += 1;
+            i;
+        }
+    } else {
+        let mut i_0: c_int = 0 as c_int;
+        while i_0 < (*state).crtc_num_count {
+            r = randr_set_temperature_for_crtc(
+                state,
+                *((*state).crtc_num).offset(i_0 as isize),
+                setting,
+                preserve,
+            );
+            if r < 0 as c_int {
+                return -(1 as c_int);
+            }
+            i_0 += 1;
+            i_0;
+        }
+    }
+    return 0 as c_int;
+}
+
+#[no_mangle]
+pub static mut randr_gamma_method: gamma_method_t = unsafe {
+    {
+        let mut init = gamma_method_t {
+            name: b"randr\0" as *const u8 as *const c_char as *mut c_char,
+            autostart: 1 as c_int,
+            init: ::core::mem::transmute::<
+                Option<unsafe extern "C" fn(*mut *mut randr_state_t) -> c_int>,
+                Option<gamma_method_init_func>,
+            >(Some(
+                randr_init as unsafe extern "C" fn(*mut *mut randr_state_t) -> c_int,
+            )),
+            start: ::core::mem::transmute::<
+                Option<unsafe extern "C" fn(*mut randr_state_t) -> c_int>,
+                Option<gamma_method_start_func>,
+            >(Some(
+                randr_start as unsafe extern "C" fn(*mut randr_state_t) -> c_int,
+            )),
+            free: ::core::mem::transmute::<
+                Option<unsafe extern "C" fn(*mut randr_state_t) -> ()>,
+                Option<gamma_method_free_func>,
+            >(Some(
+                randr_free as unsafe extern "C" fn(*mut randr_state_t) -> (),
+            )),
+            print_help: ::core::mem::transmute::<
+                Option<unsafe extern "C" fn(*mut FILE) -> ()>,
+                Option<gamma_method_print_help_func>,
+            >(Some(
+                randr_print_help as unsafe extern "C" fn(*mut FILE) -> (),
+            )),
+            set_option: ::core::mem::transmute::<
+                Option<
+                    unsafe extern "C" fn(*mut randr_state_t, *const c_char, *const c_char) -> c_int,
+                >,
+                Option<gamma_method_set_option_func>,
+            >(Some(
+                randr_set_option
+                    as unsafe extern "C" fn(
+                        *mut randr_state_t,
+                        *const c_char,
+                        *const c_char,
+                    ) -> c_int,
+            )),
+            restore: ::core::mem::transmute::<
+                Option<unsafe extern "C" fn(*mut randr_state_t) -> ()>,
+                Option<gamma_method_restore_func>,
+            >(Some(
+                randr_restore as unsafe extern "C" fn(*mut randr_state_t) -> (),
+            )),
+            set_temperature: ::core::mem::transmute::<
+                Option<
+                    unsafe extern "C" fn(
+                        *mut randr_state_t,
+                        *const color_setting_t,
+                        c_int,
+                    ) -> c_int,
+                >,
+                Option<gamma_method_set_temperature_func>,
+            >(Some(
+                randr_set_temperature
+                    as unsafe extern "C" fn(
+                        *mut randr_state_t,
+                        *const color_setting_t,
+                        c_int,
+                    ) -> c_int,
+            )),
+        };
+        init
+    }
+};

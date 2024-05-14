@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check spelling
+        uses: crate-ci/typos@master
+
+      - name: Lint
+        run: |
+          cargo clippy --profile=ci
+          cargo doc --profile=ci
+
+      - name: Test
+        run: cargo test --profile=ci
