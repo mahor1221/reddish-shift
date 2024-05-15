@@ -19,8 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{ColorSetting, MIN_TEMP};
-use std::ffi::{c_double, c_float, c_int};
+use crate::ColorSetting;
 
 // Whitepoint values for temperatures at 100K intervals.
 // These will be interpolated for the actual temperature.

@@ -33,33 +33,33 @@ pub struct location_manual_state_t {
     pub loc: location_t,
 }
 
-unsafe extern "C" fn location_manual_init(mut state: *mut *mut location_manual_state_t) -> c_int {
+unsafe extern "C" fn location_manual_init(state: *mut *mut location_manual_state_t) -> c_int {
     *state =
         malloc(::core::mem::size_of::<location_manual_state_t>()) as *mut location_manual_state_t;
     if (*state).is_null() {
         return -(1 as c_int);
     }
-    let mut s: *mut location_manual_state_t = *state;
+    let s: *mut location_manual_state_t = *state;
     (*s).loc.lat = ::core::f32::NAN;
     (*s).loc.lon = ::core::f32::NAN;
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn location_manual_start(mut state: *mut location_manual_state_t) -> c_int {
+unsafe extern "C" fn location_manual_start(state: *mut location_manual_state_t) -> c_int {
     // Latitude and longitude must be set
     if ((*state).loc.lat).is_nan() as i32 != 0 || ((*state).loc.lon).is_nan() as i32 != 0 {
         // gettext(
         eprintln!("Latitude and longitude must be set.");
         exit(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn location_manual_free(mut state: *mut location_manual_state_t) {
+unsafe extern "C" fn location_manual_free(state: *mut location_manual_state_t) {
     free(state as *mut c_void);
 }
 
-unsafe extern "C" fn location_manual_print_help(mut f: *mut FILE) {
+unsafe extern "C" fn location_manual_print_help(f: *mut FILE) {
     fputs(
         // gettext(
         b"Specify location manually.\n\0" as *const u8 as *const c_char,
@@ -84,14 +84,14 @@ unsafe extern "C" fn location_manual_print_help(mut f: *mut FILE) {
 }
 
 unsafe extern "C" fn location_manual_set_option(
-    mut state: *mut location_manual_state_t,
-    mut key: *const c_char,
-    mut value: *const c_char,
+    state: *mut location_manual_state_t,
+    key: *const c_char,
+    value: *const c_char,
 ) -> c_int {
     /* Parse float value */
-    let mut end: *mut c_char = 0 as *mut c_char;
+    let mut end: *mut c_char = std::ptr::null_mut::<c_char>();
     *__errno_location() = 0 as c_int;
-    let mut v: c_float = strtof(value, &mut end);
+    let v: c_float = strtof(value, &mut end);
     if *__errno_location() != 0 as c_int || *end as c_int != '\0' as i32 {
         // gettext(
         eprintln!("Malformed argument.");
@@ -106,27 +106,27 @@ unsafe extern "C" fn location_manual_set_option(
         eprintln!("Unknown method parameter: `{}`.", *key);
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn location_manual_get_fd(mut state: *mut location_manual_state_t) -> c_int {
-    return -(1 as c_int);
+unsafe extern "C" fn location_manual_get_fd(state: *mut location_manual_state_t) -> c_int {
+    -(1 as c_int)
 }
 
 unsafe extern "C" fn location_manual_handle(
-    mut state: *mut location_manual_state_t,
-    mut location: *mut location_t,
-    mut available: *mut c_int,
+    state: *mut location_manual_state_t,
+    location: *mut location_t,
+    available: *mut c_int,
 ) -> c_int {
     *location = (*state).loc;
     *available = 1 as c_int;
-    return 0 as c_int;
+    0 as c_int
 }
 
 #[no_mangle]
 pub static mut manual_location_provider: location_provider_t = unsafe {
     {
-        let mut init = location_provider_t {
+        location_provider_t {
             name: b"manual\0" as *const u8 as *const c_char as *mut c_char,
             init: ::core::mem::transmute::<
                 Option<unsafe extern "C" fn(*mut *mut location_manual_state_t) -> c_int>,
@@ -195,7 +195,6 @@ pub static mut manual_location_provider: location_provider_t = unsafe {
                         *mut c_int,
                     ) -> c_int,
             )),
-        };
-        init
+        }
     }
 };

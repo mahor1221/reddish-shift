@@ -22,16 +22,15 @@ use super::config_ini::{
     config_ini_get_section, config_ini_section_t, config_ini_setting_t, config_ini_state_t,
 };
 use crate::{
-    ColorSetting, gamma_method_t, location_provider_t, program_mode_t,
-    solar::SOLAR_CIVIL_TWILIGHT_ELEV, stdout, time_range_t, transition_scheme_t,
-    PROGRAM_MODE_CONTINUAL, PROGRAM_MODE_MANUAL, PROGRAM_MODE_ONE_SHOT, PROGRAM_MODE_PRINT,
-    PROGRAM_MODE_RESET,
+    gamma_method_t, location_provider_t, program_mode_t, solar::SOLAR_CIVIL_TWILIGHT_ELEV, stdout,
+    time_range_t, transition_scheme_t, PROGRAM_MODE_CONTINUAL, PROGRAM_MODE_MANUAL,
+    PROGRAM_MODE_ONE_SHOT, PROGRAM_MODE_PRINT, PROGRAM_MODE_RESET,
 };
 use libc::{
     __errno_location, atof, atoi, exit, free, getopt, memcpy, printf, strcasecmp, strchr, strdup,
-    strtof, strtol, FILE,
+    strtof, strtol,
 };
-use std::ffi::{c_char, c_double, c_float, c_int, c_long, c_uint, c_ulong, c_void, CStr};
+use std::ffi::{c_char, c_float, c_int, c_long, c_void, CStr};
 
 extern "C" {
     static optarg: *mut libc::c_char;
@@ -78,9 +77,9 @@ pub struct options_t {
 }
 
 unsafe extern "C" fn parse_brightness_string(
-    mut str: *const c_char,
-    mut bright_day: *mut c_float,
-    mut bright_night: *mut c_float,
+    str: *const c_char,
+    bright_day: *mut c_float,
+    bright_night: *mut c_float,
 ) {
     let mut s: *mut c_char = strchr(str, ':' as i32);
     if s.is_null() {
@@ -95,20 +94,20 @@ unsafe extern "C" fn parse_brightness_string(
     };
 }
 
-unsafe extern "C" fn parse_gamma_string(mut str: *const c_char, mut gamma: *mut c_float) -> c_int {
+unsafe extern "C" fn parse_gamma_string(str: *const c_char, gamma: *mut c_float) -> c_int {
     let mut s: *mut c_char = strchr(str, ':' as i32);
     if s.is_null() {
-        let mut g: c_float = atof(str) as c_float;
-        let ref mut fresh1 = *gamma.offset(2 as c_int as isize);
+        let g: c_float = atof(str) as c_float;
+        let fresh1 = &mut (*gamma.offset(2 as c_int as isize));
         *fresh1 = g;
-        let ref mut fresh2 = *gamma.offset(1 as c_int as isize);
+        let fresh2 = &mut (*gamma.offset(1 as c_int as isize));
         *fresh2 = *fresh1;
         *gamma.offset(0 as c_int as isize) = *fresh2;
     } else {
         let fresh3 = s;
         s = s.offset(1);
         *fresh3 = '\0' as i32 as c_char;
-        let mut g_s: *mut c_char = s;
+        let g_s: *mut c_char = s;
         s = strchr(s, ':' as i32);
         if s.is_null() {
             return -(1 as c_int);
@@ -120,16 +119,13 @@ unsafe extern "C" fn parse_gamma_string(mut str: *const c_char, mut gamma: *mut 
         *gamma.offset(1 as c_int as isize) = atof(g_s) as c_float;
         *gamma.offset(2 as c_int as isize) = atof(s) as c_float;
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn parse_transition_time(
-    mut str: *const c_char,
-    mut end: *mut *const c_char,
-) -> c_int {
-    let mut min: *const c_char = 0 as *const c_char;
+unsafe extern "C" fn parse_transition_time(str: *const c_char, end: *mut *const c_char) -> c_int {
+    let mut min: *const c_char = std::ptr::null::<c_char>();
     *__errno_location() = 0 as c_int;
-    let mut hours: c_long = strtol(
+    let hours: c_long = strtol(
         str,
         &mut min as *mut *const c_char as *mut *mut c_char,
         10 as c_int,
@@ -144,7 +140,7 @@ unsafe extern "C" fn parse_transition_time(
     }
     min = min.offset(1 as c_int as isize);
     *__errno_location() = 0 as c_int;
-    let mut minutes: c_long = strtol(min, end as *mut *mut c_char, 10 as c_int);
+    let minutes: c_long = strtol(min, end as *mut *mut c_char, 10 as c_int);
     if *__errno_location() != 0 as c_int
         || *end == min
         || minutes < 0 as c_int as c_long
@@ -152,15 +148,12 @@ unsafe extern "C" fn parse_transition_time(
     {
         return -(1 as c_int);
     }
-    return (minutes * 60 as c_int as c_long + hours * 3600 as c_int as c_long) as c_int;
+    (minutes * 60 as c_int as c_long + hours * 3600 as c_int as c_long) as c_int
 }
 
-unsafe extern "C" fn parse_transition_range(
-    mut str: *const c_char,
-    mut range: *mut time_range_t,
-) -> c_int {
-    let mut next: *const c_char = 0 as *const c_char;
-    let mut start_time: c_int = parse_transition_time(str, &mut next);
+unsafe extern "C" fn parse_transition_range(str: *const c_char, range: *mut time_range_t) -> c_int {
+    let mut next: *const c_char = std::ptr::null::<c_char>();
+    let start_time: c_int = parse_transition_time(str, &mut next);
     if start_time < 0 as c_int {
         return -(1 as c_int);
     }
@@ -169,7 +162,7 @@ unsafe extern "C" fn parse_transition_range(
         end_time = start_time;
     } else if *next.offset(0 as c_int as isize) as c_int == '-' as i32 {
         next = next.offset(1 as c_int as isize);
-        let mut end: *const c_char = 0 as *const c_char;
+        let mut end: *const c_char = std::ptr::null::<c_char>();
         end_time = parse_transition_time(next, &mut end);
         if end_time < 0 as c_int || *end.offset(0 as c_int as isize) as c_int != '\0' as i32 {
             return -(1 as c_int);
@@ -179,10 +172,10 @@ unsafe extern "C" fn parse_transition_range(
     }
     (*range).start = start_time;
     (*range).end = end_time;
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn print_help(mut program_name: *const c_char) {
+unsafe extern "C" fn print_help(program_name: *const c_char) {
     // TRANSLATORS: help output
     // LAT is latitude, LON is longitude,
     // DAY is temperature at daytime,
@@ -232,7 +225,7 @@ Please report bugs to <{}>
     );
 }
 
-unsafe extern "C" fn print_method_list(mut gamma_methods: *const gamma_method_t) {
+unsafe extern "C" fn print_method_list(gamma_methods: *const gamma_method_t) {
     // gettext(
     println!("Available adjustment methods:");
 
@@ -253,7 +246,7 @@ Try `-m METHOD:help' for help."
 }
 
 // Print list of location providers.
-unsafe extern "C" fn print_provider_list(mut location_providers: *const location_provider_t) {
+unsafe extern "C" fn print_provider_list(location_providers: *const location_provider_t) {
     // gettext(
     println!("Available location providers:");
 
@@ -276,14 +269,13 @@ Try `-l PROVIDER:help' for help.
 
 // Return the gamma method with the given name.
 unsafe extern "C" fn find_gamma_method(
-    mut gamma_methods: *const gamma_method_t,
-    mut name: *const c_char,
+    gamma_methods: *const gamma_method_t,
+    name: *const c_char,
 ) -> *const gamma_method_t {
-    let mut method: *const gamma_method_t = 0 as *const gamma_method_t;
+    let mut method: *const gamma_method_t = std::ptr::null::<gamma_method_t>();
     let mut i: c_int = 0 as c_int;
     while !((*gamma_methods.offset(i as isize)).name).is_null() {
-        let mut m: *const gamma_method_t =
-            &*gamma_methods.offset(i as isize) as *const gamma_method_t;
+        let m: *const gamma_method_t = &*gamma_methods.offset(i as isize) as *const gamma_method_t;
         if strcasecmp(name, (*m).name) == 0 as c_int {
             method = m;
             break;
@@ -292,18 +284,18 @@ unsafe extern "C" fn find_gamma_method(
             i;
         }
     }
-    return method;
+    method
 }
 
 // Return location provider with the given name.
 unsafe extern "C" fn find_location_provider(
-    mut location_providers: *const location_provider_t,
-    mut name: *const c_char,
+    location_providers: *const location_provider_t,
+    name: *const c_char,
 ) -> *const location_provider_t {
-    let mut provider: *const location_provider_t = 0 as *const location_provider_t;
+    let mut provider: *const location_provider_t = std::ptr::null::<location_provider_t>();
     let mut i: c_int = 0 as c_int;
     while !((*location_providers.offset(i as isize)).name).is_null() {
-        let mut p: *const location_provider_t =
+        let p: *const location_provider_t =
             &*location_providers.offset(i as isize) as *const location_provider_t;
         if strcasecmp(name, (*p).name) == 0 as c_int {
             provider = p;
@@ -313,13 +305,13 @@ unsafe extern "C" fn find_location_provider(
             i;
         }
     }
-    return provider;
+    provider
 }
 
 // Initialize options struct.
 #[no_mangle]
-pub unsafe extern "C" fn options_init(mut options: *mut options_t) {
-    (*options).config_filepath = 0 as *mut c_char;
+pub unsafe extern "C" fn options_init(options: *mut options_t) {
+    (*options).config_filepath = std::ptr::null_mut::<c_char>();
 
     // Default elevation values.
     (*options).scheme.high = TRANSITION_HIGH;
@@ -344,11 +336,11 @@ pub unsafe extern "C" fn options_init(mut options: *mut options_t) {
     // Temperature for manual mode
     (*options).temp_set = -(1 as c_int);
 
-    (*options).method = 0 as *const gamma_method_t;
-    (*options).method_args = 0 as *mut c_char;
+    (*options).method = std::ptr::null::<gamma_method_t>();
+    (*options).method_args = std::ptr::null_mut::<c_char>();
 
-    (*options).provider = 0 as *const location_provider_t;
-    (*options).provider_args = 0 as *mut c_char;
+    (*options).provider = std::ptr::null::<location_provider_t>();
+    (*options).provider_args = std::ptr::null_mut::<c_char>();
 
     (*options).use_fade = -(1 as c_int);
     (*options).preserve_gamma = 1 as c_int;
@@ -359,16 +351,16 @@ pub unsafe extern "C" fn options_init(mut options: *mut options_t) {
 // Parse a single option from the command-line.
 unsafe extern "C" fn parse_command_line_option(
     option: c_char,
-    mut value: *mut c_char,
-    mut options: *mut options_t,
-    mut program_name: *const c_char,
-    mut gamma_methods: *const gamma_method_t,
-    mut location_providers: *const location_provider_t,
+    value: *mut c_char,
+    options: *mut options_t,
+    program_name: *const c_char,
+    gamma_methods: *const gamma_method_t,
+    location_providers: *const location_provider_t,
 ) -> c_int {
     let mut r: c_int = 0;
-    let mut s: *mut c_char = 0 as *mut c_char;
-    let mut provider_name: *mut c_char = 0 as *mut c_char;
-    let mut end: *mut c_char = 0 as *mut c_char;
+    let mut s: *mut c_char = std::ptr::null_mut::<c_char>();
+    let mut provider_name: *mut c_char = std::ptr::null_mut::<c_char>();
+    let mut end: *mut c_char = std::ptr::null_mut::<c_char>();
     match option as c_int {
         98 => {
             parse_brightness_string(
@@ -407,12 +399,12 @@ unsafe extern "C" fn parse_command_line_option(
                 print_provider_list(location_providers);
                 exit(0 as c_int);
             }
-            provider_name = 0 as *mut c_char;
+            provider_name = std::ptr::null_mut::<c_char>();
 
             // Don't save the result of strtof(); we simply want
             // to know if value can be parsed as a float.
             *__errno_location() = 0 as c_int;
-            end = 0 as *mut c_char;
+            end = std::ptr::null_mut::<c_char>();
             strtof(value, &mut end);
             if *__errno_location() == 0 as c_int && *end as c_int == ':' as i32 {
                 // Use instead as arguments to `manual'.
@@ -533,19 +525,19 @@ unsafe extern "C" fn parse_command_line_option(
         }
         _ => {}
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 // Parse command line arguments.
 #[no_mangle]
 pub unsafe extern "C" fn options_parse_args(
-    mut options: *mut options_t,
-    mut argc: c_int,
-    mut argv: *mut *mut c_char,
-    mut gamma_methods: *const gamma_method_t,
-    mut location_providers: *const location_provider_t,
+    options: *mut options_t,
+    argc: c_int,
+    argv: *mut *mut c_char,
+    gamma_methods: *const gamma_method_t,
+    location_providers: *const location_provider_t,
 ) {
-    let mut program_name: *const c_char = *argv.offset(0 as c_int as isize);
+    let program_name: *const c_char = *argv.offset(0 as c_int as isize);
     let mut opt: c_int = 0;
     loop {
         opt = getopt(
@@ -553,11 +545,11 @@ pub unsafe extern "C" fn options_parse_args(
             argv as *const *mut c_char,
             b"b:c:g:hl:m:oO:pPrt:vVx\0" as *const u8 as *const c_char,
         );
-        if !(opt != -(1 as c_int)) {
+        if opt == -(1 as c_int) {
             break;
         }
-        let mut option: c_char = opt as c_char;
-        let mut r: c_int = parse_command_line_option(
+        let option: c_char = opt as c_char;
+        let r: c_int = parse_command_line_option(
             option,
             optarg,
             options,
@@ -573,11 +565,11 @@ pub unsafe extern "C" fn options_parse_args(
 
 // Parse a single key-value pair from the configuration file.
 unsafe extern "C" fn parse_config_file_option(
-    mut key: *const c_char,
-    mut value: *const c_char,
-    mut options: *mut options_t,
-    mut gamma_methods: *const gamma_method_t,
-    mut location_providers: *const location_provider_t,
+    key: *const c_char,
+    value: *const c_char,
+    options: *mut options_t,
+    gamma_methods: *const gamma_method_t,
+    location_providers: *const location_provider_t,
 ) -> c_int {
     if strcasecmp(key, b"temp-day\0" as *const u8 as *const c_char) == 0 as c_int {
         if (*options).scheme.day.temperature < 0 as c_int {
@@ -616,8 +608,7 @@ unsafe extern "C" fn parse_config_file_option(
         (*options).scheme.low = atof(value);
     } else if strcasecmp(key, b"gamma\0" as *const u8 as *const c_char) == 0 as c_int {
         if ((*options).scheme.day.gamma[0 as c_int as usize]).is_nan() as i32 != 0 {
-            let mut r: c_int =
-                parse_gamma_string(value, ((*options).scheme.day.gamma).as_mut_ptr());
+            let r: c_int = parse_gamma_string(value, ((*options).scheme.day.gamma).as_mut_ptr());
             if r < 0 as c_int {
                 eprintln!("Malformed gamma setting.");
                 return -(1 as c_int);
@@ -630,8 +621,7 @@ unsafe extern "C" fn parse_config_file_option(
         }
     } else if strcasecmp(key, b"gamma-day\0" as *const u8 as *const c_char) == 0 as c_int {
         if ((*options).scheme.day.gamma[0 as c_int as usize]).is_nan() as i32 != 0 {
-            let mut r_0: c_int =
-                parse_gamma_string(value, ((*options).scheme.day.gamma).as_mut_ptr());
+            let r_0: c_int = parse_gamma_string(value, ((*options).scheme.day.gamma).as_mut_ptr());
             if r_0 < 0 as c_int {
                 eprintln!("Malformed gamma setting.");
                 return -(1 as c_int);
@@ -639,7 +629,7 @@ unsafe extern "C" fn parse_config_file_option(
         }
     } else if strcasecmp(key, b"gamma-night\0" as *const u8 as *const c_char) == 0 as c_int {
         if ((*options).scheme.night.gamma[0 as c_int as usize]).is_nan() as i32 != 0 {
-            let mut r_1: c_int =
+            let r_1: c_int =
                 parse_gamma_string(value, ((*options).scheme.night.gamma).as_mut_ptr());
             if r_1 < 0 as c_int {
                 eprintln!("Malformed gamma setting.");
@@ -670,7 +660,7 @@ unsafe extern "C" fn parse_config_file_option(
         }
     } else if strcasecmp(key, b"dawn-time\0" as *const u8 as *const c_char) == 0 as c_int {
         if (*options).scheme.dawn.start < 0 as c_int {
-            let mut r_2: c_int = parse_transition_range(value, &mut (*options).scheme.dawn);
+            let r_2: c_int = parse_transition_range(value, &mut (*options).scheme.dawn);
             if r_2 < 0 as c_int {
                 eprintln!(
                     "Malformed dawn-time setting `{}`.",
@@ -681,7 +671,7 @@ unsafe extern "C" fn parse_config_file_option(
         }
     } else if strcasecmp(key, b"dusk-time\0" as *const u8 as *const c_char) == 0 as c_int {
         if (*options).scheme.dusk.start < 0 as c_int {
-            let mut r_3: c_int = parse_transition_range(value, &mut (*options).scheme.dusk);
+            let r_3: c_int = parse_transition_range(value, &mut (*options).scheme.dusk);
             if r_3 < 0 as c_int {
                 eprintln!(
                     "Malformed dusk-time setting `{}`.",
@@ -696,26 +686,26 @@ unsafe extern "C" fn parse_config_file_option(
             CStr::from_ptr(key).to_str().unwrap(),
         );
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 // Parse options defined in the config file.
 #[no_mangle]
 pub unsafe extern "C" fn options_parse_config_file(
-    mut options: *mut options_t,
-    mut config_state: *mut config_ini_state_t,
-    mut gamma_methods: *const gamma_method_t,
-    mut location_providers: *const location_provider_t,
+    options: *mut options_t,
+    config_state: *mut config_ini_state_t,
+    gamma_methods: *const gamma_method_t,
+    location_providers: *const location_provider_t,
 ) {
     // Read global config settings.
-    let mut section: *mut config_ini_section_t =
+    let section: *mut config_ini_section_t =
         config_ini_get_section(config_state, b"redshift\0" as *const u8 as *const c_char);
     if section.is_null() {
         return;
     }
     let mut setting: *mut config_ini_setting_t = (*section).settings;
     while !setting.is_null() {
-        let mut r: c_int = parse_config_file_option(
+        let r: c_int = parse_config_file_option(
             (*setting).name,
             (*setting).value,
             options,
@@ -731,7 +721,7 @@ pub unsafe extern "C" fn options_parse_config_file(
 
 // Replace unspecified options with default values.
 #[no_mangle]
-pub unsafe extern "C" fn options_set_defaults(mut options: *mut options_t) {
+pub unsafe extern "C" fn options_set_defaults(options: *mut options_t) {
     if (*options).scheme.day.temperature < 0 as c_int {
         (*options).scheme.day.temperature = 6500 as c_int;
     }

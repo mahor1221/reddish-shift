@@ -19,31 +19,31 @@
 */
 
 use crate::{
-    ColorSetting, gamma_method_free_func, gamma_method_init_func, gamma_method_print_help_func,
+    gamma_method_free_func, gamma_method_init_func, gamma_method_print_help_func,
     gamma_method_restore_func, gamma_method_set_option_func, gamma_method_set_temperature_func,
-    gamma_method_start_func, gamma_method_t,
+    gamma_method_start_func, gamma_method_t, ColorSetting,
 };
 use libc::{fputs, FILE};
 use std::ffi::{c_char, c_int, c_void};
 
-unsafe extern "C" fn gamma_dummy_init(mut state: *mut *mut c_void) -> c_int {
-    *state = 0 as *mut c_void;
-    return 0 as c_int;
+unsafe extern "C" fn gamma_dummy_init(state: *mut *mut c_void) -> c_int {
+    *state = std::ptr::null_mut::<c_void>();
+    0 as c_int
 }
 
-unsafe extern "C" fn gamma_dummy_start(mut state: *mut c_void) -> c_int {
+unsafe extern "C" fn gamma_dummy_start(state: *mut c_void) -> c_int {
     // gettext(
     eprintln!(
         "WARNING: Using dummy gamma method! Display will not be affected by this gamma method."
     );
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn gamma_dummy_restore(mut state: *mut c_void) {}
+unsafe extern "C" fn gamma_dummy_restore(state: *mut c_void) {}
 
-unsafe extern "C" fn gamma_dummy_free(mut state: *mut c_void) {}
+unsafe extern "C" fn gamma_dummy_free(state: *mut c_void) {}
 
-unsafe extern "C" fn gamma_dummy_print_help(mut f: *mut FILE) {
+unsafe extern "C" fn gamma_dummy_print_help(f: *mut FILE) {
     fputs(
         // gettext(
         b"Does not affect the display but prints the color temperature to the terminal.\n\0"
@@ -55,29 +55,29 @@ unsafe extern "C" fn gamma_dummy_print_help(mut f: *mut FILE) {
 }
 
 unsafe extern "C" fn gamma_dummy_set_option(
-    mut state: *mut c_void,
-    mut key: *const c_char,
-    mut value: *const c_char,
+    state: *mut c_void,
+    key: *const c_char,
+    value: *const c_char,
 ) -> c_int {
     // gettext(
     eprintln!("Unknown method parameter: `{}`", *key);
-    return -(1 as c_int);
+    -(1 as c_int)
 }
 
 unsafe extern "C" fn gamma_dummy_set_temperature(
-    mut state: *mut c_void,
-    mut setting: *const ColorSetting,
-    mut preserve: c_int,
+    state: *mut c_void,
+    setting: *const ColorSetting,
+    preserve: c_int,
 ) -> c_int {
     // gettext(
     println!("Temperature: {}", (*setting).temperature);
-    return 0 as c_int;
+    0 as c_int
 }
 
 #[no_mangle]
 pub static mut dummy_gamma_method: gamma_method_t = unsafe {
     {
-        let mut init = gamma_method_t {
+        gamma_method_t {
             name: b"dummy\0" as *const u8 as *const c_char as *mut c_char,
             autostart: 0 as c_int,
             init: ::core::mem::transmute::<
@@ -124,7 +124,6 @@ pub static mut dummy_gamma_method: gamma_method_t = unsafe {
                 gamma_dummy_set_temperature
                     as unsafe extern "C" fn(*mut c_void, *const ColorSetting, c_int) -> c_int,
             )),
-        };
-        init
+        }
     }
 };

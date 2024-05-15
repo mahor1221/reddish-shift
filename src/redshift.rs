@@ -233,39 +233,39 @@ pub struct location_provider_t {
 
 // Determine which period we are currently in based on time offset.
 unsafe extern "C" fn get_period_from_time(
-    mut transition: *const transition_scheme_t,
-    mut time_offset: c_int,
+    transition: *const transition_scheme_t,
+    time_offset: c_int,
 ) -> period_t {
     if time_offset < (*transition).dawn.start || time_offset >= (*transition).dusk.end {
-        return PERIOD_NIGHT;
+        PERIOD_NIGHT
     } else if time_offset >= (*transition).dawn.end && time_offset < (*transition).dusk.start {
         return PERIOD_DAYTIME;
     } else {
         return PERIOD_TRANSITION;
-    };
+    }
 }
 
 // Determine which period we are currently in based on solar elevation.
 unsafe extern "C" fn get_period_from_elevation(
-    mut transition: *const transition_scheme_t,
-    mut elevation: c_double,
+    transition: *const transition_scheme_t,
+    elevation: c_double,
 ) -> period_t {
     if elevation < (*transition).low {
-        return PERIOD_NIGHT;
+        PERIOD_NIGHT
     } else if elevation < (*transition).high {
         return PERIOD_TRANSITION;
     } else {
         return PERIOD_DAYTIME;
-    };
+    }
 }
 
 // Determine how far through the transition we are based on time offset.
 unsafe extern "C" fn get_transition_progress_from_time(
-    mut transition: *const transition_scheme_t,
-    mut time_offset: c_int,
+    transition: *const transition_scheme_t,
+    time_offset: c_int,
 ) -> c_double {
     if time_offset < (*transition).dawn.start || time_offset >= (*transition).dusk.end {
-        return 0.0f64;
+        0.0f64
     } else if time_offset < (*transition).dawn.end {
         return ((*transition).dawn.start - time_offset) as c_double
             / ((*transition).dawn.start - (*transition).dawn.end) as c_double;
@@ -274,25 +274,25 @@ unsafe extern "C" fn get_transition_progress_from_time(
             / ((*transition).dusk.end - (*transition).dusk.start) as c_double;
     } else {
         return 1.0f64;
-    };
+    }
 }
 
 // Determine how far through the transition we are based on elevation.
 unsafe extern "C" fn get_transition_progress_from_elevation(
-    mut transition: *const transition_scheme_t,
-    mut elevation: c_double,
+    transition: *const transition_scheme_t,
+    elevation: c_double,
 ) -> c_double {
     if elevation < (*transition).low {
-        return 0.0f64;
+        0.0f64
     } else if elevation < (*transition).high {
         return ((*transition).low - elevation) / ((*transition).low - (*transition).high);
     } else {
         return 1.0f64;
-    };
+    }
 }
 
 // Return number of seconds since midnight from timestamp.
-unsafe extern "C" fn get_seconds_since_midnight(mut timestamp: c_double) -> c_int {
+unsafe extern "C" fn get_seconds_since_midnight(timestamp: c_double) -> c_int {
     let mut t: time_t = timestamp as time_t;
     let mut tm: tm = tm {
         tm_sec: 0,
@@ -305,16 +305,16 @@ unsafe extern "C" fn get_seconds_since_midnight(mut timestamp: c_double) -> c_in
         tm_yday: 0,
         tm_isdst: 0,
         tm_gmtoff: 0,
-        tm_zone: 0 as *const c_char,
+        tm_zone: std::ptr::null::<c_char>(),
     };
     localtime_r(&mut t, &mut tm);
-    return tm.tm_sec + tm.tm_min * 60 as c_int + tm.tm_hour * 3600 as c_int;
+    tm.tm_sec + tm.tm_min * 60 as c_int + tm.tm_hour * 3600 as c_int
 }
 
 // Print verbose description of the given period.
-unsafe extern "C" fn print_period(mut period: period_t, mut transition: c_double) {
+unsafe extern "C" fn print_period(period: period_t, transition: c_double) {
     match period as c_uint {
-        0 | 2 | 1 => {
+        0..=2 => {
             printf(
                 // gettext(
                 b"Period: %s\n\0" as *const u8 as *const c_char,
@@ -340,16 +340,16 @@ unsafe extern "C" fn print_period(mut period: period_t, mut transition: c_double
 }
 
 // Print location
-unsafe extern "C" fn print_location(mut location: *const location_t) {
+unsafe extern "C" fn print_location(location: *const location_t) {
     // gettext(
     // TRANSLATORS: Abbreviation for `north'
-    let mut north: *const c_char = b"N\0" as *const u8 as *const c_char;
+    let north: *const c_char = b"N\0" as *const u8 as *const c_char;
     // TRANSLATORS: Abbreviation for `south'
-    let mut south: *const c_char = b"S\0" as *const u8 as *const c_char;
+    let south: *const c_char = b"S\0" as *const u8 as *const c_char;
     // TRANSLATORS: Abbreviation for `east'
-    let mut east: *const c_char = b"E\0" as *const u8 as *const c_char;
+    let east: *const c_char = b"E\0" as *const u8 as *const c_char;
     // TRANSLATORS: Abbreviation for `west'
-    let mut west: *const c_char = b"W\0" as *const u8 as *const c_char;
+    let west: *const c_char = b"W\0" as *const u8 as *const c_char;
 
     // TRANSLATORS: Append degree symbols after %f if possible.
     // The string following each number is an abbreviation for
@@ -374,10 +374,10 @@ unsafe extern "C" fn print_location(mut location: *const location_t) {
 
 // Interpolate color setting structs given alpha.
 unsafe extern "C" fn interpolate_color_settings(
-    mut first: *const ColorSetting,
-    mut second: *const ColorSetting,
+    first: *const ColorSetting,
+    second: *const ColorSetting,
     mut alpha: c_double,
-    mut result: *mut ColorSetting,
+    result: *mut ColorSetting,
 ) {
     alpha = if 0.0f64 > alpha {
         0.0f64
@@ -402,12 +402,12 @@ unsafe extern "C" fn interpolate_color_settings(
 
 // Interpolate color setting structs transition scheme.
 unsafe extern "C" fn interpolate_transition_scheme(
-    mut transition: *const transition_scheme_t,
+    transition: *const transition_scheme_t,
     mut alpha: c_double,
-    mut result: *mut ColorSetting,
+    result: *mut ColorSetting,
 ) {
-    let mut day: *const ColorSetting = &(*transition).day;
-    let mut night: *const ColorSetting = &(*transition).night;
+    let day: *const ColorSetting = &(*transition).day;
+    let night: *const ColorSetting = &(*transition).night;
     alpha = if 0.0f64 > alpha {
         0.0f64
     } else if alpha < 1.0f64 {
@@ -421,10 +421,10 @@ unsafe extern "C" fn interpolate_transition_scheme(
 // Return 1 if color settings have major differences, otherwise 0.
 // Used to determine if a fade should be applied in continual mode.
 unsafe extern "C" fn color_setting_diff_is_major(
-    mut first: *const ColorSetting,
-    mut second: *const ColorSetting,
+    first: *const ColorSetting,
+    second: *const ColorSetting,
 ) -> c_int {
-    return (((*first).temperature - (*second).temperature).abs() > 25 as c_int
+    (((*first).temperature - (*second).temperature).abs() > 25 as c_int
         || ((*first).brightness - (*second).brightness).abs() as c_double > 0.1f64
         || ((*first).gamma[0 as c_int as usize] - (*second).gamma[0 as c_int as usize]).abs()
             as c_double
@@ -434,11 +434,11 @@ unsafe extern "C" fn color_setting_diff_is_major(
             > 0.1f64
         || ((*first).gamma[2 as c_int as usize] - (*second).gamma[2 as c_int as usize]).abs()
             as c_double
-            > 0.1f64) as c_int;
+            > 0.1f64) as c_int
 }
 
 // Reset color setting to default values.
-unsafe extern "C" fn color_setting_reset(mut color: *mut ColorSetting) {
+unsafe extern "C" fn color_setting_reset(color: *mut ColorSetting) {
     (*color).temperature = 6500 as c_int;
     (*color).gamma[0 as c_int as usize] = 1.0f64 as c_float;
     (*color).gamma[1 as c_int as usize] = 1.0f64 as c_float;
@@ -447,9 +447,9 @@ unsafe extern "C" fn color_setting_reset(mut color: *mut ColorSetting) {
 }
 
 unsafe extern "C" fn provider_try_start(
-    mut provider: *const location_provider_t,
-    mut state: *mut *mut location_state_t,
-    mut config: *mut config_ini_state_t,
+    provider: *const location_provider_t,
+    state: *mut *mut location_state_t,
+    config: *mut config_ini_state_t,
     mut args: *mut c_char,
 ) -> c_int {
     let mut r: c_int = 0;
@@ -462,7 +462,7 @@ unsafe extern "C" fn provider_try_start(
         return -(1 as c_int);
     }
     // Set provider options from config file.
-    let mut section: *mut config_ini_section_t = config_ini_get_section(config, (*provider).name);
+    let section: *mut config_ini_section_t = config_ini_get_section(config, (*provider).name);
     if !section.is_null() {
         let mut setting: *mut config_ini_setting_t = (*section).settings;
         while !setting.is_null() {
@@ -490,7 +490,7 @@ unsafe extern "C" fn provider_try_start(
     }
 
     // Set provider options from command line.
-    let mut manual_keys: [*const c_char; 2] = [
+    let manual_keys: [*const c_char; 2] = [
         b"lat\0" as *const u8 as *const c_char,
         b"lon\0" as *const u8 as *const c_char,
     ];
@@ -557,13 +557,13 @@ unsafe extern "C" fn provider_try_start(
         );
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 unsafe extern "C" fn method_try_start(
-    mut method: *const gamma_method_t,
-    mut state: *mut *mut gamma_state_t,
-    mut config: *mut config_ini_state_t,
+    method: *const gamma_method_t,
+    state: *mut *mut gamma_state_t,
+    config: *mut config_ini_state_t,
     mut args: *mut c_char,
 ) -> c_int {
     let mut r: c_int = 0;
@@ -577,7 +577,7 @@ unsafe extern "C" fn method_try_start(
     }
 
     // Set method options from config file.
-    let mut section: *mut config_ini_section_t = config_ini_get_section(config, (*method).name);
+    let section: *mut config_ini_section_t = config_ini_get_section(config, (*method).name);
     if !section.is_null() {
         let mut setting: *mut config_ini_setting_t = (*section).settings;
         while !setting.is_null() {
@@ -612,7 +612,7 @@ unsafe extern "C" fn method_try_start(
             next_arg = next_arg.offset(1);
             *fresh2 = '\0' as i32 as c_char;
         }
-        let mut key: *const c_char = args;
+        let key: *const c_char = args;
         let mut value: *mut c_char = strchr(args, '=' as i32);
         if value.is_null() {
             eprintln!(
@@ -651,23 +651,23 @@ unsafe extern "C" fn method_try_start(
         );
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 // Check whether gamma is within allowed levels.
-unsafe extern "C" fn gamma_is_valid(mut gamma: *const c_float) -> c_int {
-    return !((*gamma.offset(0 as c_int as isize) as c_double) < 0.1f64
+unsafe extern "C" fn gamma_is_valid(gamma: *const c_float) -> c_int {
+    !((*gamma.offset(0 as c_int as isize) as c_double) < 0.1f64
         || *gamma.offset(0 as c_int as isize) as c_double > 10.0f64
         || (*gamma.offset(1 as c_int as isize) as c_double) < 0.1f64
         || *gamma.offset(1 as c_int as isize) as c_double > 10.0f64
         || (*gamma.offset(2 as c_int as isize) as c_double) < 0.1f64
-        || *gamma.offset(2 as c_int as isize) as c_double > 10.0f64) as c_int;
+        || *gamma.offset(2 as c_int as isize) as c_double > 10.0f64) as c_int
 }
 
 // Check whether location is valid.
 // Prints error message on stderr and returns 0 if invalid, otherwise
 // returns 1.
-unsafe extern "C" fn location_is_valid(mut location: *const location_t) -> c_int {
+unsafe extern "C" fn location_is_valid(location: *const location_t) -> c_int {
     // Latitude
     if ((*location).lat as c_double) < MIN_LAT || (*location).lat as c_double > MAX_LAT {
         // TRANSLATORS: Append degree symbols if possible.
@@ -687,7 +687,7 @@ unsafe extern "C" fn location_is_valid(mut location: *const location_t) -> c_int
         );
         return 0 as c_int;
     }
-    return 1 as c_int;
+    1 as c_int
 }
 
 // Wait for location to become available from provider.
@@ -695,10 +695,10 @@ unsafe extern "C" fn location_is_valid(mut location: *const location_t) -> c_int
 // is -1. Writes location to loc. Returns -1 on error,
 // 0 if timeout was reached, 1 if location became available.
 unsafe extern "C" fn provider_get_location(
-    mut provider: *const location_provider_t,
-    mut state: *mut location_state_t,
+    provider: *const location_provider_t,
+    state: *mut location_state_t,
     mut timeout: c_int,
-    mut loc: *mut location_t,
+    loc: *mut location_t,
 ) -> c_int {
     let mut available: c_int = 0 as c_int;
     let mut pollfds: [pollfd; 1] = [pollfd {
@@ -707,7 +707,7 @@ unsafe extern "C" fn provider_get_location(
         revents: 0,
     }; 1];
     while available == 0 {
-        let mut loc_fd: c_int = ((*provider).get_fd).expect("non-null function pointer")(state);
+        let loc_fd: c_int = ((*provider).get_fd).expect("non-null function pointer")(state);
         if loc_fd >= 0 as c_int {
             // Provider is dynamic.
             // TODO: This should use a monotonic time source.
@@ -746,26 +746,26 @@ unsafe extern "C" fn provider_get_location(
                 };
             }
         }
-        let mut r_0: c_int =
+        let r_0: c_int =
             ((*provider).handle).expect("non-null function pointer")(state, loc, &mut available);
         if r_0 < 0 as c_int {
             return -(1 as c_int);
         }
     }
-    return 1 as c_int;
+    1 as c_int
 }
 
 // Easing function for fade.
 // See https://github.com/mietek/ease-tween
-unsafe extern "C" fn ease_fade(mut t: c_double) -> c_double {
+unsafe extern "C" fn ease_fade(t: c_double) -> c_double {
     if t <= 0 as c_int as c_double {
         return 0 as c_int as c_double;
     }
     if t >= 1 as c_int as c_double {
         return 1 as c_int as c_double;
     }
-    return 1.0042954579734844f64
-        * (-6.4041738958415664f64 * (-7.2908241330981340f64 * t).exp()).exp();
+    1.0042954579734844f64
+        * (-6.404_173_895_841_566_f64 * (-7.290_824_133_098_134_f64 * t).exp()).exp()
 }
 
 // Run continual mode loop
@@ -773,14 +773,14 @@ unsafe extern "C" fn ease_fade(mut t: c_double) -> c_double {
 // current time and continuously updates the screen to the appropriate
 // color temperature.
 unsafe extern "C" fn run_continual_mode(
-    mut provider: *const location_provider_t,
-    mut location_state: *mut location_state_t,
-    mut scheme: *const transition_scheme_t,
-    mut method: *const gamma_method_t,
-    mut method_state: *mut gamma_state_t,
-    mut use_fade: c_int,
-    mut preserve_gamma: c_int,
-    mut verbose: c_int,
+    provider: *const location_provider_t,
+    location_state: *mut location_state_t,
+    scheme: *const transition_scheme_t,
+    method: *const gamma_method_t,
+    method_state: *mut gamma_state_t,
+    use_fade: c_int,
+    preserve_gamma: c_int,
+    verbose: c_int,
 ) -> c_int {
     let mut r: c_int = 0;
 
@@ -816,14 +816,13 @@ unsafe extern "C" fn run_continual_mode(
     };
     color_setting_reset(&mut interp);
     let mut loc: location_t = {
-        let mut init = location_t {
+        location_t {
             lat: ::core::f32::NAN,
             lon: ::core::f32::NAN,
-        };
-        init
+        }
     };
 
-    let mut need_location: c_int = ((*scheme).use_time == 0) as c_int;
+    let need_location: c_int = ((*scheme).use_time == 0) as c_int;
     if need_location != 0 {
         eprintln!("Waiting for initial location to become available...");
 
@@ -903,12 +902,12 @@ unsafe extern "C" fn run_continual_mode(
         let mut period: period_t = PERIOD_NONE;
         let mut transition_prog: c_double = 0.;
         if (*scheme).use_time != 0 {
-            let mut time_offset: c_int = get_seconds_since_midnight(now);
+            let time_offset: c_int = get_seconds_since_midnight(now);
             period = get_period_from_time(scheme, time_offset);
             transition_prog = get_transition_progress_from_time(scheme, time_offset);
         } else {
             // Current angular elevation of the sun
-            let mut elevation: c_double =
+            let elevation: c_double =
                 solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
             period = get_period_from_elevation(scheme, elevation);
             transition_prog = get_transition_progress_from_elevation(scheme, elevation);
@@ -963,8 +962,8 @@ unsafe extern "C" fn run_continual_mode(
         // Handle ongoing fade
         if fade_length != 0 as c_int {
             fade_time += 1 as c_int;
-            let mut frac: c_double = fade_time as c_double / fade_length as c_double;
-            let mut alpha: c_double = if 0.0f64 > ease_fade(frac) {
+            let frac: c_double = fade_time as c_double / fade_length as c_double;
+            let alpha: c_double = if 0.0f64 > ease_fade(frac) {
                 0.0f64
             } else if ease_fade(frac) < 1.0f64 {
                 ease_fade(frac)
@@ -1095,10 +1094,10 @@ unsafe extern "C" fn run_continual_mode(
 
     // Restore saved gamma ramps
     ((*method).restore).expect("non-null function pointer")(method_state);
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
+unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
     let mut r: c_int = 0;
     // Init locale
     setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
@@ -1118,8 +1117,8 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
         vidmode_gamma_method,
         dummy_gamma_method,
         {
-            let mut init = gamma_method_t {
-                name: 0 as *mut c_char,
+            gamma_method_t {
+                name: std::ptr::null_mut::<c_char>(),
                 autostart: 0,
                 init: None,
                 start: None,
@@ -1128,16 +1127,15 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
                 set_option: None,
                 restore: None,
                 set_temperature: None,
-            };
-            init
+            }
         },
     ];
 
     // List of location providers.
     let location_providers: [location_provider_t; 3] =
         [geoclue2_location_provider, manual_location_provider, {
-            let mut init = location_provider_t {
-                name: 0 as *mut c_char,
+            location_provider_t {
+                name: std::ptr::null_mut::<c_char>(),
                 init: None,
                 start: None,
                 free: None,
@@ -1145,18 +1143,17 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
                 set_option: None,
                 get_fd: None,
                 handle: None,
-            };
-            init
+            }
         }];
 
     // Flush messages consistently even if redirected to a pipe or
     // file.  Change the flush behaviour to line-buffered, without
     // changing the actual buffers being used.
-    setvbuf(stdout, 0 as *mut c_char, 1 as c_int, 0);
-    setvbuf(stderr, 0 as *mut c_char, 1 as c_int, 0);
+    setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
+    setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
 
     let mut options: options_t = options_t {
-        config_filepath: 0 as *mut c_char,
+        config_filepath: std::ptr::null_mut::<c_char>(),
         scheme: transition_scheme_t {
             high: 0.,
             low: 0.,
@@ -1179,10 +1176,10 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
         temp_set: 0,
         use_fade: 0,
         preserve_gamma: 0,
-        method: 0 as *const gamma_method_t,
-        method_args: 0 as *mut c_char,
-        provider: 0 as *const location_provider_t,
-        provider_args: 0 as *mut c_char,
+        method: std::ptr::null::<gamma_method_t>(),
+        method_args: std::ptr::null_mut::<c_char>(),
+        provider: std::ptr::null::<location_provider_t>(),
+        provider_args: std::ptr::null_mut::<c_char>(),
     };
     options_init(&mut options);
     options_parse_args(
@@ -1195,7 +1192,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
 
     // Load settings from config file.
     let mut config_state: config_ini_state_t = config_ini_state_t {
-        sections: 0 as *mut config_ini_section_t,
+        sections: std::ptr::null_mut::<config_ini_section_t>(),
     };
     r = config_ini_init(&mut config_state, options.config_filepath);
     if r < 0 as c_int {
@@ -1235,10 +1232,10 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
 
     // Initialize location provider if needed. If provider is NULL
     // try all providers until one that works is found.
-    let mut location_state: *mut location_state_t = 0 as *mut location_state_t;
+    let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
 
     // Location is not needed for reset mode and manual mode.
-    let mut need_location: c_int = (options.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
+    let need_location: c_int = (options.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
         && options.mode as c_uint != PROGRAM_MODE_MANUAL as c_int as c_uint
         && options.scheme.use_time == 0) as c_int;
     if need_location != 0 {
@@ -1257,7 +1254,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             // Try all providers, use the first that works.
             let mut i: c_int = 0 as c_int;
             while !(location_providers[i as usize].name).is_null() {
-                let mut p: *const location_provider_t =
+                let p: *const location_provider_t =
                     &*location_providers.as_ptr().offset(i as isize) as *const location_provider_t;
                 fprintf(
                     stderr,
@@ -1265,7 +1262,12 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
                     b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
                     (*p).name,
                 );
-                r = provider_try_start(p, &mut location_state, &mut config_state, 0 as *mut c_char);
+                r = provider_try_start(
+                    p,
+                    &mut location_state,
+                    &mut config_state,
+                    std::ptr::null_mut::<c_char>(),
+                );
                 if r < 0 as c_int {
                     fputs(
                         // gettext(
@@ -1429,11 +1431,11 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
         );
     }
 
-    let mut scheme: *mut transition_scheme_t = &mut options.scheme;
+    let scheme: *mut transition_scheme_t = &mut options.scheme;
 
     // Initialize gamma adjustment method. If method is NULL
     // try all methods until one that works is found.
-    let mut method_state: *mut gamma_state_t = 0 as *mut gamma_state_t;
+    let mut method_state: *mut gamma_state_t = std::ptr::null_mut::<gamma_state_t>();
 
     // Gamma adjustment not needed for print mode
     if options.mode as c_uint != PROGRAM_MODE_PRINT as c_int as c_uint {
@@ -1452,10 +1454,15 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             // Try all methods, use the first that works.
             let mut i_0: c_int = 0 as c_int;
             while !(gamma_methods[i_0 as usize].name).is_null() {
-                let mut m: *const gamma_method_t =
+                let m: *const gamma_method_t =
                     &*gamma_methods.as_ptr().offset(i_0 as isize) as *const gamma_method_t;
-                if !((*m).autostart == 0) {
-                    r = method_try_start(m, &mut method_state, &mut config_state, 0 as *mut c_char);
+                if (*m).autostart != 0 {
+                    r = method_try_start(
+                        m,
+                        &mut method_state,
+                        &mut config_state,
+                        std::ptr::null_mut::<c_char>(),
+                    );
                     if r < 0 as c_int {
                         fputs(
                             // gettext(
@@ -1494,11 +1501,10 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
     match options.mode as c_uint {
         1 | 2 => {
             let mut loc: location_t = {
-                let mut init = location_t {
+                location_t {
                     lat: ::core::f32::NAN,
                     lon: ::core::f32::NAN,
-                };
-                init
+                }
             };
             if need_location != 0 {
                 fputs(
@@ -1510,7 +1516,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
                 );
 
                 // Wait for location provider.
-                let mut r_0: c_int = provider_get_location(
+                let r_0: c_int = provider_get_location(
                     options.provider,
                     location_state,
                     -(1 as c_int),
@@ -1544,12 +1550,12 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             let mut period: period_t = PERIOD_NONE;
             let mut transition_prog: c_double = 0.;
             if options.scheme.use_time != 0 {
-                let mut time_offset: c_int = get_seconds_since_midnight(now);
+                let time_offset: c_int = get_seconds_since_midnight(now);
                 period = get_period_from_time(scheme, time_offset);
                 transition_prog = get_transition_progress_from_time(scheme, time_offset);
             } else {
                 // Current angular elevation of the sun
-                let mut elevation: c_double =
+                let elevation: c_double =
                     solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
                 if options.verbose != 0 {
                     // TRANSLATORS: Append degree symbol if
@@ -1732,7 +1738,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
     if need_location != 0 {
         ((*options.provider).free).expect("non-null function pointer")(location_state);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 pub fn main() {

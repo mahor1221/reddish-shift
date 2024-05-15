@@ -20,10 +20,7 @@
 */
 
 use crate::sig_atomic_t;
-use libc::{
-    c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void, clock_t, perror, pid_t, sigaction,
-    sigemptyset, sigset_t, uid_t,
-};
+use libc::{c_char, c_int, perror, sigaction, sigemptyset, sigset_t};
 use std::{mem::MaybeUninit, ptr::addr_of_mut};
 
 // #if defined(HAVE_SIGNAL_H) && !defined(__WIN32__)
@@ -32,11 +29,11 @@ pub static mut exiting: sig_atomic_t = 0 as c_int;
 #[no_mangle]
 pub static mut disable: sig_atomic_t = 0 as c_int;
 // Signal handler for exit signals
-unsafe extern "C" fn sigexit(mut signo: c_int) {
+unsafe extern "C" fn sigexit(signo: c_int) {
     ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut sig_atomic_t, 1 as c_int);
 }
 // Signal handler for disable signal
-unsafe extern "C" fn sigdisable(mut signo: c_int) {
+unsafe extern "C" fn sigdisable(signo: c_int) {
     ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut sig_atomic_t, 1 as c_int);
 }
 // #else /* ! HAVE_SIGNAL_H || __WIN32__ */
@@ -62,12 +59,12 @@ pub unsafe extern "C" fn signals_install_handlers() -> c_int {
     sigact.sa_sigaction = 0;
     sigact.sa_mask = sigset;
     sigact.sa_flags = 0 as c_int;
-    r = sigaction(2 as c_int, &mut sigact, 0 as *mut sigaction);
+    r = sigaction(2 as c_int, &mut sigact, std::ptr::null_mut::<sigaction>());
     if r < 0 as c_int {
         perror(b"sigaction\0" as *const u8 as *const c_char);
         return -(1 as c_int);
     }
-    r = sigaction(15 as c_int, &mut sigact, 0 as *mut sigaction);
+    r = sigaction(15 as c_int, &mut sigact, std::ptr::null_mut::<sigaction>());
     if r < 0 as c_int {
         perror(b"sigaction\0" as *const u8 as *const c_char);
         return -(1 as c_int);
@@ -78,7 +75,7 @@ pub unsafe extern "C" fn signals_install_handlers() -> c_int {
     sigact.sa_sigaction = 0;
     sigact.sa_mask = sigset;
     sigact.sa_flags = 0 as c_int;
-    r = sigaction(10 as c_int, &mut sigact, 0 as *mut sigaction);
+    r = sigaction(10 as c_int, &mut sigact, std::ptr::null_mut::<sigaction>());
     if r < 0 as c_int {
         perror(b"sigaction\0" as *const u8 as *const c_char);
         return -(1 as c_int);
@@ -91,11 +88,11 @@ pub unsafe extern "C" fn signals_install_handlers() -> c_int {
     sigact.sa_sigaction = 1;
     sigact.sa_mask = sigset;
     sigact.sa_flags = 0 as c_int;
-    r = sigaction(17 as c_int, &mut sigact, 0 as *mut sigaction);
+    r = sigaction(17 as c_int, &mut sigact, std::ptr::null_mut::<sigaction>());
     if r < 0 as c_int {
         perror(b"sigaction\0" as *const u8 as *const c_char);
         return -(1 as c_int);
     }
 
-    return 0 as c_int;
+    0 as c_int
 }

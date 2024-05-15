@@ -23,7 +23,7 @@ use std::ffi::{c_char, c_int, c_void};
 
 // Create non-blocking set of pipe fds.
 #[no_mangle]
-pub unsafe extern "C" fn pipeutils_create_nonblocking(mut pipefds: *mut c_int) -> c_int {
+pub unsafe extern "C" fn pipeutils_create_nonblocking(pipefds: *mut c_int) -> c_int {
     let mut r: c_int = pipe(pipefds);
     if r == -(1 as c_int) {
         perror(b"pipe\0" as *const u8 as *const c_char);
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn pipeutils_create_nonblocking(mut pipefds: *mut c_int) -
         close(*pipefds.offset(1 as c_int as isize));
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
 // /* Create non-blocking set of pipe fds.
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn pipeutils_create_nonblocking(mut pipefds: *mut c_int) -
 
 // Signal on write-end of pipe.
 #[no_mangle]
-pub unsafe extern "C" fn pipeutils_signal(mut write_fd: c_int) {
+pub unsafe extern "C" fn pipeutils_signal(write_fd: c_int) {
     write(
         write_fd,
         b"\0" as *const u8 as *const c_char as *const c_void,
@@ -88,7 +88,7 @@ pub unsafe extern "C" fn pipeutils_signal(mut write_fd: c_int) {
 
 // Mark signal as handled on read-end of pipe.
 #[no_mangle]
-pub unsafe extern "C" fn pipeutils_handle_signal(mut read_fd: c_int) {
+pub unsafe extern "C" fn pipeutils_handle_signal(read_fd: c_int) {
     let mut data: c_char = 0;
     read(
         read_fd,

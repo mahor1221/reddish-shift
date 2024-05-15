@@ -23,9 +23,8 @@ use crate::{
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
     gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
 };
-use libc::{atoi, fprintf, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE};
+use libc::{atoi, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE};
 use std::{
-    cell::OnceCell,
     ffi::{c_char, c_double, c_int, c_void},
     sync::OnceLock,
 };
@@ -54,29 +53,29 @@ fn xf86vmode() -> &'static Xf86vmode {
     XF86VMODE.get_or_init(|| Xf86vmode::open().unwrap())
 }
 
-unsafe extern "C" fn vidmode_init(mut state: *mut *mut vidmode_state_t) -> c_int {
+unsafe extern "C" fn vidmode_init(state: *mut *mut vidmode_state_t) -> c_int {
     *state = malloc(::core::mem::size_of::<vidmode_state_t>() as size_t) as *mut vidmode_state_t;
     if (*state).is_null() {
         return -(1 as c_int);
     }
-    let mut s: *mut vidmode_state_t = *state;
+    let s: *mut vidmode_state_t = *state;
     (*s).screen_num = -(1 as c_int);
-    (*s).saved_ramps = 0 as *mut u16;
+    (*s).saved_ramps = std::ptr::null_mut::<u16>();
     // Open display
-    (*s).display = (xlib().XOpenDisplay)(0 as *const c_char);
+    (*s).display = (xlib().XOpenDisplay)(std::ptr::null::<c_char>());
     if ((*s).display).is_null() {
         // fprintf(
         //     stderr,
         //     gettext(b"X request failed: %s\n\0" as *const u8 as *const c_char),
         //     b"XOpenDisplay\0" as *const u8 as *const c_char,
         // );
-        eprintln!("X request failed: {}", "XOpenDisplay");
+        eprintln!("X request failed: XOpenDisplay");
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
+unsafe extern "C" fn vidmode_start(state: *mut vidmode_state_t) -> c_int {
     let mut r: c_int = 0;
     let mut screen_num: c_int = (*state).screen_num;
     if screen_num < 0 as c_int {
@@ -88,7 +87,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
     let mut minor: c_int = 0;
     r = (xf86vmode().XF86VidModeQueryVersion)((*state).display, &mut major, &mut minor);
     if r == 0 {
-        eprintln!("X request failed: {}", "XF86VidModeQueryVersion");
+        eprintln!("X request failed: XF86VidModeQueryVersion");
         return -(1 as c_int);
     }
     // Request size of gamma ramps
@@ -98,7 +97,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         &mut (*state).ramp_size,
     );
     if r == 0 {
-        eprintln!("X request failed: {}", "XF86VidModeGetGammaRampSize");
+        eprintln!("X request failed: XF86VidModeGetGammaRampSize");
         return -(1 as c_int);
     }
     if (*state).ramp_size == 0 as c_int {
@@ -106,18 +105,18 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         return -(1 as c_int);
     }
     // Allocate space for saved gamma ramps
-    (*state).saved_ramps = malloc(
-        ((3 * (*state).ramp_size) as usize).wrapping_mul(::core::mem::size_of::<u16>() as usize),
-    ) as *mut u16;
+    (*state).saved_ramps =
+        malloc(((3 * (*state).ramp_size) as usize).wrapping_mul(::core::mem::size_of::<u16>()))
+            as *mut u16;
     if ((*state).saved_ramps).is_null() {
         perror(b"malloc\0" as *const u8 as *const c_char);
         return -(1 as c_int);
     }
-    let mut gamma_r: *mut u16 =
+    let gamma_r: *mut u16 =
         &mut *((*state).saved_ramps).offset((0 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_g: *mut u16 =
+    let gamma_g: *mut u16 =
         &mut *((*state).saved_ramps).offset((1 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_b: *mut u16 =
+    let gamma_b: *mut u16 =
         &mut *((*state).saved_ramps).offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
     // Save current gamma ramps so we can restore them at program exit.
     r = (xf86vmode().XF86VidModeGetGammaRamp)(
@@ -129,13 +128,13 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         gamma_b,
     );
     if r == 0 {
-        eprintln!("X request failed: {}", "XF86VidModeGetGammaRamp");
+        eprintln!("X request failed: XF86VidModeGetGammaRamp");
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn vidmode_free(mut state: *mut vidmode_state_t) {
+unsafe extern "C" fn vidmode_free(state: *mut vidmode_state_t) {
     // Free saved ramps
     free((*state).saved_ramps as *mut c_void);
     // Close display connection
@@ -143,7 +142,7 @@ unsafe extern "C" fn vidmode_free(mut state: *mut vidmode_state_t) {
     free(state as *mut c_void);
 }
 
-unsafe extern "C" fn vidmode_print_help(mut f: *mut FILE) {
+unsafe extern "C" fn vidmode_print_help(f: *mut FILE) {
     fputs(
         // gettext(
         b"Adjust gamma ramps with the X VidMode extension.\n\0" as *const u8 as *const c_char,
@@ -163,33 +162,33 @@ unsafe extern "C" fn vidmode_print_help(mut f: *mut FILE) {
 }
 
 unsafe extern "C" fn vidmode_set_option(
-    mut state: *mut vidmode_state_t,
-    mut key: *const c_char,
-    mut value: *const c_char,
+    state: *mut vidmode_state_t,
+    key: *const c_char,
+    value: *const c_char,
 ) -> c_int {
     if strcasecmp(key, b"screen\0" as *const u8 as *const c_char) == 0 as c_int {
         (*state).screen_num = atoi(value);
     } else if strcasecmp(key, b"preserve\0" as *const u8 as *const c_char) == 0 as c_int {
         eprintln!(
-            "Parameter `{}` is now always on;  Use the `{}` command-line option to disable.",
-            *key, "-P"
+            "Parameter `{}` is now always on;  Use the `-P` command-line option to disable.",
+            *key
         );
     } else {
         eprintln!("Unknown method parameter: `{}`", *key);
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 
-unsafe extern "C" fn vidmode_restore(mut state: *mut vidmode_state_t) {
-    let mut gamma_r: *mut u16 =
+unsafe extern "C" fn vidmode_restore(state: *mut vidmode_state_t) {
+    let gamma_r: *mut u16 =
         &mut *((*state).saved_ramps).offset((0 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_g: *mut u16 =
+    let gamma_g: *mut u16 =
         &mut *((*state).saved_ramps).offset((1 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_b: *mut u16 =
+    let gamma_b: *mut u16 =
         &mut *((*state).saved_ramps).offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
     // Restore gamma ramps
-    let mut r: c_int = (xf86vmode().XF86VidModeSetGammaRamp)(
+    let r: c_int = (xf86vmode().XF86VidModeSetGammaRamp)(
         (*state).display,
         (*state).screen_num,
         (*state).ramp_size,
@@ -198,29 +197,29 @@ unsafe extern "C" fn vidmode_restore(mut state: *mut vidmode_state_t) {
         gamma_b,
     );
     if r == 0 {
-        eprintln!("X request failed: {}", "XF86VidModeSetGammaRamp")
+        eprintln!("X request failed: XF86VidModeSetGammaRamp")
     }
 }
 
 unsafe extern "C" fn vidmode_set_temperature(
-    mut state: *mut vidmode_state_t,
-    mut setting: *const ColorSetting,
-    mut preserve: c_int,
+    state: *mut vidmode_state_t,
+    setting: *const ColorSetting,
+    preserve: c_int,
 ) -> c_int {
-    let mut r: c_int = 0;
+    let r: c_int = 0;
     // Create new gamma ramps
-    let mut gamma_ramps: *mut u16 = malloc(
+    let gamma_ramps: *mut u16 = malloc(
         ((3 as c_int * (*state).ramp_size) as usize).wrapping_mul(::core::mem::size_of::<u16>()),
     ) as *mut u16;
     if gamma_ramps.is_null() {
         perror(b"malloc\0" as *const u8 as *const c_char);
         return -(1 as c_int);
     }
-    let mut gamma_r: *mut u16 =
+    let gamma_r: *mut u16 =
         &mut *gamma_ramps.offset((0 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_g: *mut u16 =
+    let gamma_g: *mut u16 =
         &mut *gamma_ramps.offset((1 as c_int * (*state).ramp_size) as isize) as *mut u16;
-    let mut gamma_b: *mut u16 =
+    let gamma_b: *mut u16 =
         &mut *gamma_ramps.offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
     if preserve != 0 {
         // Initialize gamma ramps from saved state
@@ -234,9 +233,8 @@ unsafe extern "C" fn vidmode_set_temperature(
         // Initialize gamma ramps to pure state
         let mut i: c_int = 0 as c_int;
         while i < (*state).ramp_size {
-            let mut value: u16 = (i as c_double / (*state).ramp_size as c_double
-                * (65535 as c_int + 1 as c_int) as c_double)
-                as u16;
+            let value: u16 = (i as c_double / (*state).ramp_size as c_double
+                * (65535 as c_int + 1 as c_int) as c_double) as u16;
             *gamma_r.offset(i as isize) = value;
             *gamma_g.offset(i as isize) = value;
             *gamma_b.offset(i as isize) = value;
@@ -261,18 +259,18 @@ unsafe extern "C" fn vidmode_set_temperature(
     );
 
     if res == 0 {
-        eprintln!("X request failed: {}", "XF86VidModeSetGammaRamp");
+        eprintln!("X request failed: XF86VidModeSetGammaRamp");
         free(gamma_ramps as *mut c_void);
         return -(1 as c_int);
     }
     free(gamma_ramps as *mut c_void);
-    return 0 as c_int;
+    0 as c_int
 }
 
 #[no_mangle]
 pub static mut vidmode_gamma_method: gamma_method_t = unsafe {
     {
-        let mut init = gamma_method_t {
+        gamma_method_t {
             name: b"vidmode\0" as *const u8 as *const c_char as *mut c_char,
             autostart: 1 as c_int,
             init: ::core::mem::transmute::<
@@ -335,7 +333,6 @@ pub static mut vidmode_gamma_method: gamma_method_t = unsafe {
                         c_int,
                     ) -> c_int,
             )),
-        };
-        init
+        }
     }
 };

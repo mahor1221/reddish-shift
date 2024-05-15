@@ -38,9 +38,9 @@ use glib_sys::{
     g_main_loop_quit, g_main_loop_run, g_main_loop_unref, g_mutex_clear, g_mutex_init,
     g_mutex_lock, g_mutex_unlock, g_printerr, g_source_attach, g_source_set_callback,
     g_source_unref, g_strcmp0, g_thread_join, g_thread_new, g_variant_get, g_variant_get_child,
-    g_variant_get_double, g_variant_new, g_variant_unref, gpointer, GData, GError, GIConv,
-    GIOChannel, GIOCondition, GMainContext, GMainLoop, GMutex, GSource, GSourceFunc, GSourceFuncs,
-    GSourcePrivate, GThread, GVariant, G_IO_ERR, G_IO_HUP, G_IO_IN,
+    g_variant_get_double, g_variant_new, g_variant_unref, gpointer, GError, GIOChannel,
+    GIOCondition, GMainContext, GMainLoop, GMutex, GSource, GSourceFunc, GThread, GVariant,
+    G_IO_ERR, G_IO_HUP, G_IO_IN,
 };
 use gobject_sys::{g_object_unref, g_signal_connect_data, GCallback, GObject, G_CONNECT_DEFAULT};
 use libc::{close, fputs, free, malloc, FILE};
@@ -73,7 +73,7 @@ unsafe extern "C" fn print_denial_message() {
 }
 
 // Indicate an unrecoverable error during GeoClue2 communication.
-unsafe extern "C" fn mark_error(mut state: *mut location_geoclue2_state_t) {
+unsafe extern "C" fn mark_error(state: *mut location_geoclue2_state_t) {
     g_mutex_lock(&mut (*state).lock);
     (*state).error = 1 as c_int;
     g_mutex_unlock(&mut (*state).lock);
@@ -82,13 +82,13 @@ unsafe extern "C" fn mark_error(mut state: *mut location_geoclue2_state_t) {
 
 // Handle position change callbacks
 unsafe extern "C" fn geoclue_client_signal_cb(
-    mut client: *mut GDBusProxy,
-    mut sender_name: *mut c_char,
-    mut signal_name: *mut c_char,
-    mut parameters: *mut GVariant,
-    mut user_data: gpointer,
+    client: *mut GDBusProxy,
+    sender_name: *mut c_char,
+    signal_name: *mut c_char,
+    parameters: *mut GVariant,
+    user_data: gpointer,
 ) {
-    let mut state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
 
     // Only handle LocationUpdated signals
     if g_strcmp0(
@@ -99,7 +99,7 @@ unsafe extern "C" fn geoclue_client_signal_cb(
         return;
     }
     // Obtain location path
-    let mut location_path: *const c_char = 0 as *const c_char;
+    let mut location_path: *const c_char = std::ptr::null::<c_char>();
     g_variant_get_child(
         parameters,
         1,
@@ -107,15 +107,15 @@ unsafe extern "C" fn geoclue_client_signal_cb(
         &mut location_path as *mut *const c_char,
     );
     // Obtain location
-    let mut error: *mut GError = 0 as *mut GError;
-    let mut location: *mut GDBusProxy = g_dbus_proxy_new_sync(
+    let mut error: *mut GError = std::ptr::null_mut::<GError>();
+    let location: *mut GDBusProxy = g_dbus_proxy_new_sync(
         g_dbus_proxy_get_connection(client),
         G_DBUS_PROXY_FLAGS_NONE,
-        0 as *mut GDBusInterfaceInfo,
+        std::ptr::null_mut::<GDBusInterfaceInfo>(),
         b"org.freedesktop.GeoClue2\0" as *const u8 as *const c_char,
         location_path,
         b"org.freedesktop.GeoClue2.Location\0" as *const u8 as *const c_char,
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if location.is_null() {
@@ -131,10 +131,10 @@ unsafe extern "C" fn geoclue_client_signal_cb(
     }
     g_mutex_lock(&mut (*state).lock);
     // Read location properties
-    let mut lat_v: *mut GVariant =
+    let lat_v: *mut GVariant =
         g_dbus_proxy_get_cached_property(location, b"Latitude\0" as *const u8 as *const c_char);
     (*state).latitude = g_variant_get_double(lat_v) as c_float;
-    let mut lon_v: *mut GVariant =
+    let lon_v: *mut GVariant =
         g_dbus_proxy_get_cached_property(location, b"Longitude\0" as *const u8 as *const c_char);
     (*state).longitude = g_variant_get_double(lon_v) as c_float;
     (*state).available = 1 as c_int;
@@ -144,22 +144,22 @@ unsafe extern "C" fn geoclue_client_signal_cb(
 
 // Callback when GeoClue name appears on the bus
 unsafe extern "C" fn on_name_appeared(
-    mut conn: *mut GDBusConnection,
-    mut name: *const c_char,
-    mut name_owner: *const c_char,
-    mut user_data: gpointer,
+    conn: *mut GDBusConnection,
+    name: *const c_char,
+    name_owner: *const c_char,
+    user_data: gpointer,
 ) {
-    let mut state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
     // Obtain GeoClue Manager
-    let mut error: *mut GError = 0 as *mut GError;
-    let mut geoclue_manager: *mut GDBusProxy = g_dbus_proxy_new_sync(
+    let mut error: *mut GError = std::ptr::null_mut::<GError>();
+    let geoclue_manager: *mut GDBusProxy = g_dbus_proxy_new_sync(
         conn,
         G_DBUS_PROXY_FLAGS_NONE,
-        0 as *mut GDBusInterfaceInfo,
+        std::ptr::null_mut::<GDBusInterfaceInfo>(),
         b"org.freedesktop.GeoClue2\0" as *const u8 as *const c_char,
         b"/org/freedesktop/GeoClue2/Manager\0" as *const u8 as *const c_char,
         b"org.freedesktop.GeoClue2.Manager\0" as *const u8 as *const c_char,
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if geoclue_manager.is_null() {
@@ -174,14 +174,14 @@ unsafe extern "C" fn on_name_appeared(
         return;
     }
     // Obtain GeoClue Client path
-    error = 0 as *mut GError;
-    let mut client_path_v: *mut GVariant = g_dbus_proxy_call_sync(
+    error = std::ptr::null_mut::<GError>();
+    let client_path_v: *mut GVariant = g_dbus_proxy_call_sync(
         geoclue_manager,
         b"GetClient\0" as *const u8 as *const c_char,
-        0 as *mut GVariant,
+        std::ptr::null_mut::<GVariant>(),
         G_DBUS_CALL_FLAGS_NONE,
         -(1 as c_int),
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if client_path_v.is_null() {
@@ -196,22 +196,22 @@ unsafe extern "C" fn on_name_appeared(
         mark_error(state);
         return;
     }
-    let mut client_path: *const c_char = 0 as *const c_char;
+    let mut client_path: *const c_char = std::ptr::null::<c_char>();
     g_variant_get(
         client_path_v,
         b"(&o)\0" as *const u8 as *const c_char,
         &mut client_path as *mut *const c_char,
     );
     // Obtain GeoClue client
-    error = 0 as *mut GError;
-    let mut geoclue_client: *mut GDBusProxy = g_dbus_proxy_new_sync(
+    error = std::ptr::null_mut::<GError>();
+    let geoclue_client: *mut GDBusProxy = g_dbus_proxy_new_sync(
         conn,
         G_DBUS_PROXY_FLAGS_NONE,
-        0 as *mut GDBusInterfaceInfo,
+        std::ptr::null_mut::<GDBusInterfaceInfo>(),
         b"org.freedesktop.GeoClue2\0" as *const u8 as *const c_char,
         client_path,
         b"org.freedesktop.GeoClue2.Client\0" as *const u8 as *const c_char,
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if geoclue_client.is_null() {
@@ -230,7 +230,7 @@ unsafe extern "C" fn on_name_appeared(
     g_variant_unref(client_path_v);
 
     // Set desktop id (basename of the .desktop file)
-    error = 0 as *mut GError;
+    error = std::ptr::null_mut::<GError>();
     let mut ret_v: *mut GVariant = g_dbus_proxy_call_sync(
         geoclue_client,
         b"org.freedesktop.DBus.Properties.Set\0" as *const u8 as *const c_char,
@@ -245,7 +245,7 @@ unsafe extern "C" fn on_name_appeared(
         ),
         G_DBUS_CALL_FLAGS_NONE,
         -(1 as c_int),
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
 
@@ -258,7 +258,7 @@ unsafe extern "C" fn on_name_appeared(
     }
 
     // Set distance threshold
-    error = 0 as *mut GError;
+    error = std::ptr::null_mut::<GError>();
     ret_v = g_dbus_proxy_call_sync(
         geoclue_client,
         b"org.freedesktop.DBus.Properties.Set\0" as *const u8 as *const c_char,
@@ -270,7 +270,7 @@ unsafe extern "C" fn on_name_appeared(
         ),
         G_DBUS_CALL_FLAGS_NONE,
         -(1 as c_int),
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if ret_v.is_null() {
@@ -319,14 +319,14 @@ unsafe extern "C" fn on_name_appeared(
     );
 
     // Start GeoClue client
-    error = 0 as *mut GError;
+    error = std::ptr::null_mut::<GError>();
     ret_v = g_dbus_proxy_call_sync(
         geoclue_client,
         b"Start\0" as *const u8 as *const c_char,
-        0 as *mut GVariant,
+        std::ptr::null_mut::<GVariant>(),
         G_DBUS_CALL_FLAGS_NONE,
         -(1 as c_int),
-        0 as *mut GCancellable,
+        std::ptr::null_mut::<GCancellable>(),
         &mut error,
     );
     if ret_v.is_null() {
@@ -337,7 +337,7 @@ unsafe extern "C" fn on_name_appeared(
             (*error).message,
         );
         if g_dbus_error_is_remote_error(error) != 0 {
-            let mut dbus_error: *mut c_char = g_dbus_error_get_remote_error(error);
+            let dbus_error: *mut c_char = g_dbus_error_get_remote_error(error);
             if g_strcmp0(
                 dbus_error,
                 b"org.freedesktop.DBus.Error.AccessDenied\0" as *const u8 as *const c_char,
@@ -358,11 +358,11 @@ unsafe extern "C" fn on_name_appeared(
 
 // Callback when GeoClue disappears from the bus
 unsafe extern "C" fn on_name_vanished(
-    mut connection: *mut GDBusConnection,
-    mut name: *const c_char,
-    mut user_data: gpointer,
+    connection: *mut GDBusConnection,
+    name: *const c_char,
+    user_data: gpointer,
 ) {
-    let mut state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
     g_mutex_lock(&mut (*state).lock);
     (*state).available = 0 as c_int;
     g_mutex_unlock(&mut (*state).lock);
@@ -371,22 +371,22 @@ unsafe extern "C" fn on_name_vanished(
 
 // Callback when the pipe to the main thread is closed.
 unsafe extern "C" fn on_pipe_closed(
-    mut channel: *mut GIOChannel,
-    mut condition: GIOCondition,
-    mut user_data: gpointer,
+    channel: *mut GIOChannel,
+    condition: GIOCondition,
+    user_data: gpointer,
 ) -> gboolean {
-    let mut state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
     g_main_loop_quit((*state).loop_0);
-    return 0 as c_int;
+    0 as c_int
 }
 
 // Run loop for location provider thread.
-unsafe extern "C" fn run_geoclue2_loop(mut state_: *mut c_void) -> *mut c_void {
-    let mut state: *mut location_geoclue2_state_t = state_ as *mut location_geoclue2_state_t;
-    let mut context: *mut GMainContext = g_main_context_new();
+unsafe extern "C" fn run_geoclue2_loop(state_: *mut c_void) -> *mut c_void {
+    let state: *mut location_geoclue2_state_t = state_ as *mut location_geoclue2_state_t;
+    let context: *mut GMainContext = g_main_context_new();
     g_main_context_push_thread_default(context);
     (*state).loop_0 = g_main_loop_new(context, 0 as c_int);
-    let mut watcher_id: c_uint = g_bus_watch_name(
+    let watcher_id: c_uint = g_bus_watch_name(
         G_BUS_TYPE_SYSTEM,
         b"org.freedesktop.GeoClue2\0" as *const u8 as *const c_char,
         G_BUS_NAME_WATCHER_FLAGS_AUTO_START,
@@ -408,8 +408,8 @@ unsafe extern "C" fn run_geoclue2_loop(mut state_: *mut c_void) -> *mut c_void {
     );
 
     // Listen for closure of pipe
-    let mut pipe_channel: *mut GIOChannel = g_io_channel_unix_new((*state).pipe_fd_write);
-    let mut pipe_source: *mut GSource = g_io_create_watch(
+    let pipe_channel: *mut GIOChannel = g_io_channel_unix_new((*state).pipe_fd_write);
+    let pipe_source: *mut GSource = g_io_create_watch(
         pipe_channel,
         (G_IO_IN as c_int | G_IO_HUP as c_int | G_IO_ERR as c_int) as GIOCondition,
     );
@@ -433,19 +433,17 @@ unsafe extern "C" fn run_geoclue2_loop(mut state_: *mut c_void) -> *mut c_void {
     g_bus_unwatch_name(watcher_id);
     g_main_loop_unref((*state).loop_0);
     g_main_context_unref(context);
-    return 0 as *mut c_void;
+    std::ptr::null_mut::<c_void>()
 }
-unsafe extern "C" fn location_geoclue2_init(
-    mut state: *mut *mut location_geoclue2_state_t,
-) -> c_int {
+unsafe extern "C" fn location_geoclue2_init(state: *mut *mut location_geoclue2_state_t) -> c_int {
     *state = malloc(::core::mem::size_of::<location_geoclue2_state_t>())
         as *mut location_geoclue2_state_t;
     if (*state).is_null() {
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
-unsafe extern "C" fn location_geoclue2_start(mut state: *mut location_geoclue2_state_t) -> c_int {
+unsafe extern "C" fn location_geoclue2_start(state: *mut location_geoclue2_state_t) -> c_int {
     (*state).pipe_fd_read = -(1 as c_int);
     (*state).pipe_fd_write = -(1 as c_int);
     (*state).available = 0 as c_int;
@@ -453,7 +451,7 @@ unsafe extern "C" fn location_geoclue2_start(mut state: *mut location_geoclue2_s
     (*state).latitude = 0 as c_int as c_float;
     (*state).longitude = 0 as c_int as c_float;
     let mut pipefds: [c_int; 2] = [0; 2];
-    let mut r: c_int = pipeutils_create_nonblocking(pipefds.as_mut_ptr());
+    let r: c_int = pipeutils_create_nonblocking(pipefds.as_mut_ptr());
     if r < 0 as c_int {
         // gettext(
         eprintln!("Failed to start GeoClue2 provider!");
@@ -468,19 +466,19 @@ unsafe extern "C" fn location_geoclue2_start(mut state: *mut location_geoclue2_s
         Some(run_geoclue2_loop as unsafe extern "C" fn(*mut c_void) -> *mut c_void),
         state as gpointer,
     );
-    return 0 as c_int;
+    0 as c_int
 }
-unsafe extern "C" fn location_geoclue2_free(mut state: *mut location_geoclue2_state_t) {
+unsafe extern "C" fn location_geoclue2_free(state: *mut location_geoclue2_state_t) {
     if (*state).pipe_fd_read != -(1 as c_int) {
         close((*state).pipe_fd_read);
     }
     // Closing the pipe should cause the thread to exit.
     g_thread_join((*state).thread);
-    (*state).thread = 0 as *mut GThread;
+    (*state).thread = std::ptr::null_mut::<GThread>();
     g_mutex_clear(&mut (*state).lock);
     free(state as *mut c_void);
 }
-unsafe extern "C" fn location_geoclue2_print_help(mut f: *mut FILE) {
+unsafe extern "C" fn location_geoclue2_print_help(f: *mut FILE) {
     fputs(
         // gettext(
         b"Use the location as discovered by a GeoClue2 provider.\n\0" as *const u8 as *const c_char,
@@ -490,28 +488,28 @@ unsafe extern "C" fn location_geoclue2_print_help(mut f: *mut FILE) {
     fputs(b"\n\0" as *const u8 as *const c_char, f);
 }
 unsafe extern "C" fn location_geoclue2_set_option(
-    mut state: *mut location_geoclue2_state_t,
-    mut key: *const c_char,
-    mut value: *const c_char,
+    state: *mut location_geoclue2_state_t,
+    key: *const c_char,
+    value: *const c_char,
 ) -> c_int {
     // gettext(
     eprintln!(
         "Unknown method parameter: `{}`.",
         CStr::from_ptr(key).to_str().unwrap()
     );
-    return -(1 as c_int);
+    -(1 as c_int)
 }
-unsafe extern "C" fn location_geoclue2_get_fd(mut state: *mut location_geoclue2_state_t) -> c_int {
-    return (*state).pipe_fd_read;
+unsafe extern "C" fn location_geoclue2_get_fd(state: *mut location_geoclue2_state_t) -> c_int {
+    (*state).pipe_fd_read
 }
 unsafe extern "C" fn location_geoclue2_handle(
-    mut state: *mut location_geoclue2_state_t,
-    mut location: *mut location_t,
-    mut available: *mut c_int,
+    state: *mut location_geoclue2_state_t,
+    location: *mut location_t,
+    available: *mut c_int,
 ) -> c_int {
     pipeutils_handle_signal((*state).pipe_fd_read);
     g_mutex_lock(&mut (*state).lock);
-    let mut error: c_int = (*state).error;
+    let error: c_int = (*state).error;
     (*location).lat = (*state).latitude;
     (*location).lon = (*state).longitude;
     *available = (*state).available;
@@ -519,12 +517,12 @@ unsafe extern "C" fn location_geoclue2_handle(
     if error != 0 {
         return -(1 as c_int);
     }
-    return 0 as c_int;
+    0 as c_int
 }
 #[no_mangle]
 pub static mut geoclue2_location_provider: location_provider_t = unsafe {
     {
-        let mut init = location_provider_t {
+        location_provider_t {
             name: b"geoclue2\0" as *const u8 as *const c_char as *mut c_char,
             init: ::core::mem::transmute::<
                 Option<unsafe extern "C" fn(*mut *mut location_geoclue2_state_t) -> c_int>,
@@ -594,7 +592,6 @@ pub static mut geoclue2_location_provider: location_provider_t = unsafe {
                         *mut c_int,
                     ) -> c_int,
             )),
-        };
-        init
+        }
     }
 };
