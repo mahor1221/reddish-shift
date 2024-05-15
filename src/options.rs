@@ -22,7 +22,7 @@ use super::config_ini::{
     config_ini_get_section, config_ini_section_t, config_ini_setting_t, config_ini_state_t,
 };
 use crate::{
-    color_setting_t, gamma_method_t, location_provider_t, program_mode_t,
+    ColorSetting, gamma_method_t, location_provider_t, program_mode_t,
     solar::SOLAR_CIVIL_TWILIGHT_ELEV, stdout, time_range_t, transition_scheme_t,
     PROGRAM_MODE_CONTINUAL, PROGRAM_MODE_MANUAL, PROGRAM_MODE_ONE_SHOT, PROGRAM_MODE_PRINT,
     PROGRAM_MODE_RESET,

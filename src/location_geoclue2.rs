@@ -474,7 +474,7 @@ unsafe extern "C" fn location_geoclue2_free(mut state: *mut location_geoclue2_st
     if (*state).pipe_fd_read != -(1 as c_int) {
         close((*state).pipe_fd_read);
     }
-	// Closing the pipe should cause the thread to exit.
+    // Closing the pipe should cause the thread to exit.
     g_thread_join((*state).thread);
     (*state).thread = 0 as *mut GThread;
     g_mutex_clear(&mut (*state).lock);

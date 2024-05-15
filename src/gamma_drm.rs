@@ -20,9 +20,9 @@
 */
 
 use crate::{
-    color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
+    colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
-    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t,
+    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
 };
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc, drmModeFreeResources,
@@ -305,7 +305,7 @@ unsafe extern "C" fn drm_set_option(
 
 unsafe extern "C" fn drm_set_temperature(
     mut state: *mut drm_state_t,
-    mut setting: *const color_setting_t,
+    mut setting: *const ColorSetting,
     mut preserve: c_int,
 ) -> c_int {
     let mut crtcs: *mut drm_crtc_state_t = (*state).crtcs;
@@ -355,7 +355,11 @@ unsafe extern "C" fn drm_set_temperature(
                 i += 1;
                 i;
             }
-            colorramp_fill(r_gamma, g_gamma, b_gamma, (*crtcs).gamma_size, setting);
+
+            let r = std::slice::from_raw_parts_mut(r_gamma, (*crtcs).gamma_size as usize);
+            let g = std::slice::from_raw_parts_mut(g_gamma, (*crtcs).gamma_size as usize);
+            let b = std::slice::from_raw_parts_mut(b_gamma, (*crtcs).gamma_size as usize);
+            colorramp_fill(r, g, b, &*setting);
             drmModeCrtcSetGamma(
                 (*state).fd,
                 (*crtcs).crtc_id as u32,
@@ -422,17 +426,11 @@ pub static mut drm_gamma_method: gamma_method_t = unsafe {
                 drm_restore as unsafe extern "C" fn(*mut drm_state_t) -> (),
             )),
             set_temperature: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(*mut drm_state_t, *const color_setting_t, c_int) -> c_int,
-                >,
+                Option<unsafe extern "C" fn(*mut drm_state_t, *const ColorSetting, c_int) -> c_int>,
                 Option<gamma_method_set_temperature_func>,
             >(Some(
                 drm_set_temperature
-                    as unsafe extern "C" fn(
-                        *mut drm_state_t,
-                        *const color_setting_t,
-                        c_int,
-                    ) -> c_int,
+                    as unsafe extern "C" fn(*mut drm_state_t, *const ColorSetting, c_int) -> c_int,
             )),
         };
         init

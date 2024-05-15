@@ -19,7 +19,7 @@
 */
 
 use crate::{
-    color_setting_t, gamma_method_free_func, gamma_method_init_func, gamma_method_print_help_func,
+    ColorSetting, gamma_method_free_func, gamma_method_init_func, gamma_method_print_help_func,
     gamma_method_restore_func, gamma_method_set_option_func, gamma_method_set_temperature_func,
     gamma_method_start_func, gamma_method_t,
 };
@@ -66,7 +66,7 @@ unsafe extern "C" fn gamma_dummy_set_option(
 
 unsafe extern "C" fn gamma_dummy_set_temperature(
     mut state: *mut c_void,
-    mut setting: *const color_setting_t,
+    mut setting: *const ColorSetting,
     mut preserve: c_int,
 ) -> c_int {
     // gettext(
@@ -118,11 +118,11 @@ pub static mut dummy_gamma_method: gamma_method_t = unsafe {
                 gamma_dummy_restore as unsafe extern "C" fn(*mut c_void) -> (),
             )),
             set_temperature: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void, *const color_setting_t, c_int) -> c_int>,
+                Option<unsafe extern "C" fn(*mut c_void, *const ColorSetting, c_int) -> c_int>,
                 Option<gamma_method_set_temperature_func>,
             >(Some(
                 gamma_dummy_set_temperature
-                    as unsafe extern "C" fn(*mut c_void, *const color_setting_t, c_int) -> c_int,
+                    as unsafe extern "C" fn(*mut c_void, *const ColorSetting, c_int) -> c_int,
             )),
         };
         init

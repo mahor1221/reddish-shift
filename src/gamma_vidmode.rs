@@ -19,9 +19,9 @@
 */
 
 use crate::{
-    color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
+    colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
-    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t,
+    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
 };
 use libc::{atoi, fprintf, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE};
 use std::{
@@ -204,7 +204,7 @@ unsafe extern "C" fn vidmode_restore(mut state: *mut vidmode_state_t) {
 
 unsafe extern "C" fn vidmode_set_temperature(
     mut state: *mut vidmode_state_t,
-    mut setting: *const color_setting_t,
+    mut setting: *const ColorSetting,
     mut preserve: c_int,
 ) -> c_int {
     let mut r: c_int = 0;
@@ -244,9 +244,14 @@ unsafe extern "C" fn vidmode_set_temperature(
             i;
         }
     }
-    colorramp_fill(gamma_r, gamma_g, gamma_b, (*state).ramp_size, setting);
-	// Set new gamma ramps
-    r = (xf86vmode().XF86VidModeSetGammaRamp)(
+
+    let r = std::slice::from_raw_parts_mut(gamma_r, (*state).ramp_size as usize);
+    let g = std::slice::from_raw_parts_mut(gamma_g, (*state).ramp_size as usize);
+    let b = std::slice::from_raw_parts_mut(gamma_b, (*state).ramp_size as usize);
+    colorramp_fill(r, g, b, &*setting);
+
+    // Set new gamma ramps
+    let res = (xf86vmode().XF86VidModeSetGammaRamp)(
         (*state).display,
         (*state).screen_num,
         (*state).ramp_size,
@@ -254,7 +259,8 @@ unsafe extern "C" fn vidmode_set_temperature(
         gamma_g,
         gamma_b,
     );
-    if r == 0 {
+
+    if res == 0 {
         eprintln!("X request failed: {}", "XF86VidModeSetGammaRamp");
         free(gamma_ramps as *mut c_void);
         return -(1 as c_int);
@@ -318,18 +324,14 @@ pub static mut vidmode_gamma_method: gamma_method_t = unsafe {
             )),
             set_temperature: ::core::mem::transmute::<
                 Option<
-                    unsafe extern "C" fn(
-                        *mut vidmode_state_t,
-                        *const color_setting_t,
-                        c_int,
-                    ) -> c_int,
+                    unsafe extern "C" fn(*mut vidmode_state_t, *const ColorSetting, c_int) -> c_int,
                 >,
                 Option<gamma_method_set_temperature_func>,
             >(Some(
                 vidmode_set_temperature
                     as unsafe extern "C" fn(
                         *mut vidmode_state_t,
-                        *const color_setting_t,
+                        *const ColorSetting,
                         c_int,
                     ) -> c_int,
             )),

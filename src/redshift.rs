@@ -76,16 +76,16 @@ extern "C" {
 // TODO: replace magic numbers with the const values below:
 
 // Bounds for parameters.
-const MIN_LAT: f64 = -90.0;
-const MAX_LAT: f64 = 90.0;
-const MIN_LON: f64 = -180.0;
-const MAX_LON: f64 = 180.0;
-const MIN_TEMP: u32 = 1000;
-const MAX_TEMP: u32 = 25000;
-const MIN_BRIGHTNESS: f64 = 0.1;
-const MAX_BRIGHTNESS: f64 = 1.0;
-const MIN_GAMMA: f64 = 0.1;
-const MAX_GAMMA: f64 = 10.0;
+pub const MIN_LAT: f64 = -90.0;
+pub const MAX_LAT: f64 = 90.0;
+pub const MIN_LON: f64 = -180.0;
+pub const MAX_LON: f64 = 180.0;
+pub const MIN_TEMP: u32 = 1000;
+pub const MAX_TEMP: u32 = 25000;
+pub const MIN_BRIGHTNESS: f64 = 0.1;
+pub const MAX_BRIGHTNESS: f64 = 1.0;
+pub const MIN_GAMMA: f64 = 0.1;
+pub const MAX_GAMMA: f64 = 10.0;
 
 // Duration of sleep between screen updates (milliseconds).
 const SLEEP_DURATION: u32 = 5000;
@@ -121,10 +121,10 @@ pub const PERIOD_NONE: period_t = 0;
 // Color setting
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct color_setting_t {
-    pub temperature: c_int,
-    pub gamma: [c_float; 3],
-    pub brightness: c_float,
+pub struct ColorSetting {
+    pub temperature: i32,
+    pub gamma: [f32; 3],
+    pub brightness: f32,
 }
 
 // Program modes.
@@ -155,8 +155,8 @@ pub struct transition_scheme_t {
     pub use_time: c_int, // When enabled, ignore elevation and use time ranges.
     pub dawn: time_range_t,
     pub dusk: time_range_t,
-    pub day: color_setting_t,
-    pub night: color_setting_t,
+    pub day: ColorSetting,
+    pub night: ColorSetting,
 }
 
 // Gamma adjustment method
@@ -169,7 +169,7 @@ pub type gamma_method_set_option_func =
     unsafe extern "C" fn(*mut gamma_state_t, *const c_char, *const c_char) -> c_int;
 pub type gamma_method_restore_func = unsafe extern "C" fn(*mut gamma_state_t) -> ();
 pub type gamma_method_set_temperature_func =
-    unsafe extern "C" fn(*mut gamma_state_t, *const color_setting_t, c_int) -> c_int;
+    unsafe extern "C" fn(*mut gamma_state_t, *const ColorSetting, c_int) -> c_int;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -374,10 +374,10 @@ unsafe extern "C" fn print_location(mut location: *const location_t) {
 
 // Interpolate color setting structs given alpha.
 unsafe extern "C" fn interpolate_color_settings(
-    mut first: *const color_setting_t,
-    mut second: *const color_setting_t,
+    mut first: *const ColorSetting,
+    mut second: *const ColorSetting,
     mut alpha: c_double,
-    mut result: *mut color_setting_t,
+    mut result: *mut ColorSetting,
 ) {
     alpha = if 0.0f64 > alpha {
         0.0f64
@@ -404,10 +404,10 @@ unsafe extern "C" fn interpolate_color_settings(
 unsafe extern "C" fn interpolate_transition_scheme(
     mut transition: *const transition_scheme_t,
     mut alpha: c_double,
-    mut result: *mut color_setting_t,
+    mut result: *mut ColorSetting,
 ) {
-    let mut day: *const color_setting_t = &(*transition).day;
-    let mut night: *const color_setting_t = &(*transition).night;
+    let mut day: *const ColorSetting = &(*transition).day;
+    let mut night: *const ColorSetting = &(*transition).night;
     alpha = if 0.0f64 > alpha {
         0.0f64
     } else if alpha < 1.0f64 {
@@ -421,8 +421,8 @@ unsafe extern "C" fn interpolate_transition_scheme(
 // Return 1 if color settings have major differences, otherwise 0.
 // Used to determine if a fade should be applied in continual mode.
 unsafe extern "C" fn color_setting_diff_is_major(
-    mut first: *const color_setting_t,
-    mut second: *const color_setting_t,
+    mut first: *const ColorSetting,
+    mut second: *const ColorSetting,
 ) -> c_int {
     return (((*first).temperature - (*second).temperature).abs() > 25 as c_int
         || ((*first).brightness - (*second).brightness).abs() as c_double > 0.1f64
@@ -438,7 +438,7 @@ unsafe extern "C" fn color_setting_diff_is_major(
 }
 
 // Reset color setting to default values.
-unsafe extern "C" fn color_setting_reset(mut color: *mut color_setting_t) {
+unsafe extern "C" fn color_setting_reset(mut color: *mut ColorSetting) {
     (*color).temperature = 6500 as c_int;
     (*color).gamma[0 as c_int as usize] = 1.0f64 as c_float;
     (*color).gamma[1 as c_int as usize] = 1.0f64 as c_float;
@@ -669,21 +669,21 @@ unsafe extern "C" fn gamma_is_valid(mut gamma: *const c_float) -> c_int {
 // returns 1.
 unsafe extern "C" fn location_is_valid(mut location: *const location_t) -> c_int {
     // Latitude
-    if ((*location).lat as c_double) < -90.0f64 || (*location).lat as c_double > 90.0f64 {
+    if ((*location).lat as c_double) < MIN_LAT || (*location).lat as c_double > MAX_LAT {
         // TRANSLATORS: Append degree symbols if possible.
         eprintln!(
             "Latitude must be between {:.1} and {:.1}.",
-            -90.0f64, 90.0f64,
+            MIN_LAT, MAX_LAT,
         );
         return 0 as c_int;
     }
 
     // Longitude
-    if ((*location).lon as c_double) < -180.0f64 || (*location).lon as c_double > 180.0f64 {
+    if ((*location).lon as c_double) < MIN_LON || (*location).lon as c_double > MAX_LON {
         // TRANSLATORS: Append degree symbols if possible.
         eprintln!(
             "Longitude must be between {:.1} and {:.1}.",
-            -180.0f64, 180.0f64,
+            MIN_LON, MAX_LON,
         );
         return 0 as c_int;
     }
@@ -787,7 +787,7 @@ unsafe extern "C" fn run_continual_mode(
     // Short fade parameters
     let mut fade_length: c_int = 0 as c_int;
     let mut fade_time: c_int = 0 as c_int;
-    let mut fade_start_interp: color_setting_t = color_setting_t {
+    let mut fade_start_interp: ColorSetting = ColorSetting {
         temperature: 0,
         gamma: [0.; 3],
         brightness: 0.,
@@ -803,13 +803,13 @@ unsafe extern "C" fn run_continual_mode(
 
     // Previous target color setting and current actual color setting.
     // Actual color setting takes into account the current color fade.
-    let mut prev_target_interp: color_setting_t = color_setting_t {
+    let mut prev_target_interp: ColorSetting = ColorSetting {
         temperature: 0,
         gamma: [0.; 3],
         brightness: 0.,
     };
     color_setting_reset(&mut prev_target_interp);
-    let mut interp: color_setting_t = color_setting_t {
+    let mut interp: ColorSetting = ColorSetting {
         temperature: 0,
         gamma: [0.; 3],
         brightness: 0.,
@@ -916,7 +916,7 @@ unsafe extern "C" fn run_continual_mode(
 
         // Use transition progress to get target color
         //    temperature.
-        let mut target_interp: color_setting_t = color_setting_t {
+        let mut target_interp: ColorSetting = ColorSetting {
             temperature: 0,
             gamma: [0.; 3],
             brightness: 0.,
@@ -1163,12 +1163,12 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             use_time: 0,
             dawn: time_range_t { start: 0, end: 0 },
             dusk: time_range_t { start: 0, end: 0 },
-            day: color_setting_t {
+            day: ColorSetting {
                 temperature: 0,
                 gamma: [0.; 3],
                 brightness: 0.,
             },
-            night: color_setting_t {
+            night: ColorSetting {
                 temperature: 0,
                 gamma: [0.; 3],
                 brightness: 0.,
@@ -1565,7 +1565,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             }
 
             // Use transition progress to set color temperature
-            let mut interp: color_setting_t = color_setting_t {
+            let mut interp: ColorSetting = ColorSetting {
                 temperature: 0,
                 gamma: [0.; 3],
                 brightness: 0.,
@@ -1632,7 +1632,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
             }
 
             // Adjust temperature
-            let mut manual: color_setting_t = (*scheme).day;
+            let mut manual: ColorSetting = (*scheme).day;
             manual.temperature = options.temp_set;
             r = ((*options.method).set_temperature).expect("non-null function pointer")(
                 method_state,
@@ -1668,7 +1668,7 @@ unsafe fn main_0(mut argc: c_int, mut argv: *mut *mut c_char) -> c_int {
 
         3 => {
             // Reset screen
-            let mut reset: color_setting_t = color_setting_t {
+            let mut reset: ColorSetting = ColorSetting {
                 temperature: 0,
                 gamma: [0.; 3],
                 brightness: 0.,

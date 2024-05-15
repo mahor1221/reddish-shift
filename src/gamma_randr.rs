@@ -19,9 +19,9 @@
 */
 
 use crate::{
-    color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
+    colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
-    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t,
+    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
 };
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror, strcasecmp, strtol, FILE,
@@ -463,7 +463,7 @@ unsafe extern "C" fn randr_set_option(
 unsafe extern "C" fn randr_set_temperature_for_crtc(
     mut state: *mut randr_state_t,
     mut crtc_num: c_int,
-    mut setting: *const color_setting_t,
+    mut setting: *const ColorSetting,
     mut preserve: c_int,
 ) -> c_int {
     let mut error: *mut xcb_generic_error_t = 0 as *mut xcb_generic_error_t;
@@ -524,7 +524,12 @@ unsafe extern "C" fn randr_set_temperature_for_crtc(
             i;
         }
     }
-    colorramp_fill(gamma_r, gamma_g, gamma_b, ramp_size as c_int, setting);
+
+    let r = std::slice::from_raw_parts_mut(gamma_r, ramp_size as usize);
+    let g = std::slice::from_raw_parts_mut(gamma_g, ramp_size as usize);
+    let b = std::slice::from_raw_parts_mut(gamma_b, ramp_size as usize);
+    colorramp_fill(r, g, b, &*setting);
+    // colorramp_fill(gamma_r, gamma_g, gamma_b, ramp_size as c_int, setting);
 
     // TODO: Error handling
     // let mut gamma_set_cookie: xcb_void_cookie_t = xcb_randr_set_crtc_gamma_checked(
@@ -567,7 +572,7 @@ unsafe extern "C" fn randr_set_temperature_for_crtc(
 
 unsafe extern "C" fn randr_set_temperature(
     mut state: *mut randr_state_t,
-    mut setting: *const color_setting_t,
+    mut setting: *const ColorSetting,
     mut preserve: c_int,
 ) -> c_int {
     let mut r: c_int = 0;
@@ -653,18 +658,14 @@ pub static mut randr_gamma_method: gamma_method_t = unsafe {
             )),
             set_temperature: ::core::mem::transmute::<
                 Option<
-                    unsafe extern "C" fn(
-                        *mut randr_state_t,
-                        *const color_setting_t,
-                        c_int,
-                    ) -> c_int,
+                    unsafe extern "C" fn(*mut randr_state_t, *const ColorSetting, c_int) -> c_int,
                 >,
                 Option<gamma_method_set_temperature_func>,
             >(Some(
                 randr_set_temperature
                     as unsafe extern "C" fn(
                         *mut randr_state_t,
-                        *const color_setting_t,
+                        *const ColorSetting,
                         c_int,
                     ) -> c_int,
             )),
