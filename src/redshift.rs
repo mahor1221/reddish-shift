@@ -122,6 +122,7 @@ pub const PERIOD_NONE: period_t = 0;
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ColorSetting {
+    // TODO: u32
     pub temperature: i32,
     pub gamma: [f32; 3],
     pub brightness: f32,

@@ -283,7 +283,7 @@ fn interpolate_color(alpha: f32, c1: &[f32], c2: &[f32]) -> [f32; 3] {
 #[inline]
 fn approximate_white_point(setting: &ColorSetting) -> [f32; 3] {
     let alpha = ((setting.temperature % 100) as f64 / 100.0) as f32;
-    let temp_index = ((setting.temperature - 1000) as usize / 100) * 3;
+    let temp_index = (setting.temperature - 1000) as usize / 100;
     interpolate_color(
         alpha,
         &BLACKBODY_COLOR[temp_index],
