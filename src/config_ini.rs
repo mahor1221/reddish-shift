@@ -1,3 +1,23 @@
+/*  config-ini.rs -- INI config file parser
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2013-2014  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use libc::{
     fclose, fgets, fopen, fputs, free, getenv, getpwuid, getuid, malloc, memcpy, perror, snprintf,
     strcasecmp, strchr, strcspn, strlen, strspn, FILE,
@@ -27,6 +47,13 @@ pub struct config_ini_state_t {
 }
 
 unsafe extern "C" fn open_config_file(mut filepath: *const c_char) -> *mut FILE {
+    // If a path is not specified (filepath is NULL) then
+    // the configuration file is searched for in the directories
+    // specified by the XDG Base Directory Specification
+    // <http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>.
+
+    // If HOME is not set, getpwuid() is consulted for the home directory. On
+    // windows platforms the %localappdata% is used in place of XDG_CONFIG_HOME.
     let mut f: *mut FILE = 0 as *mut FILE;
     if filepath.is_null() {
         let mut f_0: *mut FILE = 0 as *mut FILE;
@@ -47,6 +74,7 @@ unsafe extern "C" fn open_config_file(mut filepath: *const c_char) -> *mut FILE 
             );
             f_0 = fopen(cp.as_mut_ptr(), b"r\0" as *const u8 as *const c_char);
             if f_0.is_null() {
+                // Fall back to formerly used path.
                 snprintf(
                     cp.as_mut_ptr(),
                     ::core::mem::size_of::<[c_char; 4096]>(),
@@ -71,6 +99,7 @@ unsafe extern "C" fn open_config_file(mut filepath: *const c_char) -> *mut FILE 
             );
             f_0 = fopen(cp.as_mut_ptr(), b"r\0" as *const u8 as *const c_char);
             if f_0.is_null() {
+                // Fall back to formerly used path.
                 snprintf(
                     cp.as_mut_ptr(),
                     ::core::mem::size_of::<[c_char; 4096]>(),
@@ -91,6 +120,7 @@ unsafe extern "C" fn open_config_file(mut filepath: *const c_char) -> *mut FILE 
             );
             f_0 = fopen(cp.as_mut_ptr(), b"r\0" as *const u8 as *const c_char);
             if f_0.is_null() {
+                // Fall back to formerly used path.
                 snprintf(
                     cp.as_mut_ptr(),
                     ::core::mem::size_of::<[c_char; 4096]>(),
@@ -124,6 +154,7 @@ unsafe extern "C" fn open_config_file(mut filepath: *const c_char) -> *mut FILE 
                     );
                     f_0 = fopen(cp.as_mut_ptr(), b"r\0" as *const u8 as *const c_char);
                     if !f_0.is_null() {
+                        // Fall back to formerly used path.
                         snprintf(
                             cp.as_mut_ptr(),
                             ::core::mem::size_of::<[c_char; 4096]>(),
@@ -172,6 +203,7 @@ pub unsafe extern "C" fn config_ini_init(
     (*state).sections = 0 as *mut config_ini_section_t;
     let mut f: *mut FILE = open_config_file(filepath);
     if f.is_null() {
+        // Only a serious error if a file was explicitly requested.
         if !filepath.is_null() {
             return -(1 as c_int);
         }
@@ -180,6 +212,7 @@ pub unsafe extern "C" fn config_ini_init(
     let mut line: [c_char; 512] = [0; 512];
     let mut s: *mut c_char = 0 as *mut c_char;
     loop {
+        // Handle the file input linewise.
         let mut r: *mut c_char = fgets(
             line.as_mut_ptr(),
             ::core::mem::size_of::<[c_char; 512]>() as c_ulong as c_int,
@@ -188,11 +221,13 @@ pub unsafe extern "C" fn config_ini_init(
         if r.is_null() {
             break;
         }
+        // Strip leading blanks and trailing newline.
         s = line
             .as_mut_ptr()
             .offset(strspn(line.as_mut_ptr(), b" \t\0" as *const u8 as *const c_char) as isize);
         *s.offset(strcspn(s, b"\r\n\0" as *const u8 as *const c_char) as isize) =
             '\0' as i32 as c_char;
+        // Skip comments and empty lines.
         if *s.offset(0 as c_int as isize) as c_int == ';' as i32
             || *s.offset(0 as c_int as isize) as c_int == '#' as i32
             || *s.offset(0 as c_int as isize) as c_int == '\0' as i32
@@ -200,6 +235,7 @@ pub unsafe extern "C" fn config_ini_init(
             continue;
         }
         if *s.offset(0 as c_int as isize) as c_int == '[' as i32 {
+            // Read name of section.
             let mut name: *const c_char = s.offset(1 as c_int as isize);
             let mut end: *mut c_char = strchr(s, ']' as i32);
             if end.is_null()
@@ -214,6 +250,7 @@ pub unsafe extern "C" fn config_ini_init(
                 return -(1 as c_int);
             }
             *end = '\0' as i32 as c_char;
+            // Create section.
             section =
                 malloc(::core::mem::size_of::<config_ini_section_t>()) as *mut config_ini_section_t;
             if section.is_null() {
@@ -221,10 +258,12 @@ pub unsafe extern "C" fn config_ini_init(
                 config_ini_free(state);
                 return -(1 as c_int);
             }
+            // Insert into section list.
             (*section).name = 0 as *mut c_char;
             (*section).settings = 0 as *mut config_ini_setting_t;
             (*section).next = (*state).sections;
             (*state).sections = section;
+            // Copy section name.
             (*section).name = malloc((end.offset_from(name) + 1) as usize) as *mut c_char;
             if ((*section).name).is_null() {
                 fclose(f);
@@ -237,6 +276,7 @@ pub unsafe extern "C" fn config_ini_init(
                 (end.offset_from(name) + 1) as usize,
             );
         } else {
+            // Split assignment at equals character.
             let mut end_0: *mut c_char = strchr(s, '=' as i32);
             if end_0.is_null() || end_0 == s {
                 // gettext(
@@ -256,6 +296,7 @@ pub unsafe extern "C" fn config_ini_init(
                 config_ini_free(state);
                 return -(1 as c_int);
             }
+            // Create section.
             let mut setting: *mut config_ini_setting_t =
                 malloc(::core::mem::size_of::<config_ini_setting_t>()) as *mut config_ini_setting_t;
             if setting.is_null() {
@@ -263,10 +304,12 @@ pub unsafe extern "C" fn config_ini_init(
                 config_ini_free(state);
                 return -(1 as c_int);
             }
+            // Insert into section list.
             (*setting).name = 0 as *mut c_char;
             (*setting).value = 0 as *mut c_char;
             (*setting).next = (*section).settings;
             (*section).settings = setting;
+            // Copy name of setting.
             (*setting).name = malloc((end_0.offset_from(s) + 1) as usize) as *mut c_char;
             if ((*setting).name).is_null() {
                 fclose(f);
@@ -278,6 +321,7 @@ pub unsafe extern "C" fn config_ini_init(
                 s as *const c_void,
                 (end_0.offset_from(s) + 1) as usize,
             );
+            // Copy setting value.
             let mut value_len = (strlen(value)).wrapping_add(1);
             (*setting).value = malloc(value_len) as *mut c_char;
             if ((*setting).value).is_null() {

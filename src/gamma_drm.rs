@@ -1,3 +1,24 @@
+/*  gamma-drm.rs -- DRM gamma adjustment source
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2014  Mattias Andrée <maandree@member.fsf.org>
+    Copyright (c) 2017  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use crate::{
     color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
@@ -35,6 +56,7 @@ pub struct drm_crtc_state_t {
 }
 
 unsafe extern "C" fn drm_init(mut state: *mut *mut drm_state_t) -> c_int {
+    // Initialize state.
     *state = malloc(::core::mem::size_of::<drm_state_t>()) as *mut drm_state_t;
     if (*state).is_null() {
         return -(1 as c_int);
@@ -49,6 +71,7 @@ unsafe extern "C" fn drm_init(mut state: *mut *mut drm_state_t) -> c_int {
 }
 
 unsafe extern "C" fn drm_start(mut state: *mut drm_state_t) -> c_int {
+    // Acquire access to a graphics card.
     let mut maxlen: c_long = (strlen(b"/dev/dri\0" as *const u8 as *const c_char))
         .wrapping_add(strlen(b"%s/card%d\0" as *const u8 as *const c_char))
         .wrapping_add(10) as c_long;
@@ -62,12 +85,15 @@ unsafe extern "C" fn drm_start(mut state: *mut drm_state_t) -> c_int {
     );
     (*state).fd = open(pathname.as_mut_ptr(), 0o2 as c_int | 0o2000000 as c_int);
     if (*state).fd < 0 as c_int {
+        // TODO check if access permissions, normally root or
+        //      membership of the video group is required.
         perror(b"open\0" as *const u8 as *const c_char);
         // gettext(
         let pathname = CStr::from_ptr(pathname.as_ptr()).to_str().unwrap();
         eprintln!("Failed to open DRM device: {pathname}");
         return -(1 as c_int);
     }
+    // Acquire mode resources.
     (*state).res = drmModeGetResources((*state).fd);
     if ((*state).res).is_null() {
         // gettext(
@@ -76,6 +102,7 @@ unsafe extern "C" fn drm_start(mut state: *mut drm_state_t) -> c_int {
         (*state).fd = -(1 as c_int);
         return -(1 as c_int);
     }
+    // Create entries for selected CRTCs.
     let mut crtc_count: c_int = (*(*state).res).count_crtcs;
     if (*state).crtc_num >= 0 as c_int {
         if (*state).crtc_num >= crtc_count {
@@ -124,6 +151,7 @@ unsafe extern "C" fn drm_start(mut state: *mut drm_state_t) -> c_int {
             crtc_num;
         }
     }
+    // Load CRTC information and gamma ramps.
     let mut crtcs: *mut drm_crtc_state_t = (*state).crtcs;
     while (*crtcs).crtc_num >= 0 as c_int {
         (*crtcs).crtc_id = *((*(*state).res).crtcs).offset((*crtcs).crtc_num as isize) as c_int;
@@ -142,6 +170,7 @@ unsafe extern "C" fn drm_start(mut state: *mut drm_state_t) -> c_int {
           (*state).card_num,
         );
             } else {
+                // Valgrind complains about us reading uninitialize memory if we just use malloc.
                 (*crtcs).r_gamma = calloc(
                     (3 * (*crtcs).gamma_size) as usize,
                     ::core::mem::size_of::<u16>(),
@@ -241,6 +270,8 @@ unsafe extern "C" fn drm_print_help(mut f: *mut FILE) {
         f,
     );
     fputs(b"\n\0" as *const u8 as *const c_char, f);
+    // TRANSLATORS: DRM help output
+    // left column must not be translated
     fputs(
     // gettext(
     b"  card=N\tGraphics card to apply adjustments to\n  crtc=N\tCRTC to apply adjustments to\n\0"
@@ -311,6 +342,7 @@ unsafe extern "C" fn drm_set_temperature(
                 }
                 last_gamma_size = (*crtcs).gamma_size;
             }
+            // Initialize gamma ramps to pure state
             let mut ramp_size: c_int = (*crtcs).gamma_size;
             let mut i: c_int = 0 as c_int;
             while i < ramp_size {

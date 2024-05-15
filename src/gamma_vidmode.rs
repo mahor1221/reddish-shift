@@ -1,3 +1,23 @@
+/*  gamma-vidmode.rs -- X VidMode gamma adjustment source
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2010-2017  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use crate::{
     color_setting_t, colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
     gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
@@ -42,6 +62,7 @@ unsafe extern "C" fn vidmode_init(mut state: *mut *mut vidmode_state_t) -> c_int
     let mut s: *mut vidmode_state_t = *state;
     (*s).screen_num = -(1 as c_int);
     (*s).saved_ramps = 0 as *mut u16;
+    // Open display
     (*s).display = (xlib().XOpenDisplay)(0 as *const c_char);
     if ((*s).display).is_null() {
         // fprintf(
@@ -62,6 +83,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         screen_num = (xlib().XDefaultScreen)((*state).display);
     }
     (*state).screen_num = screen_num;
+    // Query extension version
     let mut major: c_int = 0;
     let mut minor: c_int = 0;
     r = (xf86vmode().XF86VidModeQueryVersion)((*state).display, &mut major, &mut minor);
@@ -69,6 +91,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         eprintln!("X request failed: {}", "XF86VidModeQueryVersion");
         return -(1 as c_int);
     }
+    // Request size of gamma ramps
     r = (xf86vmode().XF86VidModeGetGammaRampSize)(
         (*state).display,
         (*state).screen_num,
@@ -82,6 +105,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         eprintln!("Gamma ramp size too small: {}", (*state).ramp_size);
         return -(1 as c_int);
     }
+    // Allocate space for saved gamma ramps
     (*state).saved_ramps = malloc(
         ((3 * (*state).ramp_size) as usize).wrapping_mul(::core::mem::size_of::<u16>() as usize),
     ) as *mut u16;
@@ -95,6 +119,7 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
         &mut *((*state).saved_ramps).offset((1 as c_int * (*state).ramp_size) as isize) as *mut u16;
     let mut gamma_b: *mut u16 =
         &mut *((*state).saved_ramps).offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
+    // Save current gamma ramps so we can restore them at program exit.
     r = (xf86vmode().XF86VidModeGetGammaRamp)(
         (*state).display,
         (*state).screen_num,
@@ -111,7 +136,9 @@ unsafe extern "C" fn vidmode_start(mut state: *mut vidmode_state_t) -> c_int {
 }
 
 unsafe extern "C" fn vidmode_free(mut state: *mut vidmode_state_t) {
+    // Free saved ramps
     free((*state).saved_ramps as *mut c_void);
+    // Close display connection
     (xlib().XCloseDisplay)((*state).display);
     free(state as *mut c_void);
 }
@@ -123,6 +150,8 @@ unsafe extern "C" fn vidmode_print_help(mut f: *mut FILE) {
         // ),
         f,
     );
+    // TRANSLATORS: VidMode help output
+    // left column must not be translated
     fputs(b"\n\0" as *const u8 as *const c_char, f);
     fputs(
         // gettext(
@@ -159,6 +188,7 @@ unsafe extern "C" fn vidmode_restore(mut state: *mut vidmode_state_t) {
         &mut *((*state).saved_ramps).offset((1 as c_int * (*state).ramp_size) as isize) as *mut u16;
     let mut gamma_b: *mut u16 =
         &mut *((*state).saved_ramps).offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
+    // Restore gamma ramps
     let mut r: c_int = (xf86vmode().XF86VidModeSetGammaRamp)(
         (*state).display,
         (*state).screen_num,
@@ -178,6 +208,7 @@ unsafe extern "C" fn vidmode_set_temperature(
     mut preserve: c_int,
 ) -> c_int {
     let mut r: c_int = 0;
+    // Create new gamma ramps
     let mut gamma_ramps: *mut u16 = malloc(
         ((3 as c_int * (*state).ramp_size) as usize).wrapping_mul(::core::mem::size_of::<u16>()),
     ) as *mut u16;
@@ -192,6 +223,7 @@ unsafe extern "C" fn vidmode_set_temperature(
     let mut gamma_b: *mut u16 =
         &mut *gamma_ramps.offset((2 as c_int * (*state).ramp_size) as isize) as *mut u16;
     if preserve != 0 {
+        // Initialize gamma ramps from saved state
         memcpy(
             gamma_ramps as *mut c_void,
             (*state).saved_ramps as *const c_void,
@@ -199,6 +231,7 @@ unsafe extern "C" fn vidmode_set_temperature(
                 .wrapping_mul(::core::mem::size_of::<u16>()),
         );
     } else {
+        // Initialize gamma ramps to pure state
         let mut i: c_int = 0 as c_int;
         while i < (*state).ramp_size {
             let mut value: u16 = (i as c_double / (*state).ramp_size as c_double
@@ -212,6 +245,7 @@ unsafe extern "C" fn vidmode_set_temperature(
         }
     }
     colorramp_fill(gamma_r, gamma_g, gamma_b, (*state).ramp_size, setting);
+	// Set new gamma ramps
     r = (xf86vmode().XF86VidModeSetGammaRamp)(
         (*state).display,
         (*state).screen_num,

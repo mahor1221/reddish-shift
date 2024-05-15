@@ -1,3 +1,23 @@
+/*  hooks.rs -- Hooks triggered by events
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2014  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use crate::{period_names, period_t};
 use libc::{
     __errno_location, _exit, close, dirent, execl, fork, getenv, getpwuid, getuid, gid_t, opendir,
@@ -5,6 +25,9 @@ use libc::{
 };
 use std::ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_ushort, c_void};
 
+// Try to open the directory containing hooks. HP is a string
+// of MAX_HOOK_PATH length that will be filled with the path
+// of the returned directory.
 unsafe extern "C" fn open_hooks_dir(mut hp: *mut c_char) -> *mut DIR {
     let mut env: *mut c_char = 0 as *mut c_char;
     env = getenv(b"XDG_CONFIG_HOME\0" as *const u8 as *const c_char);
@@ -37,6 +60,7 @@ unsafe extern "C" fn open_hooks_dir(mut hp: *mut c_char) -> *mut DIR {
     return opendir(hp);
 }
 
+// Run hooks with a signal that the period changed.
 #[no_mangle]
 pub unsafe extern "C" fn hooks_signal_period_change(
     mut prev_period: period_t,
@@ -50,6 +74,7 @@ pub unsafe extern "C" fn hooks_signal_period_change(
     let mut ent: *mut dirent = 0 as *mut dirent;
     loop {
         ent = readdir(hooks_dir);
+        // Skip hidden and special files (., ..)
         if ent.is_null() {
             break;
         }
@@ -67,6 +92,11 @@ pub unsafe extern "C" fn hooks_signal_period_change(
             hooksdir_path.as_mut_ptr(),
             hook_name,
         );
+
+        // #ifndef _WIN32
+        // Fork and exec the hook. We close stdout
+        // so the hook cannot interfere with the normal
+        // output.
         let mut pid: pid_t = fork();
         if pid == -(1 as c_int) {
             perror(b"fork\0" as *const u8 as *const c_char);
@@ -85,5 +115,6 @@ pub unsafe extern "C" fn hooks_signal_period_change(
             }
             _exit(1 as c_int);
         }
+        // #endif
     }
 }

@@ -1,3 +1,23 @@
+/*  location-manual.rs -- Manual location provider source
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2010-2017  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use crate::{
     location_provider_free_func, location_provider_get_fd_func, location_provider_handle_func,
     location_provider_init_func, location_provider_print_help_func,
@@ -26,6 +46,7 @@ unsafe extern "C" fn location_manual_init(mut state: *mut *mut location_manual_s
 }
 
 unsafe extern "C" fn location_manual_start(mut state: *mut location_manual_state_t) -> c_int {
+    // Latitude and longitude must be set
     if ((*state).loc.lat).is_nan() as i32 != 0 || ((*state).loc.lon).is_nan() as i32 != 0 {
         // gettext(
         eprintln!("Latitude and longitude must be set.");
@@ -45,6 +66,8 @@ unsafe extern "C" fn location_manual_print_help(mut f: *mut FILE) {
         f,
     );
     fputs(b"\n\0" as *const u8 as *const c_char, f);
+    // TRANSLATORS: Manual location help output
+    // left column must not be translated
     fputs(
         // gettext(
         b"  lat=N\t\tLatitude\n  lon=N\t\tLongitude\n\0" as *const u8 as *const c_char,
@@ -59,11 +82,13 @@ unsafe extern "C" fn location_manual_print_help(mut f: *mut FILE) {
     );
     fputs(b"\n\0" as *const u8 as *const c_char, f);
 }
+
 unsafe extern "C" fn location_manual_set_option(
     mut state: *mut location_manual_state_t,
     mut key: *const c_char,
     mut value: *const c_char,
 ) -> c_int {
+    /* Parse float value */
     let mut end: *mut c_char = 0 as *mut c_char;
     *__errno_location() = 0 as c_int;
     let mut v: c_float = strtof(value, &mut end);
@@ -83,9 +108,11 @@ unsafe extern "C" fn location_manual_set_option(
     }
     return 0 as c_int;
 }
+
 unsafe extern "C" fn location_manual_get_fd(mut state: *mut location_manual_state_t) -> c_int {
     return -(1 as c_int);
 }
+
 unsafe extern "C" fn location_manual_handle(
     mut state: *mut location_manual_state_t,
     mut location: *mut location_t,
@@ -95,6 +122,7 @@ unsafe extern "C" fn location_manual_handle(
     *available = 1 as c_int;
     return 0 as c_int;
 }
+
 #[no_mangle]
 pub static mut manual_location_provider: location_provider_t = unsafe {
     {

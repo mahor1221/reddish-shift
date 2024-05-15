@@ -1,10 +1,31 @@
+/*  options.rs -- Program options
+    This file is part of <https://github.com/mahor1221/reddish-shift>.
+    Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
+    Ported from Redshift <https://github.com/jonls/redshift>.
+    Copyright (c) 2017  Jon Lund Steffensen <jonlst@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use super::config_ini::{
     config_ini_get_section, config_ini_section_t, config_ini_setting_t, config_ini_state_t,
 };
 use crate::{
-    color_setting_t, gamma_method_t, location_provider_t, options_t, program_mode_t, stdout,
-    time_range_t, PROGRAM_MODE_CONTINUAL, PROGRAM_MODE_MANUAL, PROGRAM_MODE_ONE_SHOT,
-    PROGRAM_MODE_PRINT, PROGRAM_MODE_RESET,
+    color_setting_t, gamma_method_t, location_provider_t, program_mode_t,
+    solar::SOLAR_CIVIL_TWILIGHT_ELEV, stdout, time_range_t, transition_scheme_t,
+    PROGRAM_MODE_CONTINUAL, PROGRAM_MODE_MANUAL, PROGRAM_MODE_ONE_SHOT, PROGRAM_MODE_PRINT,
+    PROGRAM_MODE_RESET,
 };
 use libc::{
     __errno_location, atof, atoi, exit, free, getopt, memcpy, printf, strcasecmp, strchr, strdup,
@@ -14,6 +35,46 @@ use std::ffi::{c_char, c_double, c_float, c_int, c_long, c_uint, c_ulong, c_void
 
 extern "C" {
     static optarg: *mut libc::c_char;
+}
+
+// Angular elevation of the sun at which the color temperature
+// transition period starts and ends (in degrees).
+// Transition during twilight, and while the sun is lower than
+// 3.0 degrees above the horizon.
+const TRANSITION_LOW: f64 = SOLAR_CIVIL_TWILIGHT_ELEV;
+const TRANSITION_HIGH: f64 = 3.0;
+
+// Default values for parameters.
+const DEFAULT_DAY_TEMP: u16 = 6500;
+const DEFAULT_NIGHT_TEMP: u16 = 4500;
+const DEFAULT_BRIGHTNESS: f32 = 1.0;
+const DEFAULT_GAMMA: f32 = 1.0;
+
+const NEUTRAL_TEMP: u16 = 6500;
+const PACKAGE_BUGREPORT: &str = "https://github.com/jonls/redshift/issues";
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct options_t {
+    // Path to config file
+    pub config_filepath: *mut c_char,
+    pub scheme: transition_scheme_t,
+    pub mode: program_mode_t,
+    pub verbose: c_int,
+    // Temperature to set in manual mode.
+    pub temp_set: c_int,
+    // Whether to fade between large skips in color temperature.
+    pub use_fade: c_int,
+    // Whether to preserve gamma ramps if supported by gamma method.
+    pub preserve_gamma: c_int,
+    // Selected gamma method.
+    pub method: *const gamma_method_t,
+    // Arguments for gamma method.
+    pub method_args: *mut c_char,
+    // Selected location provider.
+    pub provider: *const location_provider_t,
+    // Arguments for location provider.
+    pub provider_args: *mut c_char,
 }
 
 unsafe extern "C" fn parse_brightness_string(
@@ -122,6 +183,13 @@ unsafe extern "C" fn parse_transition_range(
 }
 
 unsafe extern "C" fn print_help(mut program_name: *const c_char) {
+    // TRANSLATORS: help output
+    // LAT is latitude, LON is longitude,
+    // DAY is temperature at daytime,
+    // NIGHT is temperature at night
+    // no-wrap
+    // `list' must not be translated
+
     // gettext(
     println!(
         "Usage: {} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
@@ -157,10 +225,10 @@ Default values:
 Please report bugs to <{}>
 ",
         CStr::from_ptr(program_name).to_str().unwrap(),
-        6500,
-        6500,
-        4500,
-        "https://github.com/jonls/redshift/issues"
+        NEUTRAL_TEMP,
+        DEFAULT_DAY_TEMP,
+        DEFAULT_NIGHT_TEMP,
+        PACKAGE_BUGREPORT,
     );
 }
 
@@ -176,6 +244,7 @@ unsafe extern "C" fn print_method_list(mut gamma_methods: *const gamma_method_t)
         i += 1;
     }
 
+    // TRANSLATORS: `help' must not be translated.
     println!(
         "
 Specify colon-separated options with `-m METHOD:OPTIONS`
@@ -183,6 +252,7 @@ Try `-m METHOD:help' for help."
     );
 }
 
+// Print list of location providers.
 unsafe extern "C" fn print_provider_list(mut location_providers: *const location_provider_t) {
     // gettext(
     println!("Available location providers:");
@@ -195,6 +265,7 @@ unsafe extern "C" fn print_provider_list(mut location_providers: *const location
         i += 1;
     }
 
+    // TRANSLATORS: `help' must not be translated.
     println!(
         "
 Specify colon-separated options with`-l PROVIDER:OPTIONS'.
@@ -203,6 +274,7 @@ Try `-l PROVIDER:help' for help.
     );
 }
 
+// Return the gamma method with the given name.
 unsafe extern "C" fn find_gamma_method(
     mut gamma_methods: *const gamma_method_t,
     mut name: *const c_char,
@@ -223,6 +295,7 @@ unsafe extern "C" fn find_gamma_method(
     return method;
 }
 
+// Return location provider with the given name.
 unsafe extern "C" fn find_location_provider(
     mut location_providers: *const location_provider_t,
     mut name: *const c_char,
@@ -243,33 +316,47 @@ unsafe extern "C" fn find_location_provider(
     return provider;
 }
 
+// Initialize options struct.
 #[no_mangle]
 pub unsafe extern "C" fn options_init(mut options: *mut options_t) {
     (*options).config_filepath = 0 as *mut c_char;
-    (*options).scheme.high = 3.0f64;
-    (*options).scheme.low = -6.0f64;
+
+    // Default elevation values.
+    (*options).scheme.high = TRANSITION_HIGH;
+    (*options).scheme.low = TRANSITION_LOW;
+
+    // Settings for day, night and transition period.
+    //    Initialized to indicate that the values are not set yet.
     (*options).scheme.use_time = 0 as c_int;
     (*options).scheme.dawn.start = -(1 as c_int);
     (*options).scheme.dawn.end = -(1 as c_int);
     (*options).scheme.dusk.start = -(1 as c_int);
     (*options).scheme.dusk.end = -(1 as c_int);
+
     (*options).scheme.day.temperature = -(1 as c_int);
     (*options).scheme.day.gamma[0 as c_int as usize] = ::core::f32::NAN;
     (*options).scheme.day.brightness = ::core::f32::NAN;
+
     (*options).scheme.night.temperature = -(1 as c_int);
     (*options).scheme.night.gamma[0 as c_int as usize] = ::core::f32::NAN;
     (*options).scheme.night.brightness = ::core::f32::NAN;
+
+    // Temperature for manual mode
     (*options).temp_set = -(1 as c_int);
+
     (*options).method = 0 as *const gamma_method_t;
     (*options).method_args = 0 as *mut c_char;
+
     (*options).provider = 0 as *const location_provider_t;
     (*options).provider_args = 0 as *mut c_char;
+
     (*options).use_fade = -(1 as c_int);
     (*options).preserve_gamma = 1 as c_int;
     (*options).mode = PROGRAM_MODE_CONTINUAL;
     (*options).verbose = 0 as c_int;
 }
 
+// Parse a single option from the command-line.
 unsafe extern "C" fn parse_command_line_option(
     option: c_char,
     mut value: *mut c_char,
@@ -300,6 +387,10 @@ unsafe extern "C" fn parse_command_line_option(
                 eprintln!("Malformed gamma argument.\nTry `-h' for more information.");
                 return -(1 as c_int);
             }
+
+            // Set night gamma to the same value as day gamma.
+            // To set these to distinct values use the config
+            // file.
             memcpy(
                 ((*options).scheme.night.gamma).as_mut_ptr() as *mut c_void,
                 ((*options).scheme.day.gamma).as_mut_ptr() as *const c_void,
@@ -311,18 +402,24 @@ unsafe extern "C" fn parse_command_line_option(
             exit(0 as c_int);
         }
         108 => {
+            // Print list of providers if argument is `list'
             if strcasecmp(value, b"list\0" as *const u8 as *const c_char) == 0 as c_int {
                 print_provider_list(location_providers);
                 exit(0 as c_int);
             }
             provider_name = 0 as *mut c_char;
+
+            // Don't save the result of strtof(); we simply want
+            // to know if value can be parsed as a float.
             *__errno_location() = 0 as c_int;
             end = 0 as *mut c_char;
             strtof(value, &mut end);
             if *__errno_location() == 0 as c_int && *end as c_int == ':' as i32 {
+                // Use instead as arguments to `manual'.
                 provider_name = b"manual\0" as *const u8 as *const c_char as *mut c_char;
                 (*options).provider_args = value;
             } else {
+                // Split off provider arguments.
                 s = strchr(value, ':' as i32);
                 if !s.is_null() {
                     let fresh5 = s;
@@ -332,6 +429,7 @@ unsafe extern "C" fn parse_command_line_option(
                 }
                 provider_name = value;
             }
+            // Lookup provider from name.
             (*options).provider = find_location_provider(location_providers, provider_name);
             if ((*options).provider).is_null() {
                 eprintln!(
@@ -340,6 +438,7 @@ unsafe extern "C" fn parse_command_line_option(
                 );
                 return -(1 as c_int);
             }
+            // Print provider help if arg is `help'.
             if !((*options).provider_args).is_null()
                 && strcasecmp(
                     (*options).provider_args,
@@ -351,10 +450,12 @@ unsafe extern "C" fn parse_command_line_option(
             }
         }
         109 => {
+            // Print list of methods if argument is `list'
             if strcasecmp(value, b"list\0" as *const u8 as *const c_char) == 0 as c_int {
                 print_method_list(gamma_methods);
                 exit(0 as c_int);
             }
+            // Split off method arguments.
             s = strchr(value, ':' as i32);
             if !s.is_null() {
                 let fresh6 = s;
@@ -362,14 +463,18 @@ unsafe extern "C" fn parse_command_line_option(
                 *fresh6 = '\0' as i32 as c_char;
                 (*options).method_args = s;
             }
+            // Find adjustment method by name.
             (*options).method = find_gamma_method(gamma_methods, value);
             if ((*options).method).is_null() {
+                // TRANSLATORS: This refers to the method
+                //    used to adjust colors e.g VidMode
                 eprintln!(
                     "Unknown adjustment method `{}`",
                     CStr::from_ptr(value).to_str().unwrap()
                 );
                 return -(1 as c_int);
             }
+            // Print method help if arg is `help'.
             if !((*options).method_args).is_null()
                 && strcasecmp(
                     (*options).method_args,
@@ -431,6 +536,7 @@ unsafe extern "C" fn parse_command_line_option(
     return 0 as c_int;
 }
 
+// Parse command line arguments.
 #[no_mangle]
 pub unsafe extern "C" fn options_parse_args(
     mut options: *mut options_t,
@@ -465,6 +571,7 @@ pub unsafe extern "C" fn options_parse_args(
     }
 }
 
+// Parse a single key-value pair from the configuration file.
 unsafe extern "C" fn parse_config_file_option(
     mut key: *const c_char,
     mut value: *const c_char,
@@ -483,6 +590,8 @@ unsafe extern "C" fn parse_config_file_option(
     } else if strcasecmp(key, b"transition\0" as *const u8 as *const c_char) == 0 as c_int
         || strcasecmp(key, b"fade\0" as *const u8 as *const c_char) == 0 as c_int
     {
+        // "fade" is preferred, "transition" is
+        //    deprecated as the setting key.
         if (*options).use_fade < 0 as c_int {
             (*options).use_fade = (atoi(value) != 0) as c_int;
         }
@@ -590,6 +699,7 @@ unsafe extern "C" fn parse_config_file_option(
     return 0 as c_int;
 }
 
+// Parse options defined in the config file.
 #[no_mangle]
 pub unsafe extern "C" fn options_parse_config_file(
     mut options: *mut options_t,
@@ -597,6 +707,7 @@ pub unsafe extern "C" fn options_parse_config_file(
     mut gamma_methods: *const gamma_method_t,
     mut location_providers: *const location_provider_t,
 ) {
+    // Read global config settings.
     let mut section: *mut config_ini_section_t =
         config_ini_get_section(config_state, b"redshift\0" as *const u8 as *const c_char);
     if section.is_null() {
@@ -618,6 +729,7 @@ pub unsafe extern "C" fn options_parse_config_file(
     }
 }
 
+// Replace unspecified options with default values.
 #[no_mangle]
 pub unsafe extern "C" fn options_set_defaults(mut options: *mut options_t) {
     if (*options).scheme.day.temperature < 0 as c_int {
