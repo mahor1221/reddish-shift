@@ -28,7 +28,7 @@ Redshift applies a redness effect to the graphical display. The intensity of the
 scheduled to only be applied at night or to be applied with more intensity at night.
 
 Redshift uses the gamma correction ramps to apply this effect which has traditionally been the only
-way of applying a color effect to the display. Note that this is really a hack to work around the absense of a
+way of applying a color effect to the display. Note that this is really a hack to work around the absence of a
 standardized way of applying color effects, and it is resulting in several issues some of which are explained in
 the _FAQ_ section below. As long as Redshift is using gamma ramps, many of these issues are impossible to solve properly
 in Redshift.

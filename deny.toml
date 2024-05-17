@@ -1,0 +1,41 @@
+# https://embarkstudios.github.io/cargo-deny
+[graph]
+all-features = true
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+db-path = "$CARGO_HOME/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# https://wiki.gentoo.org/wiki/License_groups/GPL-COMPATIBLE
+[licenses]
+unused-allowed-license = "warn"
+confidence-threshold = 0.8
+allow = [
+  "GPL-3.0",
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "Zlib",
+  "MPL-2.0",
+  "Unicode-DFS-2016",
+]
+
+[bans]
+multiple-versions = "deny"
+multiple-versions-include-dev = true
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "simplest-path"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "tag"

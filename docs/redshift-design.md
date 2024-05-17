@@ -46,7 +46,7 @@ enable/disable compilation of the various methods. ./configure --help
 shows more about what parts of the program that can be conditionally
 compiled.
 
-NOTE: some features have to be disabled explicitely, like
+NOTE: some features have to be disabled explicitly, like
 --disable-gnome-clock to prevent the gnome-clock code from being built
 in.
 

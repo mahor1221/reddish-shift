@@ -37,7 +37,7 @@ v1.11 (2016-01-02)
   would not allow redshift to obtain the current location (Laurent Bigonville)
 - Fix #263: Make sure that the child process is terminated when redshift-gtk
   exits.
-- Fix #284: A sample configuation file has been added to the distribution
+- Fix #284: A sample configuration file has been added to the distribution
   tarball.
 - Fix warning message in redshift-gtk that is some cases caused redshift-gtk
   to fail (#271) (Christian Stadelmann, Javier Cantero)
@@ -155,7 +155,7 @@ v1.4.1 (2010-06-15)
 -------------------
 * Include Ubuntu Mono icons by Joern Konopka.
 * Fix: Toggle icon in statusicon.py like appindicator already does.
-* Tranlation updates: Spanish (Fernando Ossandon), Russian (Чистый)
+* Translation updates: Spanish (Fernando Ossandon), Russian (Чистый)
 
 v1.4 (2010-06-13)
 -----------------

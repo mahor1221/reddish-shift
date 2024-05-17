@@ -1,0 +1,9 @@
+[default.extend-identifiers]
+# https://github.com/crate-ci/typos/issues/316
+# docs/redshift-contributing.md:158
+ba = "ba"
+
+[default.extend-words]
+# https://github.com/crate-ci/typos/issues/795
+Hink = "Hink" # Kees Hink
+Maks = "Maks" # Maks Verver
