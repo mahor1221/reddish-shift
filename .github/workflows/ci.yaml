@@ -17,13 +17,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ppremk/lfs-warning@v3
+        with:
+          filesizelimit: 256000b
+      
       - uses: dtolnay/rust-toolchain@stable
-      - uses: EmbarkStudios/cargo-deny-action@v1
-
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
           cache-on-failure: true
+
+      - uses: EmbarkStudios/cargo-deny-action@v1
 
       - name: Check formatting
         run: cargo fmt --all -- --check

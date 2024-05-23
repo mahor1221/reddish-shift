@@ -33,9 +33,7 @@ multiple-versions = "deny"
 multiple-versions-include-dev = true
 wildcards = "deny"
 allow-wildcard-paths = true
-highlight = "simplest-path"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-required-git-spec = "tag"
