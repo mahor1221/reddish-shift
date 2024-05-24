@@ -19,7 +19,7 @@
 */
 
 pub mod colorramp;
-pub mod config_ini;
+pub mod config;
 pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
@@ -33,10 +33,7 @@ pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
-use config_ini::{
-    config_ini_free, config_ini_get_section, config_ini_init, config_ini_section_t,
-    config_ini_setting_t, config_ini_state_t,
-};
+use config::Config;
 use gamma_drm::drm_gamma_method;
 use gamma_dummy::dummy_gamma_method;
 use gamma_randr::randr_gamma_method;
@@ -450,7 +447,7 @@ unsafe extern "C" fn color_setting_reset(color: *mut ColorSetting) {
 unsafe extern "C" fn provider_try_start(
     provider: *const location_provider_t,
     state: *mut *mut location_state_t,
-    config: *mut config_ini_state_t,
+    config: &Config,
     mut args: *mut c_char,
 ) -> c_int {
     let mut r: c_int = 0;

@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2021"
 authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
 license = "GPL-3.0-or-later"
+build = "build.rs"
 
 [[bin]]
 path = "src/redshift.rs"
@@ -18,9 +19,11 @@ gio-sys = "0.18.1"
 glib-sys = "0.18.1"
 gobject-sys = "0.18.0"
 
+anyhow = "1.0.83"
+itertools = "0.13.0"
 const_format = "0.2.32"
 dirs = "5.0.1"
-serde = "1.0.202"
+serde = { version = "1.0.202", features = ["derive"] }
 config = { version = "0.14.0", default-features = false, features = ["toml"] }
 
 [build-dependencies]
