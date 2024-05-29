@@ -43,8 +43,6 @@ use libc::{
     __errno_location, exit, fprintf, fputs, free, localtime_r, pause, perror, poll, pollfd, printf,
     setlocale, setvbuf, strchr, strcmp, time_t, tm, FILE,
 };
-use location_geoclue2::geoclue2_location_provider;
-use location_manual::manual_location_provider;
 use options::{
     options_init, options_parse_args, options_parse_config_file, options_set_defaults, options_t,
 };

@@ -138,13 +138,17 @@ pub enum TimeIntervalsMode {
     Elevation(Elevation),
 }
 
+#[derive(Clone, Copy)]
 pub struct LatitudeDegree(f32);
+#[derive(Clone, Copy)]
 pub struct LongitudeDegree(f32);
+#[derive(Clone, Copy)]
+pub struct Location {
+    latitude: LatitudeDegree,
+    longitude: LongitudeDegree,
+}
 pub enum LocationProvider {
-    Manual {
-        latitude: LatitudeDegree,
-        longitude: LongitudeDegree,
-    },
+    Manual(Location),
     Geoclue2,
 }
 
@@ -373,11 +377,12 @@ impl LocationProvider {
                     latitude: Some(lat),
                     longitude: Some(lon),
                 }),
-            ) => Ok(Self::Manual {
+            ) => Ok(Self::Manual(Location {
                 latitude: LatitudeDegree::try_from(lat)?,
                 longitude: LongitudeDegree::try_from(lon)?,
-            }),
+            })),
             ("geoclue2", _) => Ok(Self::Geoclue2),
+            // eprintln!("Latitude and longitude must be set.");
             _ => Err(anyhow!("location_provider")),
         }
     }
@@ -447,10 +452,10 @@ impl Default for Config {
             fade: true,
             // TODO: are time_intervals and location_provider related together?
             time_intervals: TimeIntervalsMode::Elevation(Elevation { high: 3, low: -6 }),
-            location_provider: LocationProvider::Manual {
+            location_provider: LocationProvider::Manual(Location {
                 latitude: LatitudeDegree(48.1),
                 longitude: LongitudeDegree(11.6),
-            },
+            }),
             adjustment_method: AdjustmentMethod::Randr { screen: 0 },
         }
     }
