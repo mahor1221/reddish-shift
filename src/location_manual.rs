@@ -1,4 +1,4 @@
-/*  location-manual.rs -- Manual location provider source
+/*  location-manual.rs -- Manual location provider
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
     Ported from Redshift <https://github.com/jonls/redshift>.
@@ -17,6 +17,9 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+
+
+// TODO: map country names to geo location
 
 use crate::config::Location;
 use anyhow::{anyhow, Result};

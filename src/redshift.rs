@@ -1,4 +1,4 @@
-/*  redshift.rs -- Main program source
+/*  redshift.rs -- Main program
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
     Ported from Redshift <https://github.com/jonls/redshift>.
@@ -35,14 +35,16 @@ pub mod systemtime;
 
 use config::Config;
 use gamma_drm::drm_gamma_method;
-use gamma_dummy::dummy_gamma_method;
 use gamma_randr::randr_gamma_method;
+use gamma_vidmode::dummy_gamma_method;
 use gamma_vidmode::vidmode_gamma_method;
 use hooks::hooks_signal_period_change;
 use libc::{
     __errno_location, exit, fprintf, fputs, free, localtime_r, pause, perror, poll, pollfd, printf,
     setlocale, setvbuf, strchr, strcmp, time_t, tm, FILE,
 };
+use location_geoclue2::geoclue2_location_provider;
+use location_manual::manual_location_provider;
 use options::{
     options_init, options_parse_args, options_parse_config_file, options_set_defaults, options_t,
 };
@@ -449,41 +451,41 @@ unsafe extern "C" fn provider_try_start(
     mut args: *mut c_char,
 ) -> c_int {
     let mut r: c_int = 0;
-    r = ((*provider).init).expect("non-null function pointer")(state);
-    if r < 0 as c_int {
-        eprintln!(
-            "Initialization of {} failed.",
-            CStr::from_ptr((*provider).name).to_str().unwrap()
-        );
-        return -(1 as c_int);
-    }
-    // Set provider options from config file.
-    let section: *mut config_ini_section_t = config_ini_get_section(config, (*provider).name);
-    if !section.is_null() {
-        let mut setting: *mut config_ini_setting_t = (*section).settings;
-        while !setting.is_null() {
-            r = ((*provider).set_option).expect("non-null function pointer")(
-                *state,
-                (*setting).name,
-                (*setting).value,
-            );
-            if r < 0 as c_int {
-                ((*provider).free).expect("non-null function pointer")(*state);
-                eprintln!(
-                    "Failed to set {} option.",
-                    CStr::from_ptr((*provider).name).to_str().unwrap()
-                );
-                // TRANSLATORS: `help' must not be
-                // translated.
-                eprintln!(
-                    "Try `-l {}:help' for more information.",
-                    CStr::from_ptr((*provider).name).to_str().unwrap()
-                );
-                return -(1 as c_int);
-            }
-            setting = (*setting).next;
-        }
-    }
+    // r = ((*provider).init).expect("non-null function pointer")(state);
+    // if r < 0 as c_int {
+    //     eprintln!(
+    //         "Initialization of {} failed.",
+    //         CStr::from_ptr((*provider).name).to_str().unwrap()
+    //     );
+    //     return -(1 as c_int);
+    // }
+    // // Set provider options from config file.
+    // let section: *mut config_ini_section_t = config_ini_get_section(config, (*provider).name);
+    // if !section.is_null() {
+    //     let mut setting: *mut config_ini_setting_t = (*section).settings;
+    //     while !setting.is_null() {
+    //         r = ((*provider).set_option).expect("non-null function pointer")(
+    //             *state,
+    //             (*setting).name,
+    //             (*setting).value,
+    //         );
+    //         if r < 0 as c_int {
+    //             ((*provider).free).expect("non-null function pointer")(*state);
+    //             eprintln!(
+    //                 "Failed to set {} option.",
+    //                 CStr::from_ptr((*provider).name).to_str().unwrap()
+    //             );
+    //             // TRANSLATORS: `help' must not be
+    //             // translated.
+    //             eprintln!(
+    //                 "Try `-l {}:help' for more information.",
+    //                 CStr::from_ptr((*provider).name).to_str().unwrap()
+    //             );
+    //             return -(1 as c_int);
+    //         }
+    //         setting = (*setting).next;
+    //     }
+    // }
 
     // Set provider options from command line.
     let manual_keys: [*const c_char; 2] = [
@@ -559,46 +561,49 @@ unsafe extern "C" fn provider_try_start(
 unsafe extern "C" fn method_try_start(
     method: *const gamma_method_t,
     state: *mut *mut gamma_state_t,
-    config: *mut config_ini_state_t,
+    config: &Config,
     mut args: *mut c_char,
 ) -> c_int {
     let mut r: c_int = 0;
-    r = ((*method).init).expect("non-null function pointer")(state);
-    if r < 0 as c_int {
-        eprintln!(
-            "Initialization of {} failed",
-            CStr::from_ptr((*method).name).to_str().unwrap()
-        );
-        return -(1 as c_int);
-    }
 
-    // Set method options from config file.
-    let section: *mut config_ini_section_t = config_ini_get_section(config, (*method).name);
-    if !section.is_null() {
-        let mut setting: *mut config_ini_setting_t = (*section).settings;
-        while !setting.is_null() {
-            r = ((*method).set_option).expect("non-null function pointer")(
-                *state,
-                (*setting).name,
-                (*setting).value,
-            );
-            if r < 0 as c_int {
-                ((*method).free).expect("non-null function pointer")(*state);
-                eprintln!(
-                    "Failed to set {} option.",
-                    CStr::from_ptr((*method).name).to_str().unwrap()
-                );
-                // TRANSLATORS: `help' must not be
-                // translated.
-                eprintln!(
-                    "Try `-m {}:help' for more information.",
-                    CStr::from_ptr((*method).name).to_str().unwrap()
-                );
-                return -(1 as c_int);
-            }
-            setting = (*setting).next;
-        }
-    }
+    // useless code
+
+    // r = ((*method).init).expect("non-null function pointer")(state);
+    // if r < 0 as c_int {
+    //     eprintln!(
+    //         "Initialization of {} failed",
+    //         CStr::from_ptr((*method).name).to_str().unwrap()
+    //     );
+    //     return -(1 as c_int);
+    // }
+
+    // // Set method options from config file.
+    // let section: *mut config_ini_section_t = config_ini_get_section(config, (*method).name);
+    // if !section.is_null() {
+    //     let mut setting: *mut config_ini_setting_t = (*section).settings;
+    //     while !setting.is_null() {
+    //         r = ((*method).set_option).expect("non-null function pointer")(
+    //             *state,
+    //             (*setting).name,
+    //             (*setting).value,
+    //         );
+    //         if r < 0 as c_int {
+    //             ((*method).free).expect("non-null function pointer")(*state);
+    //             eprintln!(
+    //                 "Failed to set {} option.",
+    //                 CStr::from_ptr((*method).name).to_str().unwrap()
+    //             );
+    //             // TRANSLATORS: `help' must not be
+    //             // translated.
+    //             eprintln!(
+    //                 "Try `-m {}:help' for more information.",
+    //                 CStr::from_ptr((*method).name).to_str().unwrap()
+    //             );
+    //             return -(1 as c_int);
+    //         }
+    //         setting = (*setting).next;
+    //     }
+    // }
 
     // Set method options from command line.
     while !args.is_null() {
@@ -1187,15 +1192,8 @@ unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
     );
 
     // Load settings from config file.
-    let mut config_state: config_ini_state_t = config_ini_state_t {
-        sections: std::ptr::null_mut::<config_ini_section_t>(),
-    };
-    r = config_ini_init(&mut config_state, options.config_filepath);
-    if r < 0 as c_int {
-        eprintln!("Unable to load config file.");
-        exit(1 as c_int);
-    }
-    free(options.config_filepath as *mut c_void);
+    let config = Config::new();
+
     options_parse_config_file(
         &mut options,
         &mut config_state,
@@ -1491,8 +1489,6 @@ unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
             }
         }
     }
-
-    config_ini_free(&mut config_state);
 
     match options.mode as c_uint {
         1 | 2 => {

@@ -1,4 +1,4 @@
-/*  colorramp.rs -- color temperature calculation source
+/*  colorramp.rs -- color temperature calculation
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
     Ported from Redshift <https://github.com/jonls/redshift>.
