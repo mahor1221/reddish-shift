@@ -25,6 +25,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use std::{env, path::PathBuf};
 
+// Bounds for parameters.
 pub const MIN_TEMPERATURE: u16 = 1000;
 pub const MAX_TEMPERATURE: u16 = 25000;
 pub const MIN_BRIGHTNESS: f32 = 0.1;
@@ -37,6 +38,8 @@ pub const MIN_LONGITUDE: f32 = -180.0;
 pub const MAX_LONGITUDE: f32 = 180.0;
 
 pub const DEFAULT_TEMPERATURE: u16 = 6500;
+pub const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
+pub const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
 pub const DEFAULT_BRIGHTNESS: f32 = 1.0;
 pub const DEFAULT_GAMMA: f32 = 1.0;
 
@@ -99,45 +102,44 @@ pub struct ConfigFile {
 
 //
 
+#[derive(Debug, Clone, Copy)]
 pub struct Temperature(u16);
-pub enum TemperatureMode {
-    Constant(Temperature),
-    DayNight {
-        day: Temperature,
-        night: Temperature,
-    },
-}
 
+#[derive(Debug, Clone, Copy)]
 pub struct Brightness(f32);
-pub enum BrightnessMode {
-    Constant(Brightness),
-    DayNight { day: Brightness, night: Brightness },
+
+#[derive(Debug, Clone, Copy)]
+pub struct Gamma(f32, f32, f32);
+
+#[derive(Debug, Clone)]
+pub struct ColorProfile {
+    pub temperature: Temperature,
+    pub gamma: Gamma,
+    pub brightness: Brightness,
 }
 
-pub struct Gamma(f32);
-pub enum GammaType {
-    All(Gamma),
-    Rgb { r: Gamma, g: Gamma, b: Gamma },
-}
-pub enum GammaMode {
-    Constant(GammaType),
-    DayNight { day: GammaType, night: GammaType },
-}
-
+#[derive(Debug, Clone, Copy)]
 pub struct Hour(u8);
+
+#[derive(Debug, Clone, Copy)]
 pub struct Minute(u8);
+
+#[derive(Debug, Clone, Copy)]
 pub struct Time {
     pub hour: Hour,
     pub minute: Minute,
 }
 
-pub struct TimeInterval {
+#[derive(Debug, Clone, Copy)]
+pub struct TimeRange {
     pub from: Time,
     pub to: Time,
 }
-pub struct TimeIntervals {
-    pub dawn: TimeInterval,
-    pub dusk: TimeInterval,
+
+#[derive(Debug, Clone, Copy)]
+pub struct TimeRanges {
+    pub dawn: TimeRange,
+    pub dusk: TimeRange,
 }
 
 // if (options.scheme.high < options.scheme.low) {
@@ -146,30 +148,38 @@ pub struct TimeIntervals {
 // 		  " the low transition elevation.\n"));
 // 	exit(EXIT_FAILURE);
 // }
+
+// The solar elevations at which the transition begins/ends,
+// TODO: Check if fields are offsets from midnight in seconds.
+#[derive(Debug, Clone, Copy)]
 pub struct Elevation {
     pub high: i8,
     pub low: i8,
 }
 
-pub enum TimeIntervalsMode {
-    Manual(TimeIntervals),
+#[derive(Debug, Clone)]
+pub enum TransitionScheme {
+    TimeRanges(TimeRanges),
     Elevation(Elevation),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct LatitudeDegree(f32);
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct LongitudeDegree(f32);
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Location {
     latitude: LatitudeDegree,
     longitude: LongitudeDegree,
 }
+
+#[derive(Debug, Clone)]
 pub enum LocationProvider {
     Manual(Location),
     Geoclue2,
 }
 
+#[derive(Debug, Clone)]
 pub enum AdjustmentMethod {
     Randr { screen: u16 },
     Drm,
@@ -177,16 +187,44 @@ pub enum AdjustmentMethod {
 }
 
 pub struct Config {
-    pub temperature: TemperatureMode,
-    pub brightness: BrightnessMode,
-    pub gamma: GammaMode,
+    pub day: ColorProfile,
+    pub night: ColorProfile,
     pub fade: bool,
-    pub time_intervals: TimeIntervalsMode,
+    pub transition_scheme: TransitionScheme,
     pub location_provider: LocationProvider,
     pub adjustment_method: AdjustmentMethod,
 }
 
 //
+
+#[derive(Debug, Clone)]
+pub struct DayNight<T> {
+    day: T,
+    night: T,
+}
+
+impl<'a, T> TryFrom<&'a str> for DayNight<T>
+where
+    T: Clone + TryFrom<&'a str, Error = anyhow::Error>,
+{
+    type Error = anyhow::Error;
+
+    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+        match *s.split("-").map(str::trim).collect_vec().as_slice() {
+            [day, night] => Ok(Self {
+                day: day.try_into()?,
+                night: night.try_into()?,
+            }),
+            _ => {
+                let temp: T = s.try_into()?;
+                Ok(Self {
+                    day: temp.clone(),
+                    night: temp,
+                })
+            }
+        }
+    }
+}
 
 impl TryFrom<u16> for Temperature {
     type Error = anyhow::Error;
@@ -206,20 +244,6 @@ impl TryFrom<&str> for Temperature {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let n = s.parse::<u16>()?;
         Self::try_from(n)
-    }
-}
-
-impl TryFrom<&str> for TemperatureMode {
-    type Error = anyhow::Error;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split("-").map(str::trim).collect_vec().as_slice() {
-            [day, night] => Ok(Self::DayNight {
-                day: day.try_into()?,
-                night: night.try_into()?,
-            }),
-            _ => Ok(Self::Constant(s.try_into()?)),
-        }
     }
 }
 
@@ -244,17 +268,11 @@ impl TryFrom<&str> for Brightness {
     }
 }
 
-impl TryFrom<&str> for BrightnessMode {
-    type Error = anyhow::Error;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split("-").map(str::trim).collect_vec().as_slice() {
-            [day, night] => Ok(Self::DayNight {
-                day: day.try_into()?,
-                night: night.try_into()?,
-            }),
-            _ => Ok(Self::Constant(s.try_into()?)),
-        }
+fn gamma(n: f32) -> Result<f32> {
+    if n >= MIN_GAMMA && n <= MAX_GAMMA {
+        Ok(n)
+    } else {
+        Err(anyhow!("gamma"))
     }
 }
 
@@ -262,11 +280,16 @@ impl TryFrom<f32> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
-        if n >= MIN_GAMMA && n <= MAX_GAMMA {
-            Ok(Self(n))
-        } else {
-            Err(anyhow!("gamma"))
-        }
+        let n = gamma(n)?;
+        Ok(Self(n, n, n))
+    }
+}
+
+impl TryFrom<(f32, f32, f32)> for Gamma {
+    type Error = anyhow::Error;
+
+    fn try_from((r, g, b): (f32, f32, f32)) -> Result<Self, Self::Error> {
+        Ok(Self(gamma(r)?, gamma(g)?, gamma(b)?))
     }
 }
 
@@ -274,36 +297,9 @@ impl TryFrom<&str> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let n = s.parse::<f32>()?;
-        Self::try_from(n)
-    }
-}
-
-impl TryFrom<&str> for GammaType {
-    type Error = anyhow::Error;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
         match *s.split(":").map(str::trim).collect_vec().as_slice() {
-            [r, g, b] => Ok(Self::Rgb {
-                r: r.try_into()?,
-                g: g.try_into()?,
-                b: b.try_into()?,
-            }),
-            _ => Ok(Self::All(s.try_into()?)),
-        }
-    }
-}
-
-impl TryFrom<&str> for GammaMode {
-    type Error = anyhow::Error;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split("-").map(str::trim).collect_vec().as_slice() {
-            [day, night] => Ok(Self::DayNight {
-                day: day.try_into()?,
-                night: night.try_into()?,
-            }),
-            _ => Ok(Self::Constant(s.try_into()?)),
+            [r, g, b] => (r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?).try_into(),
+            _ => s.parse::<f32>()?.try_into(),
         }
     }
 }
@@ -348,7 +344,7 @@ impl TryFrom<&str> for Time {
     }
 }
 
-impl TryFrom<&str> for TimeInterval {
+impl TryFrom<&str> for TimeRange {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -357,7 +353,7 @@ impl TryFrom<&str> for TimeInterval {
                 from: from.try_into()?,
                 to: to.try_into()?,
             }),
-            _ => Err(anyhow!("time_interval")),
+            _ => Err(anyhow!("time_range")),
         }
     }
 }
@@ -369,6 +365,11 @@ impl TryFrom<f32> for LatitudeDegree {
         if n >= MIN_LATITUDE && n <= MAX_LATITUDE {
             Ok(Self(n))
         } else {
+            // // TRANSLATORS: Append degree symbols if possible.
+            // eprintln!(
+            //     "Latitude must be between {:.1} and {:.1}.",
+            //     MIN_LATITUDE, MAX_LATITUDE,
+            // );
             Err(anyhow!("latitude"))
         }
     }
@@ -381,6 +382,11 @@ impl TryFrom<f32> for LongitudeDegree {
         if n >= MIN_LONGITUDE && n <= MAX_LONGITUDE {
             Ok(Self(n))
         } else {
+            // // TRANSLATORS: Append degree symbols if possible.
+            // eprintln!(
+            //     "Longitude must be between {:.1} and {:.1}.",
+            //     MIN_LONGITUDE, MAX_LONGITUDE,
+            // );
             Err(anyhow!("longitude"))
         }
     }
@@ -443,33 +449,59 @@ impl ConfigFile {
     }
 }
 
-impl Default for TemperatureMode {
+impl Default for Temperature {
     fn default() -> Self {
-        Self::Constant(Temperature(DEFAULT_TEMPERATURE))
+        Self(DEFAULT_TEMPERATURE)
     }
 }
 
-impl Default for BrightnessMode {
+impl Default for Brightness {
     fn default() -> Self {
-        Self::Constant(Brightness(DEFAULT_BRIGHTNESS))
+        Brightness(DEFAULT_BRIGHTNESS)
     }
 }
 
-impl Default for GammaMode {
+impl Default for Gamma {
     fn default() -> Self {
-        Self::Constant(GammaType::All(Gamma(DEFAULT_GAMMA)))
+        Gamma(DEFAULT_GAMMA, DEFAULT_GAMMA, DEFAULT_GAMMA)
+    }
+}
+
+impl Default for ColorProfile {
+    fn default() -> Self {
+        Self {
+            temperature: Default::default(),
+            gamma: Default::default(),
+            brightness: Default::default(),
+        }
+    }
+}
+
+impl ColorProfile {
+    pub fn default_day() -> Self {
+        Self {
+            temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
+            ..Default::default()
+        }
+    }
+
+    pub fn default_night() -> Self {
+        Self {
+            temperature: Temperature(DEFAULT_TEMPERATURE_NIGHT),
+            ..Default::default()
+        }
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
+        // TODO: replace magic numbers
         Config {
-            temperature: TemperatureMode::default(),
-            brightness: BrightnessMode::default(),
-            gamma: GammaMode::default(),
+            day: ColorProfile::default_day(),
+            night: ColorProfile::default_night(),
             fade: true,
-            // TODO: are time_intervals and location_provider related together?
-            time_intervals: TimeIntervalsMode::Elevation(Elevation { high: 3, low: -6 }),
+            // TODO: are time_ranges and location_provider related together?
+            transition_scheme: TransitionScheme::Elevation(Elevation { high: 3, low: -6 }),
             location_provider: LocationProvider::Manual(Location {
                 latitude: LatitudeDegree(48.1),
                 longitude: LongitudeDegree(11.6),
@@ -499,13 +531,19 @@ impl Config {
         let mut config = Config::default();
 
         if let Some(t) = temperature {
-            config.temperature = t.as_str().try_into()?;
+            let DayNight { day, night }: DayNight<Temperature> = t.as_str().try_into()?;
+            config.day.temperature = day;
+            config.night.temperature = night;
         }
         if let Some(t) = brightness {
-            config.brightness = t.as_str().try_into()?;
+            let DayNight { day, night }: DayNight<Brightness> = t.as_str().try_into()?;
+            config.day.brightness = day;
+            config.night.brightness = night;
         }
         if let Some(t) = gamma {
-            config.gamma = t.as_str().try_into()?;
+            let DayNight { day, night }: DayNight<Gamma> = t.as_str().try_into()?;
+            config.day.gamma = day;
+            config.night.gamma = night;
         }
         if let Some(t) = fade {
             config.fade = t

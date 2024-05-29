@@ -60,12 +60,14 @@ pub struct options_t {
     pub scheme: transition_scheme_t,
     pub mode: program_mode_t,
     pub verbose: c_int,
+
+    // Whether to preserve gamma ramps if supported by gamma method.
+    pub preserve_gamma: c_int,
+
     // Temperature to set in manual mode.
     pub temp_set: c_int,
     // Whether to fade between large skips in color temperature.
     pub use_fade: c_int,
-    // Whether to preserve gamma ramps if supported by gamma method.
-    pub preserve_gamma: c_int,
     // Selected gamma method.
     pub method: *const gamma_method_t,
     // Arguments for gamma method.

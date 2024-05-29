@@ -33,7 +33,7 @@ pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
-use config::Config;
+use config::{location_is_valid, Config};
 use gamma_drm::drm_gamma_method;
 use gamma_randr::randr_gamma_method;
 use gamma_vidmode::dummy_gamma_method;
@@ -71,18 +71,6 @@ extern "C" {
 }
 
 // TODO: replace magic numbers with the const values below:
-
-// Bounds for parameters.
-pub const MIN_LAT: f64 = -90.0;
-pub const MAX_LAT: f64 = 90.0;
-pub const MIN_LON: f64 = -180.0;
-pub const MAX_LON: f64 = 180.0;
-pub const MIN_TEMP: u32 = 1000;
-pub const MAX_TEMP: u32 = 25000;
-pub const MIN_BRIGHTNESS: f64 = 0.1;
-pub const MAX_BRIGHTNESS: f64 = 1.0;
-pub const MIN_GAMMA: f64 = 0.1;
-pub const MAX_GAMMA: f64 = 10.0;
 
 // Duration of sleep between screen updates (milliseconds).
 const SLEEP_DURATION: u32 = 5000;
@@ -663,32 +651,6 @@ unsafe extern "C" fn gamma_is_valid(gamma: *const c_float) -> c_int {
         || *gamma.offset(1 as c_int as isize) as c_double > 10.0f64
         || (*gamma.offset(2 as c_int as isize) as c_double) < 0.1f64
         || *gamma.offset(2 as c_int as isize) as c_double > 10.0f64) as c_int
-}
-
-// Check whether location is valid.
-// Prints error message on stderr and returns 0 if invalid, otherwise
-// returns 1.
-unsafe extern "C" fn location_is_valid(location: *const location_t) -> c_int {
-    // Latitude
-    if ((*location).lat as c_double) < MIN_LAT || (*location).lat as c_double > MAX_LAT {
-        // TRANSLATORS: Append degree symbols if possible.
-        eprintln!(
-            "Latitude must be between {:.1} and {:.1}.",
-            MIN_LAT, MAX_LAT,
-        );
-        return 0 as c_int;
-    }
-
-    // Longitude
-    if ((*location).lon as c_double) < MIN_LON || (*location).lon as c_double > MAX_LON {
-        // TRANSLATORS: Append degree symbols if possible.
-        eprintln!(
-            "Longitude must be between {:.1} and {:.1}.",
-            MIN_LON, MAX_LON,
-        );
-        return 0 as c_int;
-    }
-    1 as c_int
 }
 
 // Wait for location to become available from provider.

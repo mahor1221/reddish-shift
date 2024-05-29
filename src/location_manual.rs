@@ -18,7 +18,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 // TODO: map country names to geo location
 
 use crate::config::Location;
