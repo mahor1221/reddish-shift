@@ -18,6 +18,7 @@
 
 // TODO: use snafu for error handling
 
+use crate::solar::SOLAR_CIVIL_TWILIGHT_ELEV;
 use anyhow::{anyhow, Result};
 use config::{Config as ConfigRs, Environment, File};
 use const_format::formatcp;
@@ -42,6 +43,13 @@ pub const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
 pub const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
 pub const DEFAULT_BRIGHTNESS: f32 = 1.0;
 pub const DEFAULT_GAMMA: f32 = 1.0;
+
+// Angular elevation of the sun at which the color temperature
+// transition period starts and ends (in degrees).
+// Transition during twilight, and while the sun is lower than
+// 3.0 degrees above the horizon.
+pub const DEFAULT_ELEVATION_LOW: f32 = SOLAR_CIVIL_TWILIGHT_ELEV;
+pub const DEFAULT_ELEVATION_HIGH: f32 = 3.0;
 
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -69,16 +77,70 @@ cargo target triple: {CARGO_TARGET_TRIPLE}"
     )
 };
 
+const PKG_BUGREPORT: &str = "https://github.com/mahor1221/reddish-shift/issues";
+
+// TRANSLATORS: help output
+// LAT is latitude, LON is longitude,
+// DAY is temperature at daytime,
+// NIGHT is temperature at night
+// no-wrap
+// `list' must not be translated
+const HELP: &str = {
+    formatcp!("Usage: {CARGO_PKG_NAME} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
+
+Set color temperature of display according to time of day.
+
+  -h\t\tDisplay this help message
+  -v\t\tVerbose output
+  -V\t\tShow program version
+
+  -b DAY:NIGHT\tScreen brightness to apply (between 0.1 and 1.0)
+  -c FILE\tLoad settings from specified configuration file
+  -g R:G:B\tAdditional gamma correction to apply
+  -l LAT:LON\tYour current location
+  -l PROVIDER\tSelect provider for automatic location updates
+  \t\t(Type `list` to see available providers)
+  -m METHOD\tMethod to use to set color temperature
+  \t\t(Type `list` to see available methods)
+  -o\t\tOne shot mode (do not continuously adjust color temperature)
+  -O TEMP\tOne shot manual mode (set color temperature)
+  -p\t\tPrint mode (only print parameters and exit)
+  -P\t\tReset existing gamma ramps before applying new color effect
+  -x\t\tReset mode (remove adjustment from screen)
+  -r\t\tDisable fading between color temperatures
+  -t DAY:NIGHT\tColor temperature to set at daytime/night
+
+The neutral temperature is {DEFAULT_TEMPERATURE}K. Using this value will not change the color\ntemperature of the display. Setting the color temperature to a value higher\nthan this results in more blue light, and setting a lower value will result in\nmore red light.
+
+Default values:
+  Daytime temperature: {DEFAULT_TEMPERATURE_DAY}K
+  Night temperature: {DEFAULT_TEMPERATURE_NIGHT}K
+
+Please report bugs to <{PKG_BUGREPORT}>")
+};
+
 //
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Manual {
+pub struct TimeRangesFile {
+    pub dawn: Option<String>,
+    pub dusk: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElevationFile {
+    pub high: Option<f32>,
+    pub low: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocationFile {
     pub latitude: Option<f32>,
     pub longitude: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Randr {
+pub struct RandrFile {
     pub screen: Option<u16>,
 }
 
@@ -89,15 +151,15 @@ pub struct ConfigFile {
     pub gamma: Option<String>,
     pub fade: Option<bool>,
 
-    pub elevation_high: Option<f32>,
-    pub elevation_low: Option<f32>,
-    pub time_dawn: Option<String>,
-    pub time_dusk: Option<String>,
+    pub transition_scheme: Option<String>,
+    pub time_ranges: Option<TimeRangesFile>,
+    pub elevation: Option<ElevationFile>,
 
     pub location_provider: Option<String>,
+    pub manual: Option<LocationFile>,
+
     pub adjustment_method: Option<String>,
-    pub manual: Option<Manual>,
-    pub randr: Option<Randr>,
+    pub randr: Option<RandrFile>,
 }
 
 //
@@ -142,25 +204,12 @@ pub struct TimeRanges {
     pub dusk: TimeRange,
 }
 
-// if (options.scheme.high < options.scheme.low) {
-// 	fprintf(stderr,
-// 		_("High transition elevation cannot be lower than"
-// 		  " the low transition elevation.\n"));
-// 	exit(EXIT_FAILURE);
-// }
-
 // The solar elevations at which the transition begins/ends,
 // TODO: Check if fields are offsets from midnight in seconds.
 #[derive(Debug, Clone, Copy)]
 pub struct Elevation {
-    pub high: i8,
-    pub low: i8,
-}
-
-#[derive(Debug, Clone)]
-pub enum TransitionScheme {
-    TimeRanges(TimeRanges),
-    Elevation(Elevation),
+    pub high: f32,
+    pub low: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,22 +222,52 @@ pub struct Location {
     longitude: LongitudeDegree,
 }
 
-#[derive(Debug, Clone)]
-pub enum LocationProvider {
-    Manual(Location),
-    Geoclue2,
+#[derive(Debug, Clone, Copy)]
+pub enum TransmitionSchemeKind {
+    TimeRanges,
+    Elevation,
 }
 
 #[derive(Debug, Clone)]
-pub enum AdjustmentMethod {
-    Randr { screen: u16 },
+pub struct TransitionScheme {
+    select: TransmitionSchemeKind,
+    time_ranges: TimeRanges,
+    elevation: Elevation,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LocationProviderKind {
+    Manual,
+    GeoClue2,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocationProvider {
+    select: LocationProviderKind,
+    manual: Location,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AdjustmentMethodKind {
+    Randr,
     Drm,
     VidMode,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Randr {
+    pub screen: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdjustmentMethod {
+    select: AdjustmentMethodKind,
+    randr: Randr,
+}
+
 pub struct Config {
-    pub day: ColorProfile,
-    pub night: ColorProfile,
+    pub day_color_profile: ColorProfile,
+    pub night_color_profile: ColorProfile,
     pub fade: bool,
     pub transition_scheme: TransitionScheme,
     pub location_provider: LocationProvider,
@@ -392,34 +471,92 @@ impl TryFrom<f32> for LongitudeDegree {
     }
 }
 
-impl LocationProvider {
-    fn try_from(s: &str, manual: Option<Manual>) -> Result<Self> {
-        match (s, manual) {
-            (
-                "manual",
-                Some(Manual {
-                    latitude: Some(lat),
-                    longitude: Some(lon),
-                }),
-            ) => Ok(Self::Manual(Location {
-                latitude: LatitudeDegree::try_from(lat)?,
-                longitude: LongitudeDegree::try_from(lon)?,
-            })),
-            ("geoclue2", _) => Ok(Self::Geoclue2),
-            // eprintln!("Latitude and longitude must be set.");
+impl TryFrom<&str> for TransmitionSchemeKind {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "time-ranges" => Ok(Self::TimeRanges),
+            "elevation" => Ok(Self::Elevation),
             _ => Err(anyhow!("location_provider")),
         }
     }
 }
 
-impl AdjustmentMethod {
-    fn try_from(s: &str, randr: Option<Randr>) -> Result<Self> {
-        match (s, randr) {
-            ("randr", Some(Randr { screen: Some(n) })) => Ok(Self::Randr { screen: n }),
-            ("randr", None) => Ok(Self::Randr { screen: 0 }),
-            ("drm", _) => Ok(Self::Drm),
-            ("vidmode", _) => Ok(Self::VidMode),
+impl TryFrom<&str> for LocationProviderKind {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "manual" => Ok(Self::Manual),
+            "geoclue2" => Ok(Self::GeoClue2),
+            _ => Err(anyhow!("location_provider")),
+        }
+    }
+}
+
+impl TryFrom<&str> for AdjustmentMethodKind {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "randr" => Ok(Self::Randr),
+            "drm" => Ok(Self::Drm),
+            "vidmode" => Ok(Self::VidMode),
             _ => Err(anyhow!("adjustment_method")),
+        }
+    }
+}
+
+impl TryFrom<&TimeRangesFile> for TimeRanges {
+    type Error = anyhow::Error;
+
+    fn try_from(_t: &TimeRangesFile) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+impl TryFrom<&ElevationFile> for Elevation {
+    type Error = anyhow::Error;
+
+    fn try_from(t: &ElevationFile) -> Result<Self, Self::Error> {
+        match *t {
+            ElevationFile {
+                high: Some(high),
+                low: Some(low),
+            } if high >= low => Ok(Self { high, low }),
+            // fprintf(stderr,
+            // 	_("High transition elevation cannot be lower than"
+            // 	  " the low transition elevation.\n"));
+            _ => Err(anyhow!("elevation")),
+        }
+    }
+}
+
+impl TryFrom<&LocationFile> for Location {
+    type Error = anyhow::Error;
+
+    fn try_from(t: &LocationFile) -> Result<Self, Self::Error> {
+        match *t {
+            LocationFile {
+                latitude: Some(lat),
+                longitude: Some(lon),
+            } => Ok(Self {
+                latitude: lat.try_into()?,
+                longitude: lon.try_into()?,
+            }),
+            _ => Err(anyhow!("location")),
+        }
+    }
+}
+
+impl TryFrom<&RandrFile> for Randr {
+    type Error = anyhow::Error;
+
+    fn try_from(t: &RandrFile) -> Result<Self, Self::Error> {
+        match *t {
+            RandrFile { screen: Some(scr) } => Ok(Self { screen: scr }),
+            _ => Err(anyhow!("randr")),
         }
     }
 }
@@ -470,9 +607,9 @@ impl Default for Gamma {
 impl Default for ColorProfile {
     fn default() -> Self {
         Self {
-            temperature: Default::default(),
-            gamma: Default::default(),
-            brightness: Default::default(),
+            temperature: Temperature::default(),
+            gamma: Gamma::default(),
+            brightness: Brightness::default(),
         }
     }
 }
@@ -493,20 +630,71 @@ impl ColorProfile {
     }
 }
 
+impl Default for TimeRanges {
+    fn default() -> Self {
+        todo!()
+    }
+}
+
+impl Default for Elevation {
+    fn default() -> Self {
+        Self {
+            high: DEFAULT_ELEVATION_HIGH,
+            low: DEFAULT_ELEVATION_LOW,
+        }
+    }
+}
+
+impl Default for TransitionScheme {
+    fn default() -> Self {
+        Self {
+            select: TransmitionSchemeKind::TimeRanges,
+            time_ranges: TimeRanges::default(),
+            elevation: Elevation::default(),
+        }
+    }
+}
+
+impl Default for Location {
+    fn default() -> Self {
+        // TODO: find something generic
+        Self {
+            latitude: LatitudeDegree(48.1),
+            longitude: LongitudeDegree(11.6),
+        }
+    }
+}
+
+impl Default for LocationProvider {
+    fn default() -> Self {
+        Self {
+            select: LocationProviderKind::Manual,
+            manual: Location::default(),
+        }
+    }
+}
+
+impl Default for Randr {
+    fn default() -> Self {
+        Self { screen: 0 }
+    }
+}
+
+impl Default for AdjustmentMethod {
+    fn default() -> Self {
+        todo!()
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
-        // TODO: replace magic numbers
         Config {
-            day: ColorProfile::default_day(),
-            night: ColorProfile::default_night(),
+            day_color_profile: ColorProfile::default_day(),
+            night_color_profile: ColorProfile::default_night(),
             fade: true,
-            // TODO: are time_ranges and location_provider related together?
-            transition_scheme: TransitionScheme::Elevation(Elevation { high: 3, low: -6 }),
-            location_provider: LocationProvider::Manual(Location {
-                latitude: LatitudeDegree(48.1),
-                longitude: LongitudeDegree(11.6),
-            }),
-            adjustment_method: AdjustmentMethod::Randr { screen: 0 },
+            transition_scheme: TransitionScheme::default(),
+            location_provider: LocationProvider::default(),
+            adjustment_method: AdjustmentMethod::default(),
         }
     }
 }
@@ -518,13 +706,12 @@ impl Config {
             brightness,
             gamma,
             fade,
-            elevation_high,
-            elevation_low,
-            time_dawn,
-            time_dusk,
+            transition_scheme,
+            time_ranges,
+            elevation,
             location_provider,
-            adjustment_method,
             manual,
+            adjustment_method,
             randr,
         } = ConfigFile::new()?;
 
@@ -532,32 +719,45 @@ impl Config {
 
         if let Some(t) = temperature {
             let DayNight { day, night }: DayNight<Temperature> = t.as_str().try_into()?;
-            config.day.temperature = day;
-            config.night.temperature = night;
+            config.day_color_profile.temperature = day;
+            config.night_color_profile.temperature = night;
         }
         if let Some(t) = brightness {
             let DayNight { day, night }: DayNight<Brightness> = t.as_str().try_into()?;
-            config.day.brightness = day;
-            config.night.brightness = night;
+            config.day_color_profile.brightness = day;
+            config.night_color_profile.brightness = night;
         }
         if let Some(t) = gamma {
             let DayNight { day, night }: DayNight<Gamma> = t.as_str().try_into()?;
-            config.day.gamma = day;
-            config.night.gamma = night;
+            config.day_color_profile.gamma = day;
+            config.night_color_profile.gamma = night;
         }
         if let Some(t) = fade {
             config.fade = t
         }
 
-        // TODO:
-        // match (elevation_high, elevation_low, time_dawn, time_dusk) {
-        // }
+        if let Some(t) = transition_scheme {
+            config.transition_scheme.select = t.as_str().try_into()?;
+        }
+        if let Some(t) = &time_ranges {
+            config.transition_scheme.time_ranges = t.try_into()?;
+        }
+        if let Some(t) = &elevation {
+            config.transition_scheme.elevation = t.try_into()?;
+        }
 
         if let Some(t) = location_provider {
-            config.location_provider = LocationProvider::try_from(&t, manual)?;
+            config.location_provider.select = t.as_str().try_into()?;
         }
+        if let Some(t) = &manual {
+            config.location_provider.manual = t.try_into()?;
+        }
+
         if let Some(t) = adjustment_method {
-            config.adjustment_method = AdjustmentMethod::try_from(&t, randr)?;
+            config.adjustment_method.select = t.as_str().try_into()?;
+        }
+        if let Some(t) = &randr {
+            config.adjustment_method.randr = t.try_into()?;
         }
 
         Ok(config)

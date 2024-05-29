@@ -36,22 +36,6 @@ extern "C" {
     static optarg: *mut libc::c_char;
 }
 
-// Angular elevation of the sun at which the color temperature
-// transition period starts and ends (in degrees).
-// Transition during twilight, and while the sun is lower than
-// 3.0 degrees above the horizon.
-const TRANSITION_LOW: f64 = SOLAR_CIVIL_TWILIGHT_ELEV;
-const TRANSITION_HIGH: f64 = 3.0;
-
-// Default values for parameters.
-const DEFAULT_DAY_TEMP: u16 = 6500;
-const DEFAULT_NIGHT_TEMP: u16 = 4500;
-const DEFAULT_BRIGHTNESS: f32 = 1.0;
-const DEFAULT_GAMMA: f32 = 1.0;
-
-const NEUTRAL_TEMP: u16 = 6500;
-const PACKAGE_BUGREPORT: &str = "https://github.com/jonls/redshift/issues";
-
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct options_t {
@@ -175,56 +159,6 @@ unsafe extern "C" fn parse_transition_range(str: *const c_char, range: *mut time
     (*range).start = start_time;
     (*range).end = end_time;
     0 as c_int
-}
-
-unsafe extern "C" fn print_help(program_name: *const c_char) {
-    // TRANSLATORS: help output
-    // LAT is latitude, LON is longitude,
-    // DAY is temperature at daytime,
-    // NIGHT is temperature at night
-    // no-wrap
-    // `list' must not be translated
-
-    // gettext(
-    println!(
-        "Usage: {} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
-
-Set color temperature of display according to time of day.
-
-  -h\t\tDisplay this help message
-  -v\t\tVerbose output
-  -V\t\tShow program version
-
-  -b DAY:NIGHT\tScreen brightness to apply (between 0.1 and 1.0)
-  -c FILE\tLoad settings from specified configuration file
-  -g R:G:B\tAdditional gamma correction to apply
-  -l LAT:LON\tYour current location
-  -l PROVIDER\tSelect provider for automatic location updates
-  \t\t(Type `list` to see available providers)
-  -m METHOD\tMethod to use to set color temperature
-  \t\t(Type `list` to see available methods)
-  -o\t\tOne shot mode (do not continuously adjust color temperature)
-  -O TEMP\tOne shot manual mode (set color temperature)
-  -p\t\tPrint mode (only print parameters and exit)
-  -P\t\tReset existing gamma ramps before applying new color effect
-  -x\t\tReset mode (remove adjustment from screen)
-  -r\t\tDisable fading between color temperatures
-  -t DAY:NIGHT\tColor temperature to set at daytime/night
-
-The neutral temperature is {}K. Using this value will not change the color\ntemperature of the display. Setting the color temperature to a value higher\nthan this results in more blue light, and setting a lower value will result in\nmore red light.
-
-Default values:
-  Daytime temperature: {}K
-  Night temperature: {}K
-  
-Please report bugs to <{}>
-",
-        CStr::from_ptr(program_name).to_str().unwrap(),
-        NEUTRAL_TEMP,
-        DEFAULT_DAY_TEMP,
-        DEFAULT_NIGHT_TEMP,
-        PACKAGE_BUGREPORT,
-    );
 }
 
 unsafe extern "C" fn print_method_list(gamma_methods: *const gamma_method_t) {

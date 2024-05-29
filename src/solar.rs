@@ -32,7 +32,7 @@ const SOLAR_ATM_REFRAC: f64 = 0.833;
 
 const SOLAR_ASTRO_TWILIGHT_ELEV: f64 = -18.0;
 const SOLAR_NAUT_TWILIGHT_ELEV: f64 = -12.0;
-pub const SOLAR_CIVIL_TWILIGHT_ELEV: f64 = -6.0;
+pub const SOLAR_CIVIL_TWILIGHT_ELEV: f32 = -6.0;
 const SOLAR_DAYTIME_ELEV: f64 = 0.0 - SOLAR_ATM_REFRAC;
 
 pub type C2RustUnnamed = c_uint;
