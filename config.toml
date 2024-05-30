@@ -13,12 +13,15 @@ gamma = "0.8"
 #gamma = "0.8:0.7:0.8 - 0.6"
 #gamma = "0.8:0.7:0.8 - 0.6:0.5:0.6"
 
+# Whether to preserve gamma ramps if supported by gamma method.
+#preserve_gamma = true
+
 # Disable the smooth fade between temperatures when Reddish Shift starts and
 # stops. false will cause an immediate change between screen temperatures. true
 # will gradually apply the new screen temperature over a couple of seconds.
 fade = true
 
-# Set transmition scheme: 'time-ranges', 'elevation'
+# Set transition scheme: 'time-ranges', 'elevation'
 # Setting it to `elevation` requires using a location provider
 transition-scheme = "elevation"
 
