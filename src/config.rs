@@ -20,7 +20,6 @@
 
 use crate::solar::SOLAR_CIVIL_TWILIGHT_ELEV;
 use anyhow::{anyhow, Result};
-use clap::Parser;
 use config::{Config as ConfigRs, File};
 use const_format::formatcp;
 use itertools::Itertools;
@@ -119,6 +118,45 @@ Default values:
 
 Please report bugs to <{PKG_BUGREPORT}>")
 };
+
+fn print_method_list() {
+    println!("Available adjustment methods:");
+
+    // let mut i: c_int = 0 as c_int;
+    // while !((*gamma_methods.offset(i as isize)).name).is_null() {
+    //     let name = (*gamma_methods.offset(i as isize)).name;
+    //     let name = CStr::from_ptr(name).to_str().unwrap();
+    //     println!("  {name}");
+    //     i += 1;
+    // }
+
+    // TRANSLATORS: `help' must not be translated.
+    println!(
+        "
+Specify colon-separated options with `-m METHOD:OPTIONS`
+Try `-m METHOD:help' for help."
+    );
+}
+
+fn print_provider_list() {
+    println!("Available location providers:");
+
+    // let mut i: c_int = 0 as c_int;
+    // while !((*location_providers.offset(i as isize)).name).is_null() {
+    //     let name = (*location_providers.offset(i as isize)).name;
+    //     let name = CStr::from_ptr(name).to_str().unwrap();
+    //     println!("  {name}");
+    //     i += 1;
+    // }
+
+    // TRANSLATORS: `help' must not be translated.
+    println!(
+        "
+Specify colon-separated options with`-l PROVIDER:OPTIONS'.
+Try `-l PROVIDER:help' for help.
+"
+    );
+}
 
 //
 // Parsed types
@@ -890,4 +928,6 @@ mod test {
             .try_deserialize::<ConfigFile>()?;
         Ok(())
     }
+
+    // TODO: add conversion tests
 }

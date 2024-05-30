@@ -27,7 +27,6 @@ pub mod gamma_vidmode;
 pub mod hooks;
 pub mod location_geoclue2;
 pub mod location_manual;
-pub mod options;
 pub mod pipeutils;
 pub mod signals;
 pub mod solar;
