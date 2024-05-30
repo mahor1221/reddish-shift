@@ -168,11 +168,11 @@ pub struct Temperature(u16);
 #[derive(Debug, Clone, Copy)]
 pub struct Brightness(f32);
 
-#[derive(Debug, Clone, Copy)]
-pub struct Gamma(f32, f32, f32);
+#[derive(Debug, Clone)]
+pub struct Gamma([f32; 3]);
 
 #[derive(Debug, Clone)]
-pub struct ColorProfile {
+pub struct ColorSetting {
     pub temperature: Temperature,
     pub gamma: Gamma,
     pub brightness: Brightness,
@@ -190,34 +190,31 @@ pub struct Time {
     pub minute: Minute,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TimeRange {
-    pub from: Time,
-    pub to: Time,
-}
+/// Offset from midnight in seconds
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TimeOffset(u32);
 
 #[derive(Debug, Clone, Copy)]
+pub struct TimeRange {
+    pub start: TimeOffset,
+    pub end: TimeOffset,
+}
+
+// TODO: fields must be offsets from midnight in seconds.
+#[derive(Debug, Clone)]
 pub struct TimeRanges {
     pub dawn: TimeRange,
     pub dusk: TimeRange,
 }
 
-// The solar elevations at which the transition begins/ends,
-// TODO: Check if fields are offsets from midnight in seconds.
-#[derive(Debug, Clone, Copy)]
-pub struct Elevation {
-    pub high: f32,
-    pub low: f32,
-}
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Elevation(f32);
 
+// The solar elevations at which the transition begins/ends,
 #[derive(Debug, Clone, Copy)]
-pub struct LatitudeDegree(f32);
-#[derive(Debug, Clone, Copy)]
-pub struct LongitudeDegree(f32);
-#[derive(Debug, Clone, Copy)]
-pub struct Location {
-    latitude: LatitudeDegree,
-    longitude: LongitudeDegree,
+pub struct ElevationRange {
+    pub high: Elevation,
+    pub low: Elevation,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -230,7 +227,17 @@ pub enum TransitionSchemeKind {
 pub struct TransitionScheme {
     select: TransitionSchemeKind,
     time_ranges: TimeRanges,
-    elevation: Elevation,
+    elevation_range: ElevationRange,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LatitudeDegree(f32);
+#[derive(Debug, Clone, Copy)]
+pub struct LongitudeDegree(f32);
+#[derive(Debug, Clone, Copy)]
+pub struct Location {
+    pub latitude: LatitudeDegree,
+    pub longitude: LongitudeDegree,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -264,8 +271,8 @@ pub struct AdjustmentMethod {
 }
 
 pub struct Config {
-    pub day_color_profile: ColorProfile,
-    pub night_color_profile: ColorProfile,
+    pub day_color_setting: ColorSetting,
+    pub night_color_setting: ColorSetting,
     pub preserve_gamma: bool,
     pub fade: bool,
     pub transition_scheme: TransitionScheme,
@@ -357,11 +364,11 @@ struct ConfigFile {
 }
 
 //
-// Merge configurations from low to high priority:
-// 1. default config
-// 2. system config file
-// 3. user config file
-// 4. cli arguments
+// Merge configurations, from highest priority to lowest:
+// 1. cli arguments
+// 2. user config file
+// 3. system config file
+// 4. default config
 //
 
 impl Config {
@@ -385,18 +392,18 @@ impl Config {
 
         if let Some(t) = temperature {
             let DayNight { day, night }: DayNight<Temperature> = t.as_str().try_into()?;
-            config.day_color_profile.temperature = day;
-            config.night_color_profile.temperature = night;
+            config.day_color_setting.temperature = day;
+            config.night_color_setting.temperature = night;
         }
         if let Some(t) = brightness {
             let DayNight { day, night }: DayNight<Brightness> = t.as_str().try_into()?;
-            config.day_color_profile.brightness = day;
-            config.night_color_profile.brightness = night;
+            config.day_color_setting.brightness = day;
+            config.night_color_setting.brightness = night;
         }
         if let Some(t) = gamma {
             let DayNight { day, night }: DayNight<Gamma> = t.as_str().try_into()?;
-            config.day_color_profile.gamma = day;
-            config.night_color_profile.gamma = night;
+            config.day_color_setting.gamma = day;
+            config.night_color_setting.gamma = night;
         }
         if let Some(t) = preserve_gamma {
             config.preserve_gamma = t
@@ -412,7 +419,7 @@ impl Config {
             config.transition_scheme.time_ranges = t.try_into()?;
         }
         if let Some(t) = &elevation {
-            config.transition_scheme.elevation = t.try_into()?;
+            config.transition_scheme.elevation_range = t.try_into()?;
         }
 
         if let Some(t) = location_provider {
@@ -468,11 +475,11 @@ impl Default for Brightness {
 
 impl Default for Gamma {
     fn default() -> Self {
-        Gamma(DEFAULT_GAMMA, DEFAULT_GAMMA, DEFAULT_GAMMA)
+        Gamma([DEFAULT_GAMMA; 3])
     }
 }
 
-impl Default for ColorProfile {
+impl Default for ColorSetting {
     fn default() -> Self {
         Self {
             temperature: Temperature::default(),
@@ -482,7 +489,7 @@ impl Default for ColorProfile {
     }
 }
 
-impl ColorProfile {
+impl ColorSetting {
     pub fn default_day() -> Self {
         Self {
             temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
@@ -504,11 +511,11 @@ impl Default for TimeRanges {
     }
 }
 
-impl Default for Elevation {
+impl Default for ElevationRange {
     fn default() -> Self {
         Self {
-            high: DEFAULT_ELEVATION_HIGH,
-            low: DEFAULT_ELEVATION_LOW,
+            high: Elevation(DEFAULT_ELEVATION_HIGH),
+            low: Elevation(DEFAULT_ELEVATION_LOW),
         }
     }
 }
@@ -518,7 +525,7 @@ impl Default for TransitionScheme {
         Self {
             select: TransitionSchemeKind::TimeRanges,
             time_ranges: TimeRanges::default(),
-            elevation: Elevation::default(),
+            elevation_range: ElevationRange::default(),
         }
     }
 }
@@ -557,8 +564,8 @@ impl Default for AdjustmentMethod {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            day_color_profile: ColorProfile::default_day(),
-            night_color_profile: ColorProfile::default_night(),
+            day_color_setting: ColorSetting::default_day(),
+            night_color_setting: ColorSetting::default_night(),
             preserve_gamma: true,
             fade: true,
             transition_scheme: TransitionScheme::default(),
@@ -656,7 +663,7 @@ impl TryFrom<f32> for Gamma {
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
         let n = gamma(n)?;
-        Ok(Self(n, n, n))
+        Ok(Self([n; 3]))
     }
 }
 
@@ -664,7 +671,7 @@ impl TryFrom<(f32, f32, f32)> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from((r, g, b): (f32, f32, f32)) -> Result<Self, Self::Error> {
-        Ok(Self(gamma(r)?, gamma(g)?, gamma(b)?))
+        Ok(Self([gamma(r)?, gamma(g)?, gamma(b)?]))
     }
 }
 
@@ -720,26 +727,51 @@ impl TryFrom<&str> for Time {
     }
 }
 
+impl From<Time> for TimeOffset {
+    fn from(Time { hour, minute }: Time) -> Self {
+        Self((*hour.as_ref() as u32 * 60 * 60) + (*minute.as_ref() as u32 * 60))
+    }
+}
+
 impl TryFrom<&str> for TimeRange {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match *s.split("-").map(str::trim).collect_vec().as_slice() {
-            [from, to] => Ok(Self {
-                from: from.try_into()?,
-                to: to.try_into()?,
-            }),
+            [start, end] => {
+                let start: TimeOffset = Time::try_from(start)?.into();
+                let end: TimeOffset = Time::try_from(end)?.into();
+
+                if start <= end {
+                    Ok(Self { start, end })
+                } else {
+                    Err(anyhow!("time_range"))
+                }
+            }
+            [s] => {
+                let t: TimeOffset = Time::try_from(s)?.into();
+                Ok(Self { start: t, end: t })
+            }
             _ => Err(anyhow!("time_range")),
         }
     }
 }
 
-impl TryFrom<(f32, f32)> for Elevation {
+impl TryFrom<f32> for Elevation {
     type Error = anyhow::Error;
 
-    fn try_from((high, low): (f32, f32)) -> Result<Self, Self::Error> {
+    fn try_from(n: f32) -> Result<Self, Self::Error> {
+        // TODO: any bound? probably lower than a certain degree
+        Ok(Self(n))
+    }
+}
+
+impl TryFrom<(Elevation, Elevation)> for ElevationRange {
+    type Error = anyhow::Error;
+
+    fn try_from((high, low): (Elevation, Elevation)) -> Result<Self, Self::Error> {
         if high >= low {
-            Ok(Elevation { high, low })
+            Ok(Self { high, low })
         } else {
             // fprintf(stderr,
             // 	_("High transition elevation cannot be lower than"
@@ -749,12 +781,16 @@ impl TryFrom<(f32, f32)> for Elevation {
     }
 }
 
-impl TryFrom<&str> for Elevation {
+impl TryFrom<&str> for ElevationRange {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match *s.split(":").map(str::trim).collect_vec().as_slice() {
-            [high, low] => (high.parse::<f32>()?, low.parse::<f32>()?).try_into(),
+            [high, low] => (
+                Elevation::try_from(high.parse::<f32>()?)?,
+                Elevation::try_from(low.parse::<f32>()?)?,
+            )
+                .try_into(),
             _ => Err(anyhow!("elevation")),
         }
     }
@@ -849,7 +885,7 @@ impl TryFrom<&TimeRangesSection> for TimeRanges {
     }
 }
 
-impl TryFrom<&ElevationSection> for Elevation {
+impl TryFrom<&ElevationSection> for ElevationRange {
     type Error = anyhow::Error;
 
     fn try_from(t: &ElevationSection) -> Result<Self, Self::Error> {
@@ -857,7 +893,7 @@ impl TryFrom<&ElevationSection> for Elevation {
             ElevationSection {
                 high: Some(high),
                 low: Some(low),
-            } => (high, low).try_into(),
+            } => (Elevation::try_from(high)?, Elevation::try_from(low)?).try_into(),
             _ => Err(anyhow!("elevation")),
         }
     }
@@ -912,6 +948,62 @@ impl TryFrom<&str> for AdjustmentMethodKind {
 }
 
 //
+// Newtype impl boilerplate
+//
+
+impl AsRef<u16> for Temperature {
+    fn as_ref(&self) -> &u16 {
+        &self.0
+    }
+}
+
+impl AsRef<f32> for Brightness {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+impl AsRef<[f32; 3]> for Gamma {
+    fn as_ref(&self) -> &[f32; 3] {
+        &self.0
+    }
+}
+
+impl AsRef<u8> for Hour {
+    fn as_ref(&self) -> &u8 {
+        &self.0
+    }
+}
+
+impl AsRef<u8> for Minute {
+    fn as_ref(&self) -> &u8 {
+        &self.0
+    }
+}
+
+impl AsRef<u32> for TimeOffset {
+    fn as_ref(&self) -> &u32 {
+        &self.0
+    }
+}
+
+impl AsRef<f32> for Elevation {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+impl AsRef<f32> for LatitudeDegree {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+impl AsRef<f32> for LongitudeDegree {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
 
 #[cfg(test)]
 mod test {

@@ -32,25 +32,26 @@ pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
-use config::{location_is_valid, Config};
+use config::{
+    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma, Location, Temperature,
+    TimeOffset, TimeRanges,
+};
 use gamma_drm::drm_gamma_method;
 use gamma_randr::randr_gamma_method;
-use gamma_vidmode::dummy_gamma_method;
 use gamma_vidmode::vidmode_gamma_method;
 use hooks::hooks_signal_period_change;
+use itertools::Itertools;
 use libc::{
     __errno_location, exit, fprintf, fputs, free, localtime_r, pause, perror, poll, pollfd, printf,
     setlocale, setvbuf, strchr, strcmp, time_t, tm, FILE,
 };
 use location_geoclue2::geoclue2_location_provider;
-use location_manual::manual_location_provider;
-use options::{
-    options_init, options_parse_args, options_parse_config_file, options_set_defaults, options_t,
-};
+// use location_manual::manual_location_provider;
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
 use std::{
     ffi::{c_char, c_double, c_float, c_int, c_long, c_short, c_uint, c_ulong, c_void, CStr},
+    fmt::{Display, Formatter, Result as FmtResult},
     ptr::addr_of_mut,
 };
 use systemtime::{systemtime_get_time, systemtime_msleep};
@@ -74,361 +75,258 @@ extern "C" {
 // Duration of sleep between screen updates (milliseconds).
 const SLEEP_DURATION: u32 = 5000;
 const SLEEP_DURATION_SHORT: u32 = 100;
-
 // Length of fade in numbers of short sleep durations.
 const FADE_LENGTH: u32 = 40;
 
-// Location
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct location_t {
-    pub lat: c_float,
-    pub lon: c_float,
-}
+// // Location provider
+// pub struct location_state_t;
+// pub type location_provider_init_func = unsafe extern "C" fn(*mut *mut location_state_t) -> c_int;
+// pub type location_provider_start_func = unsafe extern "C" fn(*mut location_state_t) -> c_int;
+// pub type location_provider_free_func = unsafe extern "C" fn(*mut location_state_t) -> ();
+// pub type location_provider_print_help_func = unsafe extern "C" fn(*mut FILE) -> ();
+// pub type location_provider_set_option_func =
+//     unsafe extern "C" fn(*mut location_state_t, *const c_char, *const c_char) -> c_int;
+// pub type location_provider_get_fd_func = unsafe extern "C" fn(*mut location_state_t) -> c_int;
+// pub type location_provider_handle_func =
+//     unsafe extern "C" fn(*mut location_state_t, *mut location_t, *mut c_int) -> c_int;
 
-// Names of periods supplied to scripts.
-pub static mut period_names: [*const c_char; 4] = [
-    // TRANSLATORS: Name printed when period of day is unknown
-    b"None\0" as *const u8 as *const c_char,
-    b"Daytime\0" as *const u8 as *const c_char,
-    b"Night\0" as *const u8 as *const c_char,
-    b"Transition\0" as *const u8 as *const c_char,
-];
+// #[derive(Copy, Clone)]
+// #[repr(C)]
+// pub struct location_provider_t {
+//     pub name: *mut c_char,
+
+//     // Initialize state. Options can be set between init and start.
+//     pub init: Option<location_provider_init_func>,
+//     // Allocate storage and make connections that depend on options.
+//     pub start: Option<location_provider_start_func>,
+//     // Free all allocated storage and close connections.
+//     pub free: Option<location_provider_free_func>,
+
+//     // Print help on options for this location provider.
+//     pub print_help: Option<location_provider_print_help_func>,
+//     // Set an option key, value-pair.
+//     pub set_option: Option<location_provider_set_option_func>,
+
+//     // Listen and handle location updates.
+//     pub get_fd: Option<location_provider_get_fd_func>,
+//     pub handle: Option<location_provider_handle_func>,
+// }
+
+// // Names of periods supplied to scripts.
+// pub static mut period_names: [*const c_char; 4] = [
+//     // TRANSLATORS: Name printed when period of day is unknown
+//     b"None\0" as *const u8 as *const c_char,
+//     b"Daytime\0" as *const u8 as *const c_char,
+//     b"Night\0" as *const u8 as *const c_char,
+//     b"Transition\0" as *const u8 as *const c_char,
+// ];
 
 // Periods of day.
-pub type period_t = c_uint;
-pub const PERIOD_TRANSITION: period_t = 3;
-pub const PERIOD_NIGHT: period_t = 2;
-pub const PERIOD_DAYTIME: period_t = 1;
-pub const PERIOD_NONE: period_t = 0;
-
-// Color setting
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct ColorSetting {
-    // TODO: u32
-    pub temperature: i32,
-    pub gamma: [f32; 3],
-    pub brightness: f32,
+enum Period {
+    Daytime,
+    Transition,
+    Night,
 }
 
-// Program modes.
-pub type program_mode_t = c_uint;
-pub const PROGRAM_MODE_MANUAL: program_mode_t = 4;
-pub const PROGRAM_MODE_RESET: program_mode_t = 3;
-pub const PROGRAM_MODE_PRINT: program_mode_t = 2;
-pub const PROGRAM_MODE_ONE_SHOT: program_mode_t = 1;
-pub const PROGRAM_MODE_CONTINUAL: program_mode_t = 0;
+impl Period {
+    // Determine which period we are currently in based on time offset.
+    fn from_time(time_ranges: &TimeRanges, time: TimeOffset) -> Self {
+        let TimeRanges { dawn, dusk } = time_ranges;
+        if time < dawn.start || time >= dusk.end {
+            Self::Night
+        } else if time >= dawn.end && time < dusk.start {
+            Self::Daytime
+        } else {
+            Self::Transition
+        }
+    }
 
-// Time range.
-// Fields are offsets from midnight in seconds.
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct time_range_t {
-    pub start: c_int,
-    pub end: c_int,
-}
-
-// Transition scheme.
-// The solar elevations at which the transition begins/ends,
-// and the association color settings.
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct transition_scheme_t {
-    pub high: c_double,
-    pub low: c_double,
-    pub use_time: c_int, // When enabled, ignore elevation and use time ranges.
-    pub dawn: time_range_t,
-    pub dusk: time_range_t,
-    pub day: ColorSetting,
-    pub night: ColorSetting,
-}
-
-// Gamma adjustment method
-pub struct gamma_state_t;
-pub type gamma_method_init_func = unsafe extern "C" fn(*mut *mut gamma_state_t) -> c_int;
-pub type gamma_method_start_func = unsafe extern "C" fn(*mut gamma_state_t) -> c_int;
-pub type gamma_method_free_func = unsafe extern "C" fn(*mut gamma_state_t) -> ();
-pub type gamma_method_print_help_func = unsafe extern "C" fn(*mut FILE) -> ();
-pub type gamma_method_set_option_func =
-    unsafe extern "C" fn(*mut gamma_state_t, *const c_char, *const c_char) -> c_int;
-pub type gamma_method_restore_func = unsafe extern "C" fn(*mut gamma_state_t) -> ();
-pub type gamma_method_set_temperature_func =
-    unsafe extern "C" fn(*mut gamma_state_t, *const ColorSetting, c_int) -> c_int;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct gamma_method_t {
-    pub name: *mut c_char,
-
-    // If true, this method will be tried if none is explicitly chosen.
-    pub autostart: c_int,
-
-    // Initialize state. Options can be set between init and start.
-    pub init: Option<gamma_method_init_func>,
-    // Allocate storage and make connections that depend on options.
-    pub start: Option<gamma_method_start_func>,
-    // Free all allocated storage and close connections.
-    pub free: Option<gamma_method_free_func>,
-
-    // Print help on options for this adjustment method.
-    pub print_help: Option<gamma_method_print_help_func>,
-    // Set an option key, value-pair
-    pub set_option: Option<gamma_method_set_option_func>,
-
-    // Restore the adjustment to the state before start was called.
-    pub restore: Option<gamma_method_restore_func>,
-    // Set a specific color temperature.
-    pub set_temperature: Option<gamma_method_set_temperature_func>,
-}
-
-// Location provider
-pub struct location_state_t;
-pub type location_provider_init_func = unsafe extern "C" fn(*mut *mut location_state_t) -> c_int;
-pub type location_provider_start_func = unsafe extern "C" fn(*mut location_state_t) -> c_int;
-pub type location_provider_free_func = unsafe extern "C" fn(*mut location_state_t) -> ();
-pub type location_provider_print_help_func = unsafe extern "C" fn(*mut FILE) -> ();
-pub type location_provider_set_option_func =
-    unsafe extern "C" fn(*mut location_state_t, *const c_char, *const c_char) -> c_int;
-pub type location_provider_get_fd_func = unsafe extern "C" fn(*mut location_state_t) -> c_int;
-pub type location_provider_handle_func =
-    unsafe extern "C" fn(*mut location_state_t, *mut location_t, *mut c_int) -> c_int;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct location_provider_t {
-    pub name: *mut c_char,
-
-    // Initialize state. Options can be set between init and start.
-    pub init: Option<location_provider_init_func>,
-    // Allocate storage and make connections that depend on options.
-    pub start: Option<location_provider_start_func>,
-    // Free all allocated storage and close connections.
-    pub free: Option<location_provider_free_func>,
-
-    // Print help on options for this location provider.
-    pub print_help: Option<location_provider_print_help_func>,
-    // Set an option key, value-pair.
-    pub set_option: Option<location_provider_set_option_func>,
-
-    // Listen and handle location updates.
-    pub get_fd: Option<location_provider_get_fd_func>,
-    pub handle: Option<location_provider_handle_func>,
-}
-
-// Determine which period we are currently in based on time offset.
-unsafe extern "C" fn get_period_from_time(
-    transition: *const transition_scheme_t,
-    time_offset: c_int,
-) -> period_t {
-    if time_offset < (*transition).dawn.start || time_offset >= (*transition).dusk.end {
-        PERIOD_NIGHT
-    } else if time_offset >= (*transition).dawn.end && time_offset < (*transition).dusk.start {
-        return PERIOD_DAYTIME;
-    } else {
-        return PERIOD_TRANSITION;
+    // Determine which period we are currently in based on solar elevation.
+    fn from_elevation(elevation_range: ElevationRange, elevation: Elevation) -> Self {
+        let ElevationRange { high, low } = elevation_range;
+        if elevation < low {
+            Self::Night
+        } else if elevation < high {
+            Self::Daytime
+        } else {
+            Self::Transition
+        }
     }
 }
 
-// Determine which period we are currently in based on solar elevation.
-unsafe extern "C" fn get_period_from_elevation(
-    transition: *const transition_scheme_t,
-    elevation: c_double,
-) -> period_t {
-    if elevation < (*transition).low {
-        PERIOD_NIGHT
-    } else if elevation < (*transition).high {
-        return PERIOD_TRANSITION;
-    } else {
-        return PERIOD_DAYTIME;
+// Between 0 and 1
+struct TransitionProgress(f32);
+
+impl AsRef<f32> for TransitionProgress {
+    fn as_ref(&self) -> &f32 {
+        &self.0
     }
 }
 
-// Determine how far through the transition we are based on time offset.
-unsafe extern "C" fn get_transition_progress_from_time(
-    transition: *const transition_scheme_t,
-    time_offset: c_int,
-) -> c_double {
-    if time_offset < (*transition).dawn.start || time_offset >= (*transition).dusk.end {
-        0.0f64
-    } else if time_offset < (*transition).dawn.end {
-        return ((*transition).dawn.start - time_offset) as c_double
-            / ((*transition).dawn.start - (*transition).dawn.end) as c_double;
-    } else if time_offset > (*transition).dusk.start {
-        return ((*transition).dusk.end - time_offset) as c_double
-            / ((*transition).dusk.end - (*transition).dusk.start) as c_double;
-    } else {
-        return 1.0f64;
+impl TransitionProgress {
+    // Determine how far through the transition we are based on time offset.
+    fn from_time(time_ranges: &TimeRanges, time: TimeOffset) -> Self {
+        let TimeRanges { dawn, dusk } = time_ranges;
+        let sub = |a: TimeOffset, b: TimeOffset| (a.as_ref() - b.as_ref()) as f32;
+
+        if time < dawn.start || time >= dusk.end {
+            Self(0.0)
+        } else if time < dawn.end {
+            Self(sub(dawn.start, time) / sub(dawn.start, dawn.end))
+        } else if time > dusk.start {
+            Self(sub(dusk.end, time) / sub(dusk.end, dusk.start))
+        } else {
+            Self(1.0)
+        }
+    }
+
+    // Determine how far through the transition we are based on elevation.
+    fn from_elevation(elevation_range: ElevationRange, elevation: Elevation) -> Self {
+        let ElevationRange { high, low } = elevation_range;
+        let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref()) as f32;
+
+        if elevation < elevation_range.low {
+            Self(0.0)
+        } else if elevation < elevation_range.high {
+            Self(sub(low, elevation) / sub(low, high))
+        } else {
+            Self(1.0)
+        }
     }
 }
 
-// Determine how far through the transition we are based on elevation.
-unsafe extern "C" fn get_transition_progress_from_elevation(
-    transition: *const transition_scheme_t,
-    elevation: c_double,
-) -> c_double {
-    if elevation < (*transition).low {
-        0.0f64
-    } else if elevation < (*transition).high {
-        return ((*transition).low - elevation) / ((*transition).low - (*transition).high);
-    } else {
-        return 1.0f64;
+// Print verbose description of the given period.
+struct PeriodDisplay(Period, TransitionProgress);
+impl Display for PeriodDisplay {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let PeriodDisplay(period, transition_profress) = self;
+        let n = *transition_profress.as_ref();
+        match period {
+            Period::Daytime => f.write_str("Period: Daytime"),
+            Period::Night => f.write_str("Period: Night"),
+            Period::Transition => write!(f, "Period: Transition ({n:.2}% day)"),
+        }
+    }
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        const NORTH: &str = "N";
+        const EAST: &str = "E";
+        const WEST: &str = "W";
+        const SOUTH: &str = "S";
+
+        let lat = self.longitude.as_ref().abs();
+        let ns = if *self.latitude.as_ref() >= 0.0 {
+            NORTH
+        } else {
+            SOUTH
+        };
+        let lon = self.longitude.as_ref().abs();
+        let ew = if *self.longitude.as_ref() >= 0.0 {
+            EAST
+        } else {
+            WEST
+        };
+
+        // TRANSLATORS: Append degree symbols after %f if possible.
+        // The string following each number is an abbreviation for
+        // north, source, east or west (N, S, E, W).
+        write!(f, "Location: {lat:.2} {ns}, {lon:.2} {ew}")
     }
 }
 
 // Return number of seconds since midnight from timestamp.
-unsafe extern "C" fn get_seconds_since_midnight(timestamp: c_double) -> c_int {
-    let mut t: time_t = timestamp as time_t;
-    let mut tm: tm = tm {
-        tm_sec: 0,
-        tm_min: 0,
-        tm_hour: 0,
-        tm_mday: 0,
-        tm_mon: 0,
-        tm_year: 0,
-        tm_wday: 0,
-        tm_yday: 0,
-        tm_isdst: 0,
-        tm_gmtoff: 0,
-        tm_zone: std::ptr::null::<c_char>(),
-    };
-    localtime_r(&mut t, &mut tm);
-    tm.tm_sec + tm.tm_min * 60 as c_int + tm.tm_hour * 3600 as c_int
+fn get_seconds_since_midnight(_timestamp: c_double) -> c_int {
+    // let mut t: time_t = timestamp as time_t;
+    // let mut tm: tm = tm {
+    //     tm_sec: 0,
+    //     tm_min: 0,
+    //     tm_hour: 0,
+    //     tm_mday: 0,
+    //     tm_mon: 0,
+    //     tm_year: 0,
+    //     tm_wday: 0,
+    //     tm_yday: 0,
+    //     tm_isdst: 0,
+    //     tm_gmtoff: 0,
+    //     tm_zone: std::ptr::null::<c_char>(),
+    // };
+    // localtime_r(&mut t, &mut tm);
+    // tm.tm_sec + tm.tm_min * 60 as c_int + tm.tm_hour * 3600 as c_int
+    todo!()
 }
 
-// Print verbose description of the given period.
-unsafe extern "C" fn print_period(period: period_t, transition: c_double) {
-    match period as c_uint {
-        0..=2 => {
-            printf(
-                // gettext(
-                b"Period: %s\n\0" as *const u8 as *const c_char,
-                // ),
-                // gettext(
-                period_names[period as usize],
-                // ),
-            );
-        }
-        3 => {
-            printf(
-                // gettext(
-                b"Period: %s (%.2f%% day)\n\0" as *const u8 as *const c_char,
-                // ),
-                // gettext(
-                period_names[period as usize],
-                // ),
-                transition * 100 as c_int as c_double,
-            );
-        }
-        _ => {}
-    };
-}
-
-// Print location
-unsafe extern "C" fn print_location(location: *const location_t) {
-    // gettext(
-    // TRANSLATORS: Abbreviation for `north'
-    let north: *const c_char = b"N\0" as *const u8 as *const c_char;
-    // TRANSLATORS: Abbreviation for `south'
-    let south: *const c_char = b"S\0" as *const u8 as *const c_char;
-    // TRANSLATORS: Abbreviation for `east'
-    let east: *const c_char = b"E\0" as *const u8 as *const c_char;
-    // TRANSLATORS: Abbreviation for `west'
-    let west: *const c_char = b"W\0" as *const u8 as *const c_char;
-
-    // TRANSLATORS: Append degree symbols after %f if possible.
-    // The string following each number is an abbreviation for
-    // north, source, east or west (N, S, E, W).
-    printf(
-        // gettext(
-        b"Location: %.2f %s, %.2f %s\n\0" as *const u8 as *const c_char,
-        (*location).lat.abs() as c_double,
-        if (*location).lat >= 0.0f32 {
-            north
-        } else {
-            south
-        },
-        (*location).lon.abs() as c_double,
-        if (*location).lon >= 0.0f32 {
-            east
-        } else {
-            west
-        },
-    );
-}
-
-// Interpolate color setting structs given alpha.
-unsafe extern "C" fn interpolate_color_settings(
-    first: *const ColorSetting,
-    second: *const ColorSetting,
-    mut alpha: c_double,
-    result: *mut ColorSetting,
-) {
-    alpha = if 0.0f64 > alpha {
-        0.0f64
-    } else if alpha < 1.0f64 {
+fn clamp(alpha: f32) -> f32 {
+    if 0.0 > alpha {
+        0.0
+    } else if alpha < 1.0 {
         alpha
     } else {
-        1.0f64
-    };
-    (*result).temperature = ((1.0f64 - alpha) * (*first).temperature as c_double
-        + alpha * (*second).temperature as c_double) as c_int;
-    (*result).brightness = ((1.0f64 - alpha) * (*first).brightness as c_double
-        + alpha * (*second).brightness as c_double) as c_float;
-    let mut i: c_int = 0 as c_int;
-    while i < 3 as c_int {
-        (*result).gamma[i as usize] = ((1.0f64 - alpha) * (*first).gamma[i as usize] as c_double
-            + alpha * (*second).gamma[i as usize] as c_double)
-            as c_float;
-        i += 1;
-        i;
+        1.0
     }
 }
 
-// Interpolate color setting structs transition scheme.
-unsafe extern "C" fn interpolate_transition_scheme(
-    transition: *const transition_scheme_t,
-    mut alpha: c_double,
-    result: *mut ColorSetting,
-) {
-    let day: *const ColorSetting = &(*transition).day;
-    let night: *const ColorSetting = &(*transition).night;
-    alpha = if 0.0f64 > alpha {
-        0.0f64
-    } else if alpha < 1.0f64 {
-        alpha
-    } else {
-        1.0f64
-    };
-    interpolate_color_settings(night, day, alpha, result);
+// Between 0 and 1
+struct Alpha(f32);
+
+impl AsRef<f32> for Alpha {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+// Interpolate color setting structs given alpha.
+fn interpolate_color_settings(
+    lhs: &ColorSetting,
+    rhs: &ColorSetting,
+    alpha: Alpha,
+) -> ColorSetting {
+    // let alpha = clamp(alpha);
+    let alpha = alpha.as_ref();
+
+    let temperature: Temperature = (((1.0 - alpha) * *lhs.temperature.as_ref() as f32
+        + alpha * *rhs.temperature.as_ref() as f32) as u16)
+        .try_into()
+        .unwrap_or_else(|_| unreachable!());
+
+    let brightness: Brightness = ((1.0 - alpha) * *lhs.brightness.as_ref()
+        + alpha * *rhs.brightness.as_ref())
+    .try_into()
+    .unwrap_or_else(|_| unreachable!());
+
+    let gamma: Gamma = (0..3)
+        .map(|i| (1.0 - alpha) * lhs.gamma.as_ref()[i] + alpha * rhs.gamma.as_ref()[i])
+        .collect_tuple::<(f32, f32, f32)>()
+        .unwrap_or_else(|| unreachable!())
+        .try_into()
+        .unwrap_or_else(|_| unreachable!());
+
+    ColorSetting {
+        temperature,
+        gamma,
+        brightness,
+    }
 }
 
 // Return 1 if color settings have major differences, otherwise 0.
 // Used to determine if a fade should be applied in continual mode.
-unsafe extern "C" fn color_setting_diff_is_major(
-    first: *const ColorSetting,
-    second: *const ColorSetting,
-) -> c_int {
-    (((*first).temperature - (*second).temperature).abs() > 25 as c_int
-        || ((*first).brightness - (*second).brightness).abs() as c_double > 0.1f64
-        || ((*first).gamma[0 as c_int as usize] - (*second).gamma[0 as c_int as usize]).abs()
-            as c_double
-            > 0.1f64
-        || ((*first).gamma[1 as c_int as usize] - (*second).gamma[1 as c_int as usize]).abs()
-            as c_double
-            > 0.1f64
-        || ((*first).gamma[2 as c_int as usize] - (*second).gamma[2 as c_int as usize]).abs()
-            as c_double
-            > 0.1f64) as c_int
+fn is_color_setting_diff_major(lhs: &ColorSetting, rhs: &ColorSetting) -> bool {
+    (*lhs.temperature.as_ref() as i16 - *rhs.temperature.as_ref() as i16).abs() > 25
+        || (lhs.brightness.as_ref() - rhs.brightness.as_ref()).abs() > 0.1
+        || (lhs.gamma.as_ref()[0] - rhs.gamma.as_ref()[0]).abs() > 0.1
+        || (lhs.gamma.as_ref()[1] - rhs.gamma.as_ref()[1]).abs() > 0.1
+        || (lhs.gamma.as_ref()[2] - rhs.gamma.as_ref()[2]).abs() > 0.1
 }
 
 // Reset color setting to default values.
-unsafe extern "C" fn color_setting_reset(color: *mut ColorSetting) {
-    (*color).temperature = 6500 as c_int;
-    (*color).gamma[0 as c_int as usize] = 1.0f64 as c_float;
-    (*color).gamma[1 as c_int as usize] = 1.0f64 as c_float;
-    (*color).gamma[2 as c_int as usize] = 1.0f64 as c_float;
-    (*color).brightness = 1.0f64 as c_float;
+fn color_setting_reset(_color: &mut ColorSetting) {
+    // (*color).temperature = 6500 as c_int;
+    // (*color).gamma[0 as c_int as usize] = 1.0f64 as c_float;
+    // (*color).gamma[1 as c_int as usize] = 1.0f64 as c_float;
+    // (*color).gamma[2 as c_int as usize] = 1.0f64 as c_float;
+    // (*color).brightness = 1.0f64 as c_float;
+    todo!()
 }
 
 unsafe extern "C" fn provider_try_start(
@@ -474,63 +372,63 @@ unsafe extern "C" fn provider_try_start(
     //     }
     // }
 
-    // Set provider options from command line.
-    let manual_keys: [*const c_char; 2] = [
-        b"lat\0" as *const u8 as *const c_char,
-        b"lon\0" as *const u8 as *const c_char,
-    ];
-    let mut i: c_int = 0 as c_int;
-    while !args.is_null() {
-        let mut next_arg: *mut c_char = strchr(args, ':' as i32);
-        if !next_arg.is_null() {
-            let fresh0 = next_arg;
-            next_arg = next_arg.offset(1);
-            *fresh0 = '\0' as i32 as c_char;
-        }
-        let mut key: *const c_char = args;
-        let mut value: *mut c_char = strchr(args, '=' as i32);
-        if value.is_null() {
-            // The options for the "manual" method can be set
-            //    without keys on the command line for convencience
-            //    and for backwards compatibility. We add the proper
-            //    keys here before calling set_option().
-            if strcmp((*provider).name, b"manual\0" as *const u8 as *const c_char) == 0 as c_int
-                && (i as c_ulong)
-                    < (::core::mem::size_of::<[*const c_char; 2]>() as c_ulong)
-                        .wrapping_div(::core::mem::size_of::<*const c_char>() as c_ulong)
-            {
-                key = manual_keys[i as usize];
-                value = args;
-            } else {
-                eprintln!(
-                    "Failed to parse option `{}`.",
-                    CStr::from_ptr(args).to_str().unwrap()
-                );
-                return -(1 as c_int);
-            }
-        } else {
-            let fresh1 = value;
-            value = value.offset(1);
-            *fresh1 = '\0' as i32 as c_char;
-        }
+    // // Set provider options from command line.
+    // let manual_keys: [*const c_char; 2] = [
+    //     b"lat\0" as *const u8 as *const c_char,
+    //     b"lon\0" as *const u8 as *const c_char,
+    // ];
+    // let mut i: c_int = 0 as c_int;
+    // while !args.is_null() {
+    //     let mut next_arg: *mut c_char = strchr(args, ':' as i32);
+    //     if !next_arg.is_null() {
+    //         let fresh0 = next_arg;
+    //         next_arg = next_arg.offset(1);
+    //         *fresh0 = '\0' as i32 as c_char;
+    //     }
+    //     let mut key: *const c_char = args;
+    //     let mut value: *mut c_char = strchr(args, '=' as i32);
+    //     if value.is_null() {
+    //         // The options for the "manual" method can be set
+    //         //    without keys on the command line for convencience
+    //         //    and for backwards compatibility. We add the proper
+    //         //    keys here before calling set_option().
+    //         if strcmp((*provider).name, b"manual\0" as *const u8 as *const c_char) == 0 as c_int
+    //             && (i as c_ulong)
+    //                 < (::core::mem::size_of::<[*const c_char; 2]>() as c_ulong)
+    //                     .wrapping_div(::core::mem::size_of::<*const c_char>() as c_ulong)
+    //         {
+    //             key = manual_keys[i as usize];
+    //             value = args;
+    //         } else {
+    //             eprintln!(
+    //                 "Failed to parse option `{}`.",
+    //                 CStr::from_ptr(args).to_str().unwrap()
+    //             );
+    //             return -(1 as c_int);
+    //         }
+    //     } else {
+    //         let fresh1 = value;
+    //         value = value.offset(1);
+    //         *fresh1 = '\0' as i32 as c_char;
+    //     }
 
-        r = ((*provider).set_option).expect("non-null function pointer")(*state, key, value);
-        if r < 0 as c_int {
-            ((*provider).free).expect("non-null function pointer")(*state);
-            eprintln!(
-                "Failed to set {} option.",
-                CStr::from_ptr((*provider).name).to_str().unwrap()
-            );
-            // TRANSLATORS: `help' must not be translated.
-            eprintln!(
-                "Try `-l {}:help' for more information.",
-                CStr::from_ptr((*provider).name).to_str().unwrap()
-            );
-            return -(1 as c_int);
-        }
-        args = next_arg;
-        i += 1 as c_int;
-    }
+    //     r = ((*provider).set_option).expect("non-null function pointer")(*state, key, value);
+    //     if r < 0 as c_int {
+    //         ((*provider).free).expect("non-null function pointer")(*state);
+    //         eprintln!(
+    //             "Failed to set {} option.",
+    //             CStr::from_ptr((*provider).name).to_str().unwrap()
+    //         );
+    //         // TRANSLATORS: `help' must not be translated.
+    //         eprintln!(
+    //             "Try `-l {}:help' for more information.",
+    //             CStr::from_ptr((*provider).name).to_str().unwrap()
+    //         );
+    //         return -(1 as c_int);
+    //     }
+    //     args = next_arg;
+    //     i += 1 as c_int;
+    // }
 
     // Start provider.
     r = ((*provider).start).expect("non-null function pointer")(*state);
@@ -593,41 +491,41 @@ unsafe extern "C" fn method_try_start(
     // }
 
     // Set method options from command line.
-    while !args.is_null() {
-        let mut next_arg: *mut c_char = strchr(args, ':' as i32);
-        if !next_arg.is_null() {
-            let fresh2 = next_arg;
-            next_arg = next_arg.offset(1);
-            *fresh2 = '\0' as i32 as c_char;
-        }
-        let key: *const c_char = args;
-        let mut value: *mut c_char = strchr(args, '=' as i32);
-        if value.is_null() {
-            eprintln!(
-                "Failed to parse option `{}`.",
-                CStr::from_ptr(args).to_str().unwrap()
-            );
-            return -(1 as c_int);
-        } else {
-            let fresh3 = value;
-            value = value.offset(1);
-            *fresh3 = '\0' as i32 as c_char;
-        }
-        r = ((*method).set_option).expect("non-null function pointer")(*state, key, value);
-        if r < 0 as c_int {
-            ((*method).free).expect("non-null function pointer")(*state);
-            eprintln!(
-                "Failed to set {} option.",
-                CStr::from_ptr((*method).name).to_str().unwrap()
-            );
-            eprintln!(
-                "Try `-m {}:help' for more information.",
-                CStr::from_ptr((*method).name).to_str().unwrap()
-            );
-            return -(1 as c_int);
-        }
-        args = next_arg;
-    }
+    // while !args.is_null() {
+    //     let mut next_arg: *mut c_char = strchr(args, ':' as i32);
+    //     if !next_arg.is_null() {
+    //         let fresh2 = next_arg;
+    //         next_arg = next_arg.offset(1);
+    //         *fresh2 = '\0' as i32 as c_char;
+    //     }
+    //     let key: *const c_char = args;
+    //     let mut value: *mut c_char = strchr(args, '=' as i32);
+    //     if value.is_null() {
+    //         eprintln!(
+    //             "Failed to parse option `{}`.",
+    //             CStr::from_ptr(args).to_str().unwrap()
+    //         );
+    //         return -(1 as c_int);
+    //     } else {
+    //         let fresh3 = value;
+    //         value = value.offset(1);
+    //         *fresh3 = '\0' as i32 as c_char;
+    //     }
+    //     r = ((*method).set_option).expect("non-null function pointer")(*state, key, value);
+    //     if r < 0 as c_int {
+    //         ((*method).free).expect("non-null function pointer")(*state);
+    //         eprintln!(
+    //             "Failed to set {} option.",
+    //             CStr::from_ptr((*method).name).to_str().unwrap()
+    //         );
+    //         eprintln!(
+    //             "Try `-m {}:help' for more information.",
+    //             CStr::from_ptr((*method).name).to_str().unwrap()
+    //         );
+    //         return -(1 as c_int);
+    //     }
+    //     args = next_arg;
+    // }
 
     // Start method.
     r = ((*method).start).expect("non-null function pointer")(*state);
@@ -640,16 +538,6 @@ unsafe extern "C" fn method_try_start(
         return -(1 as c_int);
     }
     0 as c_int
-}
-
-// Check whether gamma is within allowed levels.
-unsafe extern "C" fn gamma_is_valid(gamma: *const c_float) -> c_int {
-    !((*gamma.offset(0 as c_int as isize) as c_double) < 0.1f64
-        || *gamma.offset(0 as c_int as isize) as c_double > 10.0f64
-        || (*gamma.offset(1 as c_int as isize) as c_double) < 0.1f64
-        || *gamma.offset(1 as c_int as isize) as c_double > 10.0f64
-        || (*gamma.offset(2 as c_int as isize) as c_double) < 0.1f64
-        || *gamma.offset(2 as c_int as isize) as c_double > 10.0f64) as c_int
 }
 
 // Wait for location to become available from provider.
@@ -719,7 +607,7 @@ unsafe extern "C" fn provider_get_location(
 
 // Easing function for fade.
 // See https://github.com/mietek/ease-tween
-unsafe extern "C" fn ease_fade(t: c_double) -> c_double {
+fn ease_fade(t: c_double) -> c_double {
     if t <= 0 as c_int as c_double {
         return 0 as c_int as c_double;
     }
@@ -792,10 +680,6 @@ unsafe extern "C" fn run_continual_mode(
         r = provider_get_location(provider, location_state, -(1 as c_int), &mut loc);
         if r < 0 as c_int {
             eprintln!("Unable to get location from provider.");
-            return -(1 as c_int);
-        }
-        if location_is_valid(&mut loc) == 0 {
-            eprintln!("Invalid location returned from provider.");
             return -(1 as c_int);
         }
         print_location(&mut loc);
@@ -1044,10 +928,6 @@ unsafe extern "C" fn run_continual_mode(
                     print_location(&mut loc);
                 }
                 location_available = new_available;
-                if location_is_valid(&mut loc) == 0 {
-                    eprintln!("Invalid location returned from provider.");
-                    return -(1 as c_int);
-                }
             }
         } else {
             systemtime_msleep(delay as c_uint);
@@ -1073,24 +953,11 @@ unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
     // textdomain(b"redshift\0" as *const u8 as *const c_char);
 
     // List of gamma methods.
-    let gamma_methods: [gamma_method_t; 5] = [
+    let gamma_methods: [gamma_method_t; 4] = [
         drm_gamma_method,
         randr_gamma_method,
         vidmode_gamma_method,
         dummy_gamma_method,
-        {
-            gamma_method_t {
-                name: std::ptr::null_mut::<c_char>(),
-                autostart: 0,
-                init: None,
-                start: None,
-                free: None,
-                print_help: None,
-                set_option: None,
-                restore: None,
-                set_temperature: None,
-            }
-        },
     ];
 
     // List of location providers.
@@ -1482,9 +1349,6 @@ unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
                         // ),
                         stderr,
                     );
-                    exit(1 as c_int);
-                }
-                if location_is_valid(&mut loc) == 0 {
                     exit(1 as c_int);
                 }
                 print_location(&mut loc);
