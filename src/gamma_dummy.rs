@@ -18,112 +18,74 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    gamma_method_free_func, gamma_method_init_func, gamma_method_print_help_func,
-    gamma_method_restore_func, gamma_method_set_option_func, gamma_method_set_temperature_func,
-    gamma_method_start_func, gamma_method_t, ColorSetting,
-};
-use libc::{fputs, FILE};
-use std::ffi::{c_char, c_int, c_void};
+// #[repr(C)]
+// pub struct gamma_method_t {
+//     pub name: *mut c_char,
 
-unsafe extern "C" fn gamma_dummy_init(state: *mut *mut c_void) -> c_int {
-    *state = std::ptr::null_mut::<c_void>();
-    0 as c_int
+//     // If true, this method will be tried if none is explicitly chosen.
+//     pub autostart: c_int,
+
+//     // Initialize state. Options can be set between init and start.
+//     pub init: Option<gamma_method_init_func>,
+//     // Allocate storage and make connections that depend on options.
+//     pub start: Option<gamma_method_start_func>,
+//     // Free all allocated storage and close connections.
+//     pub free: Option<gamma_method_free_func>,
+
+//     // Print help on options for this adjustment method.
+//     pub print_help: Option<gamma_method_print_help_func>,
+//     // Set an option key, value-pair
+//     pub set_option: Option<gamma_method_set_option_func>,
+
+//     // Restore the adjustment to the state before start was called.
+//     pub restore: Option<gamma_method_restore_func>,
+//     // Set a specific color temperature.
+//     pub set_temperature: Option<gamma_method_set_temperature_func>,
+// }
+
+pub struct Dummy;
+
+pub trait GammaAdjuster {
+    fn start();
+    fn restore();
+    fn free();
+    fn print_help();
+    fn set_option();
+    fn set_temperature();
 }
 
-unsafe extern "C" fn gamma_dummy_start(state: *mut c_void) -> c_int {
-    // gettext(
-    eprintln!(
-        "WARNING: Using dummy gamma method! Display will not be affected by this gamma method."
-    );
-    0 as c_int
-}
-
-unsafe extern "C" fn gamma_dummy_restore(state: *mut c_void) {}
-
-unsafe extern "C" fn gamma_dummy_free(state: *mut c_void) {}
-
-unsafe extern "C" fn gamma_dummy_print_help(f: *mut FILE) {
-    fputs(
-        // gettext(
-        b"Does not affect the display but prints the color temperature to the terminal.\n\0"
-            as *const u8 as *const c_char,
-        // ),
-        f,
-    );
-    fputs(b"\n\0" as *const u8 as *const c_char, f);
-}
-
-unsafe extern "C" fn gamma_dummy_set_option(
-    state: *mut c_void,
-    key: *const c_char,
-    value: *const c_char,
-) -> c_int {
-    // gettext(
-    eprintln!("Unknown method parameter: `{}`", *key);
-    -(1 as c_int)
-}
-
-unsafe extern "C" fn gamma_dummy_set_temperature(
-    state: *mut c_void,
-    setting: *const ColorSetting,
-    preserve: c_int,
-) -> c_int {
-    // gettext(
-    println!("Temperature: {}", (*setting).temperature);
-    0 as c_int
-}
-
-#[no_mangle]
-pub static mut dummy_gamma_method: gamma_method_t = unsafe {
-    {
-        gamma_method_t {
-            name: b"dummy\0" as *const u8 as *const c_char as *mut c_char,
-            autostart: 0 as c_int,
-            init: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut *mut c_void) -> c_int>,
-                Option<gamma_method_init_func>,
-            >(Some(
-                gamma_dummy_init as unsafe extern "C" fn(*mut *mut c_void) -> c_int,
-            )),
-            start: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
-                Option<gamma_method_start_func>,
-            >(Some(
-                gamma_dummy_start as unsafe extern "C" fn(*mut c_void) -> c_int,
-            )),
-            free: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void) -> ()>,
-                Option<gamma_method_free_func>,
-            >(Some(
-                gamma_dummy_free as unsafe extern "C" fn(*mut c_void) -> (),
-            )),
-            print_help: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut FILE) -> ()>,
-                Option<gamma_method_print_help_func>,
-            >(Some(
-                gamma_dummy_print_help as unsafe extern "C" fn(*mut FILE) -> (),
-            )),
-            set_option: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int>,
-                Option<gamma_method_set_option_func>,
-            >(Some(
-                gamma_dummy_set_option
-                    as unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int,
-            )),
-            restore: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void) -> ()>,
-                Option<gamma_method_restore_func>,
-            >(Some(
-                gamma_dummy_restore as unsafe extern "C" fn(*mut c_void) -> (),
-            )),
-            set_temperature: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut c_void, *const ColorSetting, c_int) -> c_int>,
-                Option<gamma_method_set_temperature_func>,
-            >(Some(
-                gamma_dummy_set_temperature
-                    as unsafe extern "C" fn(*mut c_void, *const ColorSetting, c_int) -> c_int,
-            )),
-        }
+impl GammaAdjuster for Dummy {
+    fn start() {
+        eprintln!(
+            "WARNING: Using dummy gamma method! Display will not be affected by this gamma method."
+        );
     }
-};
+
+    fn restore() {}
+
+    fn free() {}
+
+    fn print_help() {
+        println!("Does not affect the display but prints the color temperature to the terminal.")
+    }
+
+    fn set_option() {
+        // state: *mut c_void,
+        // key: *const c_char,
+        // value: *const c_char,
+        let key = "";
+        eprintln!("Unknown method parameter: `{key}`");
+        // return -1
+    }
+
+    fn set_temperature() {
+        // state: *mut c_void,
+        // setting: *const ColorSetting,
+        // preserve: c_int,
+
+        let temp = "";
+        println!("Temperature: {temp}"); // (*setting).temperature);
+
+        // return 0
+    }
+}
