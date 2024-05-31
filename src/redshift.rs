@@ -160,6 +160,21 @@ impl AsRef<f32> for TransitionProgress {
     }
 }
 
+// Between 0 and 1
+struct Alpha(f32);
+
+impl AsRef<f32> for Alpha {
+    fn as_ref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+impl From<TransitionProgress> for Alpha {
+    fn from(n: TransitionProgress) -> Self {
+        Alpha(n.0)
+    }
+}
+
 impl TransitionProgress {
     // Determine how far through the transition we are based on time offset.
     fn from_time(time_ranges: &TimeRanges, time: TimeOffset) -> Self {
@@ -264,22 +279,14 @@ fn clamp(alpha: f32) -> f32 {
     }
 }
 
-// Between 0 and 1
-struct Alpha(f32);
-
-impl AsRef<f32> for Alpha {
-    fn as_ref(&self) -> &f32 {
-        &self.0
-    }
-}
-
 // Interpolate color setting structs given alpha.
 fn interpolate_color_settings(
     lhs: &ColorSetting,
     rhs: &ColorSetting,
-    alpha: Alpha,
+    alpha: impl Into<Alpha>,
 ) -> ColorSetting {
     // let alpha = clamp(alpha);
+    let alpha: Alpha = alpha.into();
     let alpha = alpha.as_ref();
 
     let temperature: Temperature = (((1.0 - alpha) * *lhs.temperature.as_ref() as f32
@@ -957,6 +964,7 @@ fn main() -> Result<()> {
     if need_location {
         if !(options.provider).is_null() {
             // Use provider specified on command line.
+            todo!()
         } else {
             // Try all providers, use the first that works.
             // b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
@@ -973,299 +981,150 @@ fn main() -> Result<()> {
         }
     }
 
-    if config.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
-        && config.mode as c_uint != PROGRAM_MODE_MANUAL as c_int as c_uint
-    {
+    if let Mode::Continual | Mode::OneShot | Mode::Print = config.mode {
         if config.verbose {
             todo!()
             // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
         }
     }
 
-    if options.verbose != 0 {
-        printf(
-            // gettext(
-            b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
-            options.scheme.day.brightness as c_double,
-            options.scheme.night.brightness as c_double,
-        );
+    if config.verbose {
+        todo!()
+        // b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
+        // options.scheme.day.brightness as c_double,
+        // options.scheme.night.brightness as c_double,
     }
 
-    // Gamma
-    if gamma_is_valid((options.scheme.day.gamma).as_mut_ptr() as *const c_float) == 0
-        || gamma_is_valid((options.scheme.night.gamma).as_mut_ptr() as *const c_float) == 0
-    {
-        // TRANSLATORS: The string in parenthesis is either
-        // Daytime or Night (translated).
-        fprintf(
-            stderr,
-            // gettext(
-            b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
-            // ),
-            0.1f64,
-            10.0f64,
-        );
-        exit(1 as c_int);
+    if config.verbose {
+        // printf(
+        //     // gettext(
+        //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
+        //     // gettext(
+        //     b"Daytime\0" as *const u8 as *const c_char,
+        //     options.scheme.day.gamma[0 as c_int as usize] as c_double,
+        //     options.scheme.day.gamma[1 as c_int as usize] as c_double,
+        //     options.scheme.day.gamma[2 as c_int as usize] as c_double,
+        // );
+        // printf(
+        //     // gettext(
+        //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
+        //     // gettext(
+        //     b"Night\0" as *const u8 as *const c_char,
+        //     options.scheme.night.gamma[0 as c_int as usize] as c_double,
+        //     options.scheme.night.gamma[1 as c_int as usize] as c_double,
+        //     options.scheme.night.gamma[2 as c_int as usize] as c_double,
+        // );
+        todo!()
     }
 
-    if options.verbose != 0 {
-        printf(
-            // gettext(
-            b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-            // gettext(
-            b"Daytime\0" as *const u8 as *const c_char,
-            options.scheme.day.gamma[0 as c_int as usize] as c_double,
-            options.scheme.day.gamma[1 as c_int as usize] as c_double,
-            options.scheme.day.gamma[2 as c_int as usize] as c_double,
-        );
-        printf(
-            // gettext(
-            b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-            // gettext(
-            b"Night\0" as *const u8 as *const c_char,
-            options.scheme.night.gamma[0 as c_int as usize] as c_double,
-            options.scheme.night.gamma[1 as c_int as usize] as c_double,
-            options.scheme.night.gamma[2 as c_int as usize] as c_double,
-        );
-    }
-
-    let scheme: *mut transition_scheme_t = &mut options.scheme;
-
-    // Initialize gamma adjustment method. If method is NULL
     // try all methods until one that works is found.
-    let mut method_state: *mut gamma_state_t = std::ptr::null_mut::<gamma_state_t>();
-
     // Gamma adjustment not needed for print mode
-    if options.mode as c_uint != PROGRAM_MODE_PRINT as c_int as c_uint {
+    if config.mode != Mode::Print {
         if !(options.method).is_null() {
             // Use method specified on command line.
-            r = method_try_start(
-                options.method,
-                &mut method_state,
-                &mut config_state,
-                options.method_args,
-            );
-            if r < 0 as c_int {
-                exit(1 as c_int);
-            }
+            todo!()
         } else {
             // Try all methods, use the first that works.
-            let mut i_0: c_int = 0 as c_int;
-            while !(gamma_methods[i_0 as usize].name).is_null() {
-                let m: *const gamma_method_t =
-                    &*gamma_methods.as_ptr().offset(i_0 as isize) as *const gamma_method_t;
-                if (*m).autostart != 0 {
-                    r = method_try_start(
-                        m,
-                        &mut method_state,
-                        &mut config_state,
-                        std::ptr::null_mut::<c_char>(),
-                    );
-                    if r < 0 as c_int {
-                        fputs(
-                            // gettext(
-                            b"Trying next method...\n\0" as *const u8 as *const c_char,
-                            stderr,
-                        );
-                    } else {
-                        // Found method that works.
-                        printf(
-                            // gettext(
-                            b"Using method `%s'.\n\0" as *const u8 as *const c_char,
-                            (*m).name,
-                        );
-                        options.method = m;
-                        break;
-                    }
-                }
-                i_0 += 1;
-                i_0;
-            }
-
+            // b"Trying next method...\n\0" as *const u8 as *const c_char,
+            // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
             // Failure if no methods were successful at this point.
-            if (options.method).is_null() {
-                fputs(
-                    // gettext(
-                    b"No more methods to try.\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
-                exit(1 as c_int);
-            }
+            // b"No more methods to try.\n\0" as *const u8 as *const c_char,
+            todo!()
         }
     }
 
-    match options.mode as c_uint {
-        1 | 2 => {
-            let mut loc: location_t = {
-                location_t {
-                    lat: ::core::f32::NAN,
-                    lon: ::core::f32::NAN,
-                }
-            };
-            if need_location != 0 {
-                fputs(
-                    // gettext(
-                    b"Waiting for current location to become available...\n\0" as *const u8
-                        as *const c_char,
-                    // ),
-                    stderr,
-                );
+    match config.mode {
+        Mode::OneShot | Mode::Print => {
+            if need_location {
+                // b"Waiting for current location to become available...\n\0" as *const u8
 
                 // Wait for location provider.
-                let r_0: c_int = provider_get_location(
-                    options.provider,
-                    location_state,
-                    -(1 as c_int),
-                    &mut loc,
-                );
-                if r_0 < 0 as c_int {
-                    fputs(
-                        // gettext(
-                        b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-                        // ),
-                        stderr,
-                    );
-                    exit(1 as c_int);
-                }
-                print_location(&mut loc);
-            }
-            let mut now: c_double = 0.;
-            r = systemtime_get_time(&mut now);
-            if r < 0 as c_int {
-                fputs(
-                    // gettext(
-                    b"Unable to read system time.\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
-                ((*options.method).free).expect("non-null function pointer")(method_state);
-                exit(1 as c_int);
-            }
-            let mut period: period_t = PERIOD_NONE;
-            let mut transition_prog: c_double = 0.;
-            if options.scheme.use_time != 0 {
-                let time_offset: c_int = get_seconds_since_midnight(now);
-                period = get_period_from_time(scheme, time_offset);
-                transition_prog = get_transition_progress_from_time(scheme, time_offset);
-            } else {
-                // Current angular elevation of the sun
-                let elevation: c_double =
-                    solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
-                if options.verbose != 0 {
-                    // TRANSLATORS: Append degree symbol if
-                    // possible.
-                    printf(
-                        // gettext(
-                        b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
-                        elevation,
-                    );
-                }
-                period = get_period_from_elevation(scheme, elevation);
-                transition_prog = get_transition_progress_from_elevation(scheme, elevation);
+                // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
+                // print_location(&mut loc);
+                todo!()
             }
 
+            // let now: c_double = systemtime_get_time();
+            // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
+
+            let (period, transition_prog): (Period, TransitionProgress) =
+                match config.transition_scheme.select {
+                    TransitionSchemeKind::TimeRanges => {
+                        // let time_offset: c_int = get_seconds_since_midnight(now);
+                        // period = get_period_from_time(scheme, time_offset);
+                        // transition_prog = get_transition_progress_from_time(scheme, time_offset);
+                        todo!()
+                    }
+                    TransitionSchemeKind::Elevation => {
+                        // // Current angular elevation of the sun
+                        // let elevation: c_double = solar_elevation(now, loc.lat, loc.lon);
+                        // if config.verbose {
+                        //     // TRANSLATORS: Append degree symbol if possible.
+                        //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
+                        //     todo!()
+                        // }
+                        // period = get_period_from_elevation(scheme, elevation);
+                        // transition_prog = get_transition_progress_from_elevation(scheme, elevation);
+                        todo!()
+                    }
+                };
+
             // Use transition progress to set color temperature
-            let mut interp: ColorSetting = ColorSetting {
-                temperature: 0,
-                gamma: [0.; 3],
-                brightness: 0.,
-            };
-            interpolate_transition_scheme(scheme, transition_prog, &mut interp);
-            if options.verbose != 0
-                || options.mode as c_uint == PROGRAM_MODE_PRINT as c_int as c_uint
-            {
-                print_period(period, transition_prog);
-                printf(
-                    // gettext(
-                    b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-                    interp.temperature,
-                );
-                printf(
-                    // gettext(
-                    b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-                    interp.brightness as c_double,
-                );
+            let interp: ColorSetting = interpolate_color_settings(
+                &config.night_color_setting,
+                &config.day_color_setting,
+                transition_prog,
+            );
+
+            if config.verbose || config.mode == Mode::Print {
+                // print_period(period, transition_prog);
+                // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+                // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
             }
-            if options.mode as c_uint != PROGRAM_MODE_PRINT as c_int as c_uint {
+
+            if config.mode != Mode::Print {
                 // Adjust temperature
                 r = ((*options.method).set_temperature).expect("non-null function pointer")(
                     method_state,
                     &mut interp,
                     options.preserve_gamma,
                 );
-                if r < 0 as c_int {
-                    fputs(
-                        // gettext(
-                        b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
-                        // ),
-                        stderr,
-                    );
-                    ((*options.method).free).expect("non-null function pointer")(method_state);
-                    exit(1 as c_int);
-                }
+                // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
 
                 // In Quartz (macOS) the gamma adjustments will
                 // automatically revert when the process exits.
                 // Therefore, we have to loop until CTRL-C is received.
-                if strcmp(
-                    (*options.method).name,
-                    b"quartz\0" as *const u8 as *const c_char,
-                ) == 0 as c_int
-                {
-                    fputs(
-                        // gettext(
-                        b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
-                        stderr,
-                    );
+                if strcmp(options.method.name, "quartz") == 0 {
+                    // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
                     pause();
+                    todo!()
                 }
             }
         }
 
-        4 => {
-            if options.verbose != 0 {
-                printf(
-                    // gettext(
-                    b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-                    options.temp_set,
-                );
+        Mode::Manual => {
+            if config.verbose {
+                // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+                todo!()
             }
 
             // Adjust temperature
             let mut manual: ColorSetting = (*scheme).day;
             manual.temperature = options.temp_set;
-            r = ((*options.method).set_temperature).expect("non-null function pointer")(
-                method_state,
-                &mut manual,
-                options.preserve_gamma,
-            );
-            if r < 0 as c_int {
-                fputs(
-                    // gettext(
-                    b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
-                ((*options.method).free).expect("non-null function pointer")(method_state);
-                exit(1 as c_int);
-            }
+            // r = ((*options.method).set_temperature).expect("non-null function pointer")(
+            // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
 
             // In Quartz (OSX) the gamma adjustments will automatically
             //    revert when the process exits. Therefore, we have to loop
             //    until CTRL-C is received.
-            if strcmp(
-                (*options.method).name,
-                b"quartz\0" as *const u8 as *const c_char,
-            ) == 0 as c_int
-            {
-                fputs(
-                    // gettext(
-                    b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
+            if strcmp(options.method.name, "quartz") == 0 as c_int {
+                // b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
                 pause();
+                todo!()
             }
         }
 
-        3 => {
+        Mode::Reset => {
             // Reset screen
             let mut reset: ColorSetting = ColorSetting {
                 temperature: 0,
@@ -1278,33 +1137,18 @@ fn main() -> Result<()> {
                 &mut reset,
                 0 as c_int,
             );
-            if r < 0 as c_int {
-                fputs(
-                    // gettext(
-                    b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
-                ((*options.method).free).expect("non-null function pointer")(method_state);
-                exit(1 as c_int);
-            }
+            // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
 
             // In Quartz (OSX) the gamma adjustments will automatically
             // revert when the process exits. Therefore, we have to loop
             // until CTRL-C is received.
-            if strcmp(
-                (*options.method).name,
-                b"quartz\0" as *const u8 as *const c_char,
-            ) == 0 as c_int
-            {
-                fputs(
-                    // gettext(
-                    b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
+            if strcmp(options.method.name, "quartz") == 0 as c_int {
+                // b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
                 pause();
             }
         }
-        0 => {
+
+        Mode::Continual => {
             r = run_continual_mode(
                 options.provider,
                 location_state,
@@ -1322,13 +1166,5 @@ fn main() -> Result<()> {
         _ => {}
     }
 
-    // Clean up gamma adjustment state
-    if options.mode as c_uint != PROGRAM_MODE_PRINT as c_int as c_uint {
-        ((*options.method).free).expect("non-null function pointer")(method_state);
-    }
-
-    // Clean up location provider state
-    if need_location != 0 {
-        ((*options.provider).free).expect("non-null function pointer")(location_state);
-    }
+    Ok(())
 }

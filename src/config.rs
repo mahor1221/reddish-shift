@@ -270,7 +270,7 @@ pub struct AdjustmentMethod {
     pub randr: Randr,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
     #[default]
     Continual,
@@ -664,6 +664,7 @@ fn gamma(n: f32) -> Result<f32> {
     if n >= MIN_GAMMA && n <= MAX_GAMMA {
         Ok(n)
     } else {
+        // b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
         Err(anyhow!("gamma"))
     }
 }
