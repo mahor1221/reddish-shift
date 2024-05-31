@@ -19,22 +19,22 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::sig_atomic_t;
+use crate::SigAtomic;
 use libc::{c_char, c_int, perror, sigaction, sigemptyset, sigset_t};
 use std::{mem::MaybeUninit, ptr::addr_of_mut};
 
 // #if defined(HAVE_SIGNAL_H) && !defined(__WIN32__)
 #[no_mangle]
-pub static mut exiting: sig_atomic_t = 0 as c_int;
+pub static mut exiting: SigAtomic = 0 as c_int;
 #[no_mangle]
-pub static mut disable: sig_atomic_t = 0 as c_int;
+pub static mut disable: SigAtomic = 0 as c_int;
 // Signal handler for exit signals
 unsafe extern "C" fn sigexit(signo: c_int) {
-    ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut sig_atomic_t, 1 as c_int);
+    ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut SigAtomic, 1 as c_int);
 }
 // Signal handler for disable signal
 unsafe extern "C" fn sigdisable(signo: c_int) {
-    ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut sig_atomic_t, 1 as c_int);
+    ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut SigAtomic, 1 as c_int);
 }
 // #else /* ! HAVE_SIGNAL_H || __WIN32__ */
 // int disable = 0;

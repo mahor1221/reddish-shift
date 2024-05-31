@@ -225,9 +225,9 @@ pub enum TransitionSchemeKind {
 
 #[derive(Debug, Clone)]
 pub struct TransitionScheme {
-    select: TransitionSchemeKind,
-    time_ranges: TimeRanges,
-    elevation_range: ElevationRange,
+    pub select: TransitionSchemeKind,
+    pub time_ranges: TimeRanges,
+    pub elevation_range: ElevationRange,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -248,8 +248,8 @@ pub enum LocationProviderKind {
 
 #[derive(Debug, Clone)]
 pub struct LocationProvider {
-    select: LocationProviderKind,
-    manual: Location,
+    pub select: LocationProviderKind,
+    pub manual: Location,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -266,11 +266,25 @@ pub struct Randr {
 
 #[derive(Debug, Clone)]
 pub struct AdjustmentMethod {
-    select: AdjustmentMethodKind,
-    randr: Randr,
+    pub select: AdjustmentMethodKind,
+    pub randr: Randr,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum Mode {
+    #[default]
+    Continual,
+    OneShot,
+    Print,
+    Reset,
+    Manual,
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
+    pub mode: Mode,
+    pub verbose: bool,
+
     pub day_color_setting: ColorSetting,
     pub night_color_setting: ColorSetting,
     pub preserve_gamma: bool,
@@ -283,14 +297,6 @@ pub struct Config {
 //
 // CLI Arguments
 //
-
-enum Mode {
-    Continual,
-    OneShot,
-    Print,
-    Reset,
-    Manual,
-}
 
 // #[derive(Parser, Debug)]
 // #[command(version, about, long_about)]
@@ -564,6 +570,8 @@ impl Default for AdjustmentMethod {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            mode: Mode::default(),
+            verbose: false,
             day_color_setting: ColorSetting::default_day(),
             night_color_setting: ColorSetting::default_night(),
             preserve_gamma: true,
@@ -615,6 +623,7 @@ impl TryFrom<u16> for Temperature {
         if n >= MIN_TEMPERATURE && n <= MAX_TEMPERATURE {
             Ok(Self(n))
         } else {
+            // b"Temperature must be between %uK and %uK.\n\0" as *const u8 as *const c_char,
             Err(anyhow!("temperature"))
         }
     }
@@ -636,6 +645,7 @@ impl TryFrom<f32> for Brightness {
         if n >= MIN_BRIGHTNESS && n <= MAX_BRIGHTNESS {
             Ok(Self(n))
         } else {
+            // b"Brightness values must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
             Err(anyhow!("brightness"))
         }
     }
@@ -773,9 +783,7 @@ impl TryFrom<(Elevation, Elevation)> for ElevationRange {
         if high >= low {
             Ok(Self { high, low })
         } else {
-            // fprintf(stderr,
-            // 	_("High transition elevation cannot be lower than"
-            // 	  " the low transition elevation.\n"));
+            // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
             Err(anyhow!("elevation"))
         }
     }

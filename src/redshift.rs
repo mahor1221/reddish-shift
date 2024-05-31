@@ -32,38 +32,35 @@ pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
+use crate::{location_provider_t, location_state_t, location_t};
+use anyhow::Result;
 use config::{
-    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma, Location, Temperature,
-    TimeOffset, TimeRanges,
+    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma, Location, Mode,
+    Temperature, TimeOffset, TimeRanges, TransitionSchemeKind,
 };
 use gamma_drm::drm_gamma_method;
+use gamma_dummy::{Dummy, GammaAdjuster};
 use gamma_randr::randr_gamma_method;
 use gamma_vidmode::vidmode_gamma_method;
 use hooks::hooks_signal_period_change;
 use itertools::Itertools;
 use libc::{
-    __errno_location, exit, fprintf, fputs, free, localtime_r, pause, perror, poll, pollfd, printf,
-    setlocale, setvbuf, strchr, strcmp, time_t, tm, FILE,
+    __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd, printf, setlocale,
+    setvbuf, strcmp,
 };
 use location_geoclue2::geoclue2_location_provider;
-// use location_manual::manual_location_provider;
+use location_manual::{LocationProvider, Manual};
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
 use std::{
-    ffi::{c_char, c_double, c_float, c_int, c_long, c_short, c_uint, c_ulong, c_void, CStr},
+    ffi::{c_char, c_double, c_float, c_int, c_short, c_uint, c_ulong, CStr},
     fmt::{Display, Formatter, Result as FmtResult},
     ptr::addr_of_mut,
 };
 use systemtime::{systemtime_get_time, systemtime_msleep};
 
-pub type size_t = c_ulong;
-pub type __off_t = c_long;
-pub type __off64_t = c_long;
-pub type __time_t = c_long;
-pub type __sig_atomic_t = c_int;
-
-pub type nfds_t = c_ulong;
-pub type sig_atomic_t = __sig_atomic_t;
+pub type Nfds = c_ulong;
+pub type SigAtomic = c_int;
 
 extern "C" {
     pub static stdout: *mut libc::FILE;
@@ -329,13 +326,8 @@ fn color_setting_reset(_color: &mut ColorSetting) {
     todo!()
 }
 
-unsafe extern "C" fn provider_try_start(
-    provider: *const location_provider_t,
-    state: *mut *mut location_state_t,
-    config: &Config,
-    mut args: *mut c_char,
-) -> c_int {
-    let mut r: c_int = 0;
+fn provider_try_start(config: &Config) {
+    // let mut r: c_int = 0;
     // r = ((*provider).init).expect("non-null function pointer")(state);
     // if r < 0 as c_int {
     //     eprintln!(
@@ -431,28 +423,21 @@ unsafe extern "C" fn provider_try_start(
     // }
 
     // Start provider.
-    r = ((*provider).start).expect("non-null function pointer")(*state);
-    if r < 0 as c_int {
-        ((*provider).free).expect("non-null function pointer")(*state);
-        eprintln!(
-            "Failed to start provider {}.",
-            CStr::from_ptr((*provider).name).to_str().unwrap()
-        );
-        return -(1 as c_int);
-    }
-    0 as c_int
+    Manual::start();
+    // r = ((*provider).start).expect("non-null function pointer")(*state);
+    // if r < 0 as c_int {
+    //     ((*provider).free).expect("non-null function pointer")(*state);
+    //     eprintln!(
+    //         "Failed to start provider {}.",
+    //         CStr::from_ptr((*provider).name).to_str().unwrap()
+    //     );
+    //     return -(1 as c_int);
+    // }
+    // 0 as c_int
 }
 
-unsafe extern "C" fn method_try_start(
-    method: *const gamma_method_t,
-    state: *mut *mut gamma_state_t,
-    config: &Config,
-    mut args: *mut c_char,
-) -> c_int {
-    let mut r: c_int = 0;
-
-    // useless code
-
+fn method_try_start(config: &Config) {
+    // let mut r: c_int = 0;
     // r = ((*method).init).expect("non-null function pointer")(state);
     // if r < 0 as c_int {
     //     eprintln!(
@@ -528,684 +513,475 @@ unsafe extern "C" fn method_try_start(
     // }
 
     // Start method.
-    r = ((*method).start).expect("non-null function pointer")(*state);
-    if r < 0 as c_int {
-        ((*method).free).expect("non-null function pointer")(*state);
-        eprintln!(
-            "Failed to start adjustment method {}.",
-            CStr::from_ptr((*method).name).to_str().unwrap()
-        );
-        return -(1 as c_int);
-    }
-    0 as c_int
+    Dummy::start();
+    // r = ((*method).start).expect("non-null function pointer")(*state);
+    // if r < 0 as c_int {
+    //     ((*method).free).expect("non-null function pointer")(*state);
+    //     eprintln!(
+    //         "Failed to start adjustment method {}.",
+    //         CStr::from_ptr((*method).name).to_str().unwrap()
+    //     );
+    //     return -(1 as c_int);
+    // }
+    // 0 as c_int
 }
 
-// Wait for location to become available from provider.
-// Waits until timeout (milliseconds) has elapsed or forever if timeout
-// is -1. Writes location to loc. Returns -1 on error,
-// 0 if timeout was reached, 1 if location became available.
-unsafe extern "C" fn provider_get_location(
-    provider: *const location_provider_t,
-    state: *mut location_state_t,
-    mut timeout: c_int,
-    loc: *mut location_t,
-) -> c_int {
-    let mut available: c_int = 0 as c_int;
-    let mut pollfds: [pollfd; 1] = [pollfd {
-        fd: 0,
-        events: 0,
-        revents: 0,
-    }; 1];
-    while available == 0 {
-        let loc_fd: c_int = ((*provider).get_fd).expect("non-null function pointer")(state);
-        if loc_fd >= 0 as c_int {
-            // Provider is dynamic.
-            // TODO: This should use a monotonic time source.
-            let mut now: c_double = 0.;
-            let mut r: c_int = systemtime_get_time(&mut now);
-            if r < 0 as c_int {
-                eprintln!("Unable to read system time.");
-                return -(1 as c_int);
-            }
+// // Wait for location to become available from provider.
+// // Waits until timeout (milliseconds) has elapsed or forever if timeout
+// // is -1. Writes location to loc. Returns -1 on error,
+// // 0 if timeout was reached, 1 if location became available.
+// unsafe extern "C" fn provider_get_location(
+//     provider: *const location_provider_t,
+//     state: *mut location_state_t,
+//     mut timeout: c_int,
+//     loc: *mut location_t,
+// ) -> c_int {
+//     let mut available: c_int = 0 as c_int;
+//     let mut pollfds: [pollfd; 1] = [pollfd {
+//         fd: 0,
+//         events: 0,
+//         revents: 0,
+//     }; 1];
+//     while available == 0 {
+//         let loc_fd: c_int = ((*provider).get_fd).expect("non-null function pointer")(state);
+//         if loc_fd >= 0 as c_int {
+//             // Provider is dynamic.
+//             // TODO: This should use a monotonic time source.
+//             let mut now: c_double = 0.;
+//             let mut r: c_int = systemtime_get_time(&mut now);
+//             if r < 0 as c_int {
+//                 eprintln!("Unable to read system time.");
+//                 return -(1 as c_int);
+//             }
 
-            // Poll on file descriptor until ready.
-            pollfds[0 as c_int as usize].fd = loc_fd;
-            pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
-            r = poll(pollfds.as_mut_ptr(), 1 as c_int as nfds_t, timeout);
-            if r < 0 as c_int {
-                perror(b"poll\0" as *const u8 as *const c_char);
-                return -(1 as c_int);
-            } else if r == 0 as c_int {
-                return 0 as c_int;
-            }
-            let mut later: c_double = 0.;
-            r = systemtime_get_time(&mut later);
-            if r < 0 as c_int {
-                eprintln!("Unable to read system time.");
-                return -(1 as c_int);
-            }
+//             // Poll on file descriptor until ready.
+//             pollfds[0 as c_int as usize].fd = loc_fd;
+//             pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
+//             r = poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, timeout);
+//             if r < 0 as c_int {
+//                 perror(b"poll\0" as *const u8 as *const c_char);
+//                 return -(1 as c_int);
+//             } else if r == 0 as c_int {
+//                 return 0 as c_int;
+//             }
+//             let mut later: c_double = 0.;
+//             r = systemtime_get_time(&mut later);
+//             if r < 0 as c_int {
+//                 eprintln!("Unable to read system time.");
+//                 return -(1 as c_int);
+//             }
 
-            // Adjust timeout by elapsed time
-            if timeout >= 0 as c_int {
-                timeout =
-                    (timeout as c_double - (later - now) * 1000 as c_int as c_double) as c_int;
-                timeout = if timeout < 0 as c_int {
-                    0 as c_int
-                } else {
-                    timeout
-                };
-            }
-        }
-        let r_0: c_int =
-            ((*provider).handle).expect("non-null function pointer")(state, loc, &mut available);
-        if r_0 < 0 as c_int {
-            return -(1 as c_int);
-        }
-    }
-    1 as c_int
-}
+//             // Adjust timeout by elapsed time
+//             if timeout >= 0 as c_int {
+//                 timeout =
+//                     (timeout as c_double - (later - now) * 1000 as c_int as c_double) as c_int;
+//                 timeout = if timeout < 0 as c_int {
+//                     0 as c_int
+//                 } else {
+//                     timeout
+//                 };
+//             }
+//         }
+//         let r_0: c_int =
+//             ((*provider).handle).expect("non-null function pointer")(state, loc, &mut available);
+//         if r_0 < 0 as c_int {
+//             return -(1 as c_int);
+//         }
+//     }
+//     1 as c_int
+// }
 
 // Easing function for fade.
 // See https://github.com/mietek/ease-tween
-fn ease_fade(t: c_double) -> c_double {
-    if t <= 0 as c_int as c_double {
-        return 0 as c_int as c_double;
+fn ease_fade(t: f64) -> f64 {
+    if t <= 0.0 {
+        0.0
+    } else if t >= 1.0 {
+        1.0
+    } else {
+        1.0042954579734844 * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
     }
-    if t >= 1 as c_int as c_double {
-        return 1 as c_int as c_double;
-    }
-    1.0042954579734844f64
-        * (-6.404_173_895_841_566_f64 * (-7.290_824_133_098_134_f64 * t).exp()).exp()
 }
 
-// Run continual mode loop
-// This is the main loop of the continual mode which keeps track of the
-// current time and continuously updates the screen to the appropriate
-// color temperature.
-unsafe extern "C" fn run_continual_mode(
-    provider: *const location_provider_t,
-    location_state: *mut location_state_t,
-    scheme: *const transition_scheme_t,
-    method: *const gamma_method_t,
-    method_state: *mut gamma_state_t,
-    use_fade: c_int,
-    preserve_gamma: c_int,
-    verbose: c_int,
-) -> c_int {
-    let mut r: c_int = 0;
+// // Run continual mode loop
+// // This is the main loop of the continual mode which keeps track of the
+// // current time and continuously updates the screen to the appropriate
+// // color temperature.
+// unsafe extern "C" fn run_continual_mode(
+//     provider: *const location_provider_t,
+//     location_state: *mut location_state_t,
+//     scheme: *const transition_scheme_t,
+//     method: *const gamma_method_t,
+//     method_state: *mut gamma_state_t,
+//     use_fade: c_int,
+//     preserve_gamma: c_int,
+//     verbose: c_int,
+// ) -> c_int {
+//     let mut r: c_int = 0;
 
-    // Short fade parameters
-    let mut fade_length: c_int = 0 as c_int;
-    let mut fade_time: c_int = 0 as c_int;
-    let mut fade_start_interp: ColorSetting = ColorSetting {
-        temperature: 0,
-        gamma: [0.; 3],
-        brightness: 0.,
-    };
-    r = signals_install_handlers();
-    if r < 0 as c_int {
-        return r;
-    }
+//     // Short fade parameters
+//     let mut fade_length: c_int = 0 as c_int;
+//     let mut fade_time: c_int = 0 as c_int;
+//     let mut fade_start_interp: ColorSetting = ColorSetting {
+//         temperature: 0,
+//         gamma: [0.; 3],
+//         brightness: 0.,
+//     };
+//     r = signals_install_handlers();
+//     if r < 0 as c_int {
+//         return r;
+//     }
 
-    // Save previous parameters so we can avoid printing status updates if
-    // the values did not change.
-    let mut prev_period: period_t = PERIOD_NONE;
+//     // Save previous parameters so we can avoid printing status updates if
+//     // the values did not change.
+//     let mut prev_period: period_t = PERIOD_NONE;
 
-    // Previous target color setting and current actual color setting.
-    // Actual color setting takes into account the current color fade.
-    let mut prev_target_interp: ColorSetting = ColorSetting {
-        temperature: 0,
-        gamma: [0.; 3],
-        brightness: 0.,
-    };
-    color_setting_reset(&mut prev_target_interp);
-    let mut interp: ColorSetting = ColorSetting {
-        temperature: 0,
-        gamma: [0.; 3],
-        brightness: 0.,
-    };
-    color_setting_reset(&mut interp);
-    let mut loc: location_t = {
-        location_t {
-            lat: ::core::f32::NAN,
-            lon: ::core::f32::NAN,
-        }
-    };
+//     // Previous target color setting and current actual color setting.
+//     // Actual color setting takes into account the current color fade.
+//     let mut prev_target_interp: ColorSetting = ColorSetting {
+//         temperature: 0,
+//         gamma: [0.; 3],
+//         brightness: 0.,
+//     };
+//     color_setting_reset(&mut prev_target_interp);
+//     let mut interp: ColorSetting = ColorSetting {
+//         temperature: 0,
+//         gamma: [0.; 3],
+//         brightness: 0.,
+//     };
+//     color_setting_reset(&mut interp);
+//     let mut loc: location_t = {
+//         location_t {
+//             lat: ::core::f32::NAN,
+//             lon: ::core::f32::NAN,
+//         }
+//     };
 
-    let need_location: c_int = ((*scheme).use_time == 0) as c_int;
-    if need_location != 0 {
-        eprintln!("Waiting for initial location to become available...");
+//     let need_location: c_int = ((*scheme).use_time == 0) as c_int;
+//     if need_location != 0 {
+//         eprintln!("Waiting for initial location to become available...");
 
-        // Get initial location from provider
-        r = provider_get_location(provider, location_state, -(1 as c_int), &mut loc);
-        if r < 0 as c_int {
-            eprintln!("Unable to get location from provider.");
-            return -(1 as c_int);
-        }
-        print_location(&mut loc);
-    }
+//         // Get initial location from provider
+//         r = provider_get_location(provider, location_state, -(1 as c_int), &mut loc);
+//         if r < 0 as c_int {
+//             eprintln!("Unable to get location from provider.");
+//             return -(1 as c_int);
+//         }
+//         print_location(&mut loc);
+//     }
 
-    if verbose != 0 {
-        printf(
-            // gettext(
-            b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-            interp.temperature,
-        );
-        printf(
-            // gettext(
-            b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-            interp.brightness as c_double,
-        );
-    }
+//     if verbose != 0 {
+//         printf(
+//             // gettext(
+//             b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+//             interp.temperature,
+//         );
+//         printf(
+//             // gettext(
+//             b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+//             interp.brightness as c_double,
+//         );
+//     }
 
-    // Continuously adjust color temperature
-    let mut done: c_int = 0 as c_int;
-    let mut prev_disabled: c_int = 1 as c_int;
-    let mut disabled: c_int = 0 as c_int;
-    let mut location_available: c_int = 1 as c_int;
-    loop {
-        // Check to see if disable signal was caught
-        if disable != 0 && done == 0 {
-            disabled = (disabled == 0) as c_int;
-            ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut sig_atomic_t, 0 as c_int);
-        }
+//     // Continuously adjust color temperature
+//     let mut done: c_int = 0 as c_int;
+//     let mut prev_disabled: c_int = 1 as c_int;
+//     let mut disabled: c_int = 0 as c_int;
+//     let mut location_available: c_int = 1 as c_int;
+//     loop {
+//         // Check to see if disable signal was caught
+//         if disable != 0 && done == 0 {
+//             disabled = (disabled == 0) as c_int;
+//             ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut SigAtomic, 0 as c_int);
+//         }
 
-        // Check to see if exit signal was caught
-        if exiting != 0 {
-            if done != 0 {
-                // On second signal stop the ongoing fade.
-                break;
-            }
-            done = 1 as c_int;
-            disabled = 1 as c_int;
-            ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut sig_atomic_t, 0 as c_int);
-        }
+//         // Check to see if exit signal was caught
+//         if exiting != 0 {
+//             if done != 0 {
+//                 // On second signal stop the ongoing fade.
+//                 break;
+//             }
+//             done = 1 as c_int;
+//             disabled = 1 as c_int;
+//             ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut SigAtomic, 0 as c_int);
+//         }
 
-        // Print status change
-        if verbose != 0 && disabled != prev_disabled {
-            printf(
-                // gettext(
-                b"Status: %s\n\0" as *const u8 as *const c_char,
-                if disabled != 0 {
-                    // gettext(
-                    b"Disabled\0" as *const u8 as *const c_char
-                } else {
-                    // gettext(
-                    b"Enabled\0" as *const u8 as *const c_char
-                },
-            );
-        }
-        prev_disabled = disabled;
+//         // Print status change
+//         if verbose != 0 && disabled != prev_disabled {
+//             printf(
+//                 // gettext(
+//                 b"Status: %s\n\0" as *const u8 as *const c_char,
+//                 if disabled != 0 {
+//                     // gettext(
+//                     b"Disabled\0" as *const u8 as *const c_char
+//                 } else {
+//                     // gettext(
+//                     b"Enabled\0" as *const u8 as *const c_char
+//                 },
+//             );
+//         }
+//         prev_disabled = disabled;
 
-        // Read timestamp
-        let mut now: c_double = 0.;
-        r = systemtime_get_time(&mut now);
-        if r < 0 as c_int {
-            eprintln!("Unable to read system time.");
-            return -(1 as c_int);
-        }
+//         // Read timestamp
+//         let mut now: c_double = 0.;
+//         r = systemtime_get_time(&mut now);
+//         if r < 0 as c_int {
+//             eprintln!("Unable to read system time.");
+//             return -(1 as c_int);
+//         }
 
-        let mut period: period_t = PERIOD_NONE;
-        let mut transition_prog: c_double = 0.;
-        if (*scheme).use_time != 0 {
-            let time_offset: c_int = get_seconds_since_midnight(now);
-            period = get_period_from_time(scheme, time_offset);
-            transition_prog = get_transition_progress_from_time(scheme, time_offset);
-        } else {
-            // Current angular elevation of the sun
-            let elevation: c_double =
-                solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
-            period = get_period_from_elevation(scheme, elevation);
-            transition_prog = get_transition_progress_from_elevation(scheme, elevation);
-        }
+//         let mut period: period_t = PERIOD_NONE;
+//         let mut transition_prog: c_double = 0.;
+//         if (*scheme).use_time != 0 {
+//             let time_offset: c_int = get_seconds_since_midnight(now);
+//             period = get_period_from_time(scheme, time_offset);
+//             transition_prog = get_transition_progress_from_time(scheme, time_offset);
+//         } else {
+//             // Current angular elevation of the sun
+//             let elevation: c_double =
+//                 solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
+//             period = get_period_from_elevation(scheme, elevation);
+//             transition_prog = get_transition_progress_from_elevation(scheme, elevation);
+//         }
 
-        // Use transition progress to get target color
-        //    temperature.
-        let mut target_interp: ColorSetting = ColorSetting {
-            temperature: 0,
-            gamma: [0.; 3],
-            brightness: 0.,
-        };
-        interpolate_transition_scheme(scheme, transition_prog, &mut target_interp);
-        if disabled != 0 {
-            period = PERIOD_NONE;
-            color_setting_reset(&mut target_interp);
-        }
-        if done != 0 {
-            period = PERIOD_NONE;
-        }
+//         // Use transition progress to get target color
+//         //    temperature.
+//         let mut target_interp: ColorSetting = ColorSetting {
+//             temperature: 0,
+//             gamma: [0.; 3],
+//             brightness: 0.,
+//         };
+//         interpolate_transition_scheme(scheme, transition_prog, &mut target_interp);
+//         if disabled != 0 {
+//             period = PERIOD_NONE;
+//             color_setting_reset(&mut target_interp);
+//         }
+//         if done != 0 {
+//             period = PERIOD_NONE;
+//         }
 
-        // Print period if it changed during this update,
-        // or if we are in the transition period. In transition we
-        // print the progress, so we always print it in
-        // that case.
-        if verbose != 0
-            && (period as c_uint != prev_period as c_uint
-                || period as c_uint == PERIOD_TRANSITION as c_int as c_uint)
-        {
-            print_period(period, transition_prog);
-        }
+//         // Print period if it changed during this update,
+//         // or if we are in the transition period. In transition we
+//         // print the progress, so we always print it in
+//         // that case.
+//         if verbose != 0
+//             && (period as c_uint != prev_period as c_uint
+//                 || period as c_uint == PERIOD_TRANSITION as c_int as c_uint)
+//         {
+//             print_period(period, transition_prog);
+//         }
 
-        /* Activate hooks if period changed */
-        if period as c_uint != prev_period as c_uint {
-            hooks_signal_period_change(prev_period, period);
-        }
+//         /* Activate hooks if period changed */
+//         if period as c_uint != prev_period as c_uint {
+//             hooks_signal_period_change(prev_period, period);
+//         }
 
-        // Start fade if the parameter differences are too big to apply
-        // instantly.
-        if use_fade != 0
-            && (fade_length == 0 as c_int
-                && color_setting_diff_is_major(&mut interp, &mut target_interp) != 0
-                || fade_length != 0 as c_int
-                    && color_setting_diff_is_major(&mut target_interp, &mut prev_target_interp)
-                        != 0)
-        {
-            fade_length = 40 as c_int;
-            fade_time = 0 as c_int;
-            fade_start_interp = interp;
-        }
+//         // Start fade if the parameter differences are too big to apply
+//         // instantly.
+//         if use_fade != 0
+//             && (fade_length == 0 as c_int
+//                 && color_setting_diff_is_major(&mut interp, &mut target_interp) != 0
+//                 || fade_length != 0 as c_int
+//                     && color_setting_diff_is_major(&mut target_interp, &mut prev_target_interp)
+//                         != 0)
+//         {
+//             fade_length = 40 as c_int;
+//             fade_time = 0 as c_int;
+//             fade_start_interp = interp;
+//         }
 
-        // Handle ongoing fade
-        if fade_length != 0 as c_int {
-            fade_time += 1 as c_int;
-            let frac: c_double = fade_time as c_double / fade_length as c_double;
-            let alpha: c_double = if 0.0f64 > ease_fade(frac) {
-                0.0f64
-            } else if ease_fade(frac) < 1.0f64 {
-                ease_fade(frac)
-            } else {
-                1.0f64
-            };
-            interpolate_color_settings(
-                &mut fade_start_interp,
-                &mut target_interp,
-                alpha,
-                &mut interp,
-            );
-            if fade_time > fade_length {
-                fade_time = 0 as c_int;
-                fade_length = 0 as c_int;
-            }
-        } else {
-            interp = target_interp;
-        }
+//         // Handle ongoing fade
+//         if fade_length != 0 as c_int {
+//             fade_time += 1 as c_int;
+//             let frac: c_double = fade_time as c_double / fade_length as c_double;
+//             let alpha: c_double = if 0.0f64 > ease_fade(frac) {
+//                 0.0f64
+//             } else if ease_fade(frac) < 1.0f64 {
+//                 ease_fade(frac)
+//             } else {
+//                 1.0f64
+//             };
+//             interpolate_color_settings(
+//                 &mut fade_start_interp,
+//                 &mut target_interp,
+//                 alpha,
+//                 &mut interp,
+//             );
+//             if fade_time > fade_length {
+//                 fade_time = 0 as c_int;
+//                 fade_length = 0 as c_int;
+//             }
+//         } else {
+//             interp = target_interp;
+//         }
 
-        // Break loop when done and final fade is over
-        if done != 0 && fade_length == 0 as c_int {
-            break;
-        }
+//         // Break loop when done and final fade is over
+//         if done != 0 && fade_length == 0 as c_int {
+//             break;
+//         }
 
-        if verbose != 0 {
-            if prev_target_interp.temperature != target_interp.temperature {
-                printf(
-                    // gettext(
-                    b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-                    target_interp.temperature,
-                );
-            }
-            if prev_target_interp.brightness != target_interp.brightness {
-                printf(
-                    // gettext(
-                    b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-                    target_interp.brightness as c_double,
-                );
-            }
-        }
+//         if verbose != 0 {
+//             if prev_target_interp.temperature != target_interp.temperature {
+//                 printf(
+//                     // gettext(
+//                     b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+//                     target_interp.temperature,
+//                 );
+//             }
+//             if prev_target_interp.brightness != target_interp.brightness {
+//                 printf(
+//                     // gettext(
+//                     b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+//                     target_interp.brightness as c_double,
+//                 );
+//             }
+//         }
 
-        // Adjust temperature
-        r = ((*method).set_temperature).expect("non-null function pointer")(
-            method_state,
-            &mut interp,
-            preserve_gamma,
-        );
-        if r < 0 as c_int {
-            eprintln!("Temperature adjustment failed.");
-            return -(1 as c_int);
-        }
+//         // Adjust temperature
+//         r = ((*method).set_temperature).expect("non-null function pointer")(
+//             method_state,
+//             &mut interp,
+//             preserve_gamma,
+//         );
+//         if r < 0 as c_int {
+//             eprintln!("Temperature adjustment failed.");
+//             return -(1 as c_int);
+//         }
 
-        // Save period and target color setting as previous
-        prev_period = period;
-        prev_target_interp = target_interp;
+//         // Save period and target color setting as previous
+//         prev_period = period;
+//         prev_target_interp = target_interp;
 
-        // Sleep length depends on whether a fade is ongoing.
-        let mut delay: c_int = 5000 as c_int;
-        if fade_length != 0 as c_int {
-            delay = 100 as c_int;
-        }
+//         // Sleep length depends on whether a fade is ongoing.
+//         let mut delay: c_int = 5000 as c_int;
+//         if fade_length != 0 as c_int {
+//             delay = 100 as c_int;
+//         }
 
-        // Update location.
-        let mut loc_fd: c_int = -(1 as c_int);
-        if need_location != 0 {
-            loc_fd = ((*provider).get_fd).expect("non-null function pointer")(location_state);
-        }
+//         // Update location.
+//         let mut loc_fd: c_int = -(1 as c_int);
+//         if need_location != 0 {
+//             loc_fd = ((*provider).get_fd).expect("non-null function pointer")(location_state);
+//         }
 
-        if loc_fd >= 0 as c_int {
-            // Provider is dynamic.
-            let mut pollfds: [pollfd; 1] = [pollfd {
-                fd: 0,
-                events: 0,
-                revents: 0,
-            }; 1];
+//         if loc_fd >= 0 as c_int {
+//             // Provider is dynamic.
+//             let mut pollfds: [pollfd; 1] = [pollfd {
+//                 fd: 0,
+//                 events: 0,
+//                 revents: 0,
+//             }; 1];
 
-            pollfds[0 as c_int as usize].fd = loc_fd;
-            pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
-            let mut r_0: c_int = poll(pollfds.as_mut_ptr(), 1 as c_int as nfds_t, delay);
-            if r_0 < 0 as c_int {
-                if *__errno_location() == 4 as c_int {
-                    continue;
-                }
-                perror(b"poll\0" as *const u8 as *const c_char);
-                eprintln!("Unable to get location from provider.");
-                return -(1 as c_int);
-            } else {
-                if r_0 == 0 as c_int {
-                    continue;
-                }
+//             pollfds[0 as c_int as usize].fd = loc_fd;
+//             pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
+//             let mut r_0: c_int = poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
+//             if r_0 < 0 as c_int {
+//                 if *__errno_location() == 4 as c_int {
+//                     continue;
+//                 }
+//                 perror(b"poll\0" as *const u8 as *const c_char);
+//                 eprintln!("Unable to get location from provider.");
+//                 return -(1 as c_int);
+//             } else {
+//                 if r_0 == 0 as c_int {
+//                     continue;
+//                 }
 
-                // Get new location and availability
-                // information.
-                let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
-                let mut new_available: c_int = 0;
-                r_0 = ((*provider).handle).expect("non-null function pointer")(
-                    location_state,
-                    &mut new_loc,
-                    &mut new_available,
-                );
-                if r_0 < 0 as c_int {
-                    eprintln!("Unable to get location from provider.");
-                    return -(1 as c_int);
-                }
-                if new_available == 0 && new_available != location_available {
-                    eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
-                }
+//                 // Get new location and availability
+//                 // information.
+//                 let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
+//                 let mut new_available: c_int = 0;
+//                 r_0 = ((*provider).handle).expect("non-null function pointer")(
+//                     location_state,
+//                     &mut new_loc,
+//                     &mut new_available,
+//                 );
+//                 if r_0 < 0 as c_int {
+//                     eprintln!("Unable to get location from provider.");
+//                     return -(1 as c_int);
+//                 }
+//                 if new_available == 0 && new_available != location_available {
+//                     eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
+//                 }
 
-                if new_available != 0
-                    && (new_loc.lat != loc.lat
-                        || new_loc.lon != loc.lon
-                        || new_available != location_available)
-                {
-                    loc = new_loc;
-                    print_location(&mut loc);
-                }
-                location_available = new_available;
-            }
-        } else {
-            systemtime_msleep(delay as c_uint);
-        }
-    }
+//                 if new_available != 0
+//                     && (new_loc.lat != loc.lat
+//                         || new_loc.lon != loc.lon
+//                         || new_available != location_available)
+//                 {
+//                     loc = new_loc;
+//                     print_location(&mut loc);
+//                 }
+//                 location_available = new_available;
+//             }
+//         } else {
+//             systemtime_msleep(delay as c_uint);
+//         }
+//     }
 
-    // Restore saved gamma ramps
-    ((*method).restore).expect("non-null function pointer")(method_state);
-    0 as c_int
-}
+//     // Restore saved gamma ramps
+//     ((*method).restore).expect("non-null function pointer")(method_state);
+//     0 as c_int
+// }
 
-unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
-    let mut r: c_int = 0;
-    // Init locale
-    setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
-    setlocale(5 as c_int, b"\0" as *const u8 as *const c_char);
+fn main() -> Result<()> {
+    // // Init locale
+    // setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
+    // setlocale(5 as c_int, b"\0" as *const u8 as *const c_char);
 
-    // Internationalisation
+    // // Internationalisation
     // bindtextdomain(
     //     b"redshift\0" as *const u8 as *const c_char,
     //     b"/home/mahor/redshift/root/share/locale\0" as *const u8 as *const c_char,
     // );
     // textdomain(b"redshift\0" as *const u8 as *const c_char);
 
-    // List of gamma methods.
-    let gamma_methods: [gamma_method_t; 4] = [
-        drm_gamma_method,
-        randr_gamma_method,
-        vidmode_gamma_method,
-        dummy_gamma_method,
-    ];
-
-    // List of location providers.
-    let location_providers: [location_provider_t; 3] =
-        [geoclue2_location_provider, manual_location_provider, {
-            location_provider_t {
-                name: std::ptr::null_mut::<c_char>(),
-                init: None,
-                start: None,
-                free: None,
-                print_help: None,
-                set_option: None,
-                get_fd: None,
-                handle: None,
-            }
-        }];
-
-    // Flush messages consistently even if redirected to a pipe or
-    // file.  Change the flush behaviour to line-buffered, without
-    // changing the actual buffers being used.
-    setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
-    setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
-
-    let mut options: options_t = options_t {
-        config_filepath: std::ptr::null_mut::<c_char>(),
-        scheme: transition_scheme_t {
-            high: 0.,
-            low: 0.,
-            use_time: 0,
-            dawn: time_range_t { start: 0, end: 0 },
-            dusk: time_range_t { start: 0, end: 0 },
-            day: ColorSetting {
-                temperature: 0,
-                gamma: [0.; 3],
-                brightness: 0.,
-            },
-            night: ColorSetting {
-                temperature: 0,
-                gamma: [0.; 3],
-                brightness: 0.,
-            },
-        },
-        mode: PROGRAM_MODE_CONTINUAL,
-        verbose: 0,
-        temp_set: 0,
-        use_fade: 0,
-        preserve_gamma: 0,
-        method: std::ptr::null::<gamma_method_t>(),
-        method_args: std::ptr::null_mut::<c_char>(),
-        provider: std::ptr::null::<location_provider_t>(),
-        provider_args: std::ptr::null_mut::<c_char>(),
-    };
-    options_init(&mut options);
-    options_parse_args(
-        &mut options,
-        argc,
-        argv,
-        gamma_methods.as_ptr(),
-        location_providers.as_ptr(),
-    );
-
-    // Load settings from config file.
-    let config = Config::new();
-
-    options_parse_config_file(
-        &mut options,
-        &mut config_state,
-        gamma_methods.as_ptr(),
-        location_providers.as_ptr(),
-    );
-    options_set_defaults(&mut options);
-    if options.scheme.dawn.start >= 0 as c_int
-        || options.scheme.dawn.end >= 0 as c_int
-        || options.scheme.dusk.start >= 0 as c_int
-        || options.scheme.dusk.end >= 0 as c_int
-    {
-        if options.scheme.dawn.start < 0 as c_int
-            || options.scheme.dawn.end < 0 as c_int
-            || options.scheme.dusk.start < 0 as c_int
-            || options.scheme.dusk.end < 0 as c_int
-        {
-            eprintln!("Partial time-configuration not supported!");
-            exit(1 as c_int);
-        }
-        if options.scheme.dawn.start > options.scheme.dawn.end
-            || options.scheme.dawn.end > options.scheme.dusk.start
-            || options.scheme.dusk.start > options.scheme.dusk.end
-        {
-            eprintln!("Invalid dawn/dusk time configuration!");
-            exit(1 as c_int);
-        }
-        options.scheme.use_time = 1 as c_int;
-    }
+    // // Flush messages consistently even if redirected to a pipe or
+    // // file.  Change the flush behaviour to line-buffered, without
+    // // changing the actual buffers being used.
+    // setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
+    // setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
 
     // Initialize location provider if needed. If provider is NULL
     // try all providers until one that works is found.
-    let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
+    // let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
 
-    // Location is not needed for reset mode and manual mode.
-    let need_location: c_int = (options.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
-        && options.mode as c_uint != PROGRAM_MODE_MANUAL as c_int as c_uint
-        && options.scheme.use_time == 0) as c_int;
-    if need_location != 0 {
+    let config = Config::new()?;
+
+    let need_location = match (config.mode, config.transition_scheme.select) {
+        (Mode::Reset | Mode::Manual, _) => false,
+        (Mode::Continual | Mode::OneShot | Mode::Print, TransitionSchemeKind::Elevation) => true,
+        (Mode::Continual | Mode::OneShot | Mode::Print, TransitionSchemeKind::TimeRanges) => false,
+    };
+
+    if need_location {
         if !(options.provider).is_null() {
             // Use provider specified on command line.
-            r = provider_try_start(
-                options.provider,
-                &mut location_state,
-                &mut config_state,
-                options.provider_args,
-            );
-            if r < 0 as c_int {
-                exit(1 as c_int);
-            }
         } else {
             // Try all providers, use the first that works.
-            let mut i: c_int = 0 as c_int;
-            while !(location_providers[i as usize].name).is_null() {
-                let p: *const location_provider_t =
-                    &*location_providers.as_ptr().offset(i as isize) as *const location_provider_t;
-                fprintf(
-                    stderr,
-                    // gettext(
-                    b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
-                    (*p).name,
-                );
-                r = provider_try_start(
-                    p,
-                    &mut location_state,
-                    &mut config_state,
-                    std::ptr::null_mut::<c_char>(),
-                );
-                if r < 0 as c_int {
-                    fputs(
-                        // gettext(
-                        b"Trying next provider...\n\0" as *const u8 as *const c_char,
-                        stderr,
-                    );
-                    i += 1;
-                    i;
-                } else {
-                    // Found provider that works.
-                    printf(
-                        // gettext(
-                        b"Using provider `%s'.\n\0" as *const u8 as *const c_char,
-                        (*p).name,
-                    );
-                    options.provider = p;
-                    break;
-                }
-            }
-            if (options.provider).is_null() {
-                // Failure if no providers were successful at this
-                //    point.
-                fputs(
-                    // gettext(
-                    b"No more location providers to try.\n\0" as *const u8 as *const c_char,
-                    stderr,
-                );
-                exit(1 as c_int);
-            }
+            // b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
+            //     b"Trying next provider...\n\0" as *const u8 as *const c_char,
+            //     b"Using provider `%s'.\n\0" as *const u8 as *const c_char,
+            // b"No more location providers to try.\n\0" as *const u8 as *const c_char,
+            todo!()
         }
-        if options.scheme.high < options.scheme.low {
-            // Solar elevations
-            fprintf(
-                stderr,
-                // gettext(
-                b"High transition elevation cannot be lower than the low transition elevation.\n\0"
-                    as *const u8 as *const c_char,
-                // ),
-            );
-            exit(1 as c_int);
-        }
-        if options.verbose != 0 {
+
+        if config.verbose {
             // TRANSLATORS: Append degree symbols if possible.
-            printf(
-                // gettext(
-                b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
-                    as *const c_char,
-                // ),
-                options.scheme.high,
-                options.scheme.low,
-            );
+            // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
+            todo!()
         }
     }
 
-    if options.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
-        && options.mode as c_uint != PROGRAM_MODE_MANUAL as c_int as c_uint
+    if config.mode as c_uint != PROGRAM_MODE_RESET as c_int as c_uint
+        && config.mode as c_uint != PROGRAM_MODE_MANUAL as c_int as c_uint
     {
-        if options.verbose != 0 {
-            printf(
-                // gettext(
-                b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
-                // ),
-                options.scheme.day.temperature,
-                options.scheme.night.temperature,
-            );
-        }
-
-        // Color temperature
-        if options.scheme.day.temperature < 1000 as c_int
-            || options.scheme.day.temperature > 25000 as c_int
-            || options.scheme.night.temperature < 1000 as c_int
-            || options.scheme.night.temperature > 25000 as c_int
-        {
-            fprintf(
-                stderr,
-                // gettext(
-                b"Temperature must be between %uK and %uK.\n\0" as *const u8 as *const c_char,
-                // ),
-                1000 as c_int,
-                25000 as c_int,
-            );
-            exit(1 as c_int);
+        if config.verbose {
+            todo!()
+            // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
         }
     }
 
-    /* Check color temperature to be set */
-    if options.mode as c_uint == PROGRAM_MODE_MANUAL as c_int as c_uint
-        && (options.temp_set < 1000 as c_int || options.temp_set > 25000 as c_int)
-    {
-        fprintf(
-            stderr,
-            // gettext(
-            b"Temperature must be between %uK and %uK.\n\0" as *const u8 as *const c_char,
-            // ),
-            1000 as c_int,
-            25000 as c_int,
-        );
-        exit(1 as c_int);
-    }
-
-    // Brightness
-    if (options.scheme.day.brightness as c_double) < 0.1f64
-        || options.scheme.day.brightness as c_double > 1.0f64
-        || (options.scheme.night.brightness as c_double) < 0.1f64
-        || options.scheme.night.brightness as c_double > 1.0f64
-    {
-        fprintf(
-            stderr,
-            // gettext(
-            b"Brightness values must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
-            // ),
-            0.1f64,
-            1.0f64,
-        );
-        exit(1 as c_int);
-    }
     if options.verbose != 0 {
         printf(
             // gettext(
@@ -1554,24 +1330,5 @@ unsafe fn main_0(argc: c_int, argv: *mut *mut c_char) -> c_int {
     // Clean up location provider state
     if need_location != 0 {
         ((*options.provider).free).expect("non-null function pointer")(location_state);
-    }
-    0 as c_int
-}
-
-pub fn main() {
-    let mut args: Vec<*mut c_char> = Vec::new();
-    for arg in ::std::env::args() {
-        args.push(
-            (::std::ffi::CString::new(arg))
-                .expect("Failed to convert argument into CString.")
-                .into_raw(),
-        );
-    }
-    args.push(::core::ptr::null_mut());
-    unsafe {
-        ::std::process::exit(main_0(
-            (args.len() - 1) as c_int,
-            args.as_mut_ptr() as *mut *mut c_char,
-        ) as i32)
     }
 }
