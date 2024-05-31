@@ -20,11 +20,11 @@
 
 use crate::solar::SOLAR_CIVIL_TWILIGHT_ELEV;
 use anyhow::{anyhow, Result};
+use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
-use serde::Deserialize;
+use serde::{de::Error as DeError, Deserialize, Deserializer};
 use std::{env, fs::File, io::Read, path::PathBuf};
 
-// Bounds for parameters.
 pub const MIN_TEMPERATURE: u16 = 1000;
 pub const MAX_TEMPERATURE: u16 = 25000;
 pub const MIN_BRIGHTNESS: f32 = 0.1;
@@ -41,13 +41,17 @@ pub const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
 pub const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
 pub const DEFAULT_BRIGHTNESS: f32 = 1.0;
 pub const DEFAULT_GAMMA: f32 = 1.0;
-
 // Angular elevation of the sun at which the color temperature
 // transition period starts and ends (in degrees).
 // Transition during twilight, and while the sun is lower than
 // 3.0 degrees above the horizon.
 pub const DEFAULT_ELEVATION_LOW: f32 = SOLAR_CIVIL_TWILIGHT_ELEV;
 pub const DEFAULT_ELEVATION_HIGH: f32 = 3.0;
+pub const DEFAULT_TIME_RANGE_DAWN: &str = "06:00-07:00";
+pub const DEFAULT_TIME_RANGE_DUSK: &str = "18:00-19:00";
+// TODO: find something generic
+pub const DEFAULT_LATITUDE: f32 = 48.1;
+pub const DEFAULT_LONGITUDE: f32 = 11.6;
 
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -162,6 +166,135 @@ Try `-l PROVIDER:help' for help.
 }
 
 //
+// CLI Arguments
+//
+
+#[derive(Parser)]
+#[command(version, about)]
+#[command(propagate_version = true)]
+struct CliArgs {
+    #[command(subcommand)]
+    mode: Option<ModeArgs>,
+    #[arg(long, short, value_name = "FILE")]
+    config: Option<PathBuf>,
+    #[command(flatten)]
+    verbosity: VerbosityArgs,
+    #[arg(long, short)]
+    dry_run: bool,
+}
+
+#[derive(Args)]
+#[group(multiple = false)]
+struct VerbosityArgs {
+    #[arg(long, short)]
+    quite: bool,
+    #[arg(long, short)]
+    verbose: bool,
+}
+
+#[derive(Subcommand)]
+enum ModeArgs {
+    Daemon(Config),
+    OneShot(Config),
+    Reset(ConfigArgs),
+    Set {
+        #[command(flatten)]
+        cs: ColorSettingArgs,
+        #[command(flatten)]
+        ca: ConfigArgs,
+    },
+}
+
+#[derive(Args)]
+#[group(required = true, multiple = true)]
+struct ColorSettingArgs {
+    #[arg(long, short, value_parser = temperature)]
+    temperature: Option<Temperature>,
+    #[arg(long, short, value_parser = gamma)]
+    gamma: Option<Gamma>,
+    #[arg(long, short, value_parser = brightness)]
+    brightness: Option<Brightness>,
+}
+
+//
+// Config file
+//
+
+#[derive(Debug, Clone, Deserialize, Args)]
+#[group(requires_all = ["dawn", "dusk"])]
+struct TimeRangesArgs {
+    #[arg(long, value_parser = time_range)]
+    dawn: Option<TimeRange>,
+    #[arg(long, value_parser = time_range)]
+    dusk: Option<TimeRange>,
+}
+
+#[derive(Debug, Clone, Deserialize, Args)]
+#[group(requires_all = ["high", "low"])]
+struct ElevationArgs {
+    #[arg(long, value_parser = elevation)]
+    high: Option<Elevation>,
+    #[arg(long, value_parser = elevation)]
+    low: Option<Elevation>,
+}
+
+#[derive(Debug, Clone, Deserialize, Args)]
+struct LocationArgs {
+    #[arg(long, value_parser = latitude)]
+    latitude: Option<Latitude>,
+    #[arg(long, value_parser = longitude)]
+    longitude: Option<Longitude>,
+}
+
+#[derive(Debug, Clone, Deserialize, Args)]
+struct RandrArgs {
+    #[arg(long)]
+    screen: Option<u16>,
+}
+
+/// Part of [Config] that is used in [ModeArgs::Set] and [ModeArgs::Reset]
+#[derive(Debug, Clone, Default, Deserialize, Args)]
+struct ConfigArgs {
+    #[serde(default = "return_true")]
+    #[arg(long)]
+    preserve_gamma: bool,
+    #[serde(default = "return_true")]
+    #[arg(long)]
+    fade: bool,
+
+    #[arg(long, short, value_parser = adjustment_method_kind)]
+    adjustment_method: Option<AdjustmentMethodKind>,
+    #[command(flatten)]
+    randr: Option<RandrArgs>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Args)]
+struct Config {
+    #[arg(long, value_parser = day_night_temperature)]
+    temperature: Option<DayNight<Temperature>>,
+    #[arg(long, value_parser = day_night_brightness)]
+    brightness: Option<DayNight<Brightness>>,
+    #[arg(long, value_parser = day_night_gamma)]
+    gamma: Option<DayNight<Gamma>>,
+
+    #[arg(long, short, value_parser = transition_scheme_kind)]
+    transition_scheme: Option<TransitionSchemeKind>,
+    #[command(flatten)]
+    time_ranges: Option<TimeRangesArgs>,
+    #[command(flatten)]
+    elevation: Option<ElevationArgs>,
+
+    #[arg(long, short, value_parser = location_provider_kind)]
+    location_provider: Option<LocationProviderKind>,
+    #[arg(long, value_parser = location)]
+    manual: Option<Location>,
+
+    #[serde(flatten)]
+    #[command(flatten)]
+    c: ConfigArgs,
+}
+
+//
 // Parsed types
 //
 
@@ -174,7 +307,7 @@ pub struct Brightness(f32);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gamma([f32; 3]);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColorSetting {
     pub temperature: Temperature,
     pub gamma: Gamma,
@@ -203,7 +336,6 @@ pub struct TimeRange {
     pub end: TimeOffset,
 }
 
-// TODO: fields must be offsets from midnight in seconds.
 #[derive(Debug, Clone)]
 pub struct TimeRanges {
     pub dawn: TimeRange,
@@ -220,7 +352,7 @@ pub struct ElevationRange {
     pub low: Elevation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum TransitionSchemeKind {
     TimeRanges,
     Elevation,
@@ -234,16 +366,16 @@ pub struct TransitionScheme {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct LatitudeDegree(f32);
+pub struct Latitude(f32);
 #[derive(Debug, Clone, Copy)]
-pub struct LongitudeDegree(f32);
-#[derive(Debug, Clone, Copy)]
+pub struct Longitude(f32);
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Location {
-    pub latitude: LatitudeDegree,
-    pub longitude: LongitudeDegree,
+    pub latitude: Latitude,
+    pub longitude: Longitude,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub enum LocationProviderKind {
     Manual,
     GeoClue2,
@@ -255,14 +387,14 @@ pub struct LocationProvider {
     pub manual: Location,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub enum AdjustmentMethodKind {
     Randr,
     Drm,
     VidMode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Randr {
     pub screen: u16,
 }
@@ -273,186 +405,167 @@ pub struct AdjustmentMethod {
     pub randr: Randr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum Mode {
-    Continual,
+    #[default]
+    Daemon,
     OneShot,
-    OneShotManual(Temperature),
-    Print,
+    Set,
     Reset,
 }
 
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub mode: Mode,
-    pub verbose: bool,
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Verbosity {
+    Quite,
+    #[default]
+    Low,
+    High,
+}
 
-    pub day_color_setting: ColorSetting,
-    pub night_color_setting: ColorSetting,
+// merge of cli arguments and config files
+#[derive(Debug, Clone)]
+pub struct Options {
+    pub verbosity: Verbosity,
+    pub dry_run: bool,
+    pub mode: Mode,
+
+    pub day: ColorSetting,
+    pub night: ColorSetting,
     pub preserve_gamma: bool,
     pub fade: bool,
-    pub transition_scheme: TransitionScheme,
-    pub location_provider: LocationProvider,
-    pub adjustment_method: AdjustmentMethod,
+    pub scheme: TransitionScheme,
+    pub provider: LocationProvider,
+    pub method: AdjustmentMethod,
 }
 
 //
-// CLI Arguments
-//
-
-// #[derive(Parser, Debug)]
-// #[command(version, about, long_about)]
-struct Args {
-    config_file: Option<PathBuf>,
-    mode: Mode,
-    verbose: bool,
-
-    temperature: Option<String>,
-    brightness: Option<String>,
-    gamma: Option<String>,
-    fade: Option<bool>,
-    preserve_gamma: Option<bool>,
-
-    transition_scheme: Option<TransitionSchemeKind>,
-    elevation: Option<String>,
-    dawn: Option<String>,
-    dusk: Option<String>,
-
-    location_provider: Option<LocationProviderKind>,
-    manual: Option<String>,
-
-    adjustment_method: Option<AdjustmentMethodKind>,
-    randr_screen: Option<u8>,
-}
-
-//
-// Config file
-//
-
-#[derive(Debug, Clone, Deserialize)]
-struct TimeRangesSection {
-    dawn: Option<String>,
-    dusk: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ElevationSection {
-    high: Option<f32>,
-    low: Option<f32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct LocationSection {
-    latitude: Option<f32>,
-    longitude: Option<f32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct RandrSection {
-    screen: Option<u16>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct ConfigFile {
-    temperature: Option<String>,
-    brightness: Option<String>,
-    gamma: Option<String>,
-    preserve_gamma: Option<bool>,
-    fade: Option<bool>,
-
-    transition_scheme: Option<String>,
-    time_ranges: Option<TimeRangesSection>,
-    elevation: Option<ElevationSection>,
-
-    location_provider: Option<String>,
-    manual: Option<LocationSection>,
-
-    adjustment_method: Option<String>,
-    randr: Option<RandrSection>,
-}
-
-//
-// Merge configurations, from highest priority to lowest:
+// Merge from highest priority to lowest:
 // 1. cli arguments
 // 2. user config file
 // 3. system config file
-// 4. default config
+// 4. default options
 //
 
-impl Config {
+impl Options {
     pub fn new() -> Result<Self> {
-        let config_file = ConfigFile::new(None)?; // TODO: pass config_file from args
-        Config::default().merge_with_config_file(&config_file)
+        let args = CliArgs::parse();
+        // let config = Config::new(args.config)?;
+        let mut options = Options::default();
+        // options.merge_with_config(&config);
+        options.merge_with_args(args)?;
+        Ok(options)
     }
 
-    fn merge_with_config_file(mut self, config_file: &ConfigFile) -> Result<Self> {
+    fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
+        let CliArgs {
+            config: _,
+            verbosity: VerbosityArgs { quite, verbose },
+            dry_run,
+            mode,
+        } = args;
+
+        let verbosity = match (quite, verbose) {
+            (true, false) => Verbosity::Quite,
+            (false, false) => Verbosity::Low,
+            (false, true) => Verbosity::High,
+            (true, true) => unreachable!(), // clap returns error
+        };
+
+        self.verbosity = verbosity;
+        self.dry_run = dry_run;
+        match mode {
+            Some(ModeArgs::Daemon(c)) => {
+                self.merge_with_config(c)?;
+                self.mode = Mode::Daemon;
+            }
+            Some(ModeArgs::OneShot(c)) => {
+                self.merge_with_config(c)?;
+                self.mode = Mode::OneShot;
+            }
+            Some(ModeArgs::Set { cs, ca }) => {
+                self.merge_with_config_args(ca)?;
+                self.day = cs.into();
+                self.mode = Mode::Set;
+            }
+            Some(ModeArgs::Reset(ca)) => {
+                self.merge_with_config_args(ca)?;
+                self.mode = Mode::Reset;
+            }
+            None => {}
+        }
+
+        Ok(())
+    }
+
+    fn merge_with_config_args(&mut self, config_args: ConfigArgs) -> Result<()> {
+        let ConfigArgs {
+            preserve_gamma,
+            fade,
+            adjustment_method,
+            randr,
+        } = config_args;
+
+        self.preserve_gamma = preserve_gamma;
+        self.fade = fade;
+        if let Some(t) = adjustment_method {
+            self.method.select = t;
+        }
+        if let Some(t) = randr {
+            self.method.randr = t.try_into()?;
+        }
+
+        Ok(())
+    }
+
+    fn merge_with_config(&mut self, config: Config) -> Result<()> {
         // TODO: move conversions to ConfigFile filds definition with serde derives
-        let ConfigFile {
+        let Config {
             temperature,
             brightness,
             gamma,
-            preserve_gamma,
-            fade,
             transition_scheme,
             time_ranges,
             elevation,
             location_provider,
             manual,
-            adjustment_method,
-            randr,
-        } = config_file;
+            c,
+        } = config;
 
-        if let Some(t) = temperature {
-            let DayNight { day, night }: DayNight<Temperature> = t.as_str().try_into()?;
-            self.day_color_setting.temperature = day;
-            self.night_color_setting.temperature = night;
+        if let Some(DayNight { day, night }) = temperature {
+            self.day.temperature = day;
+            self.night.temperature = night;
         }
-        if let Some(t) = brightness {
-            let DayNight { day, night }: DayNight<Brightness> = t.as_str().try_into()?;
-            self.day_color_setting.brightness = day;
-            self.night_color_setting.brightness = night;
+        if let Some(DayNight { day, night }) = brightness {
+            self.day.brightness = day;
+            self.night.brightness = night;
         }
-        if let Some(t) = gamma {
-            let DayNight { day, night }: DayNight<Gamma> = t.as_str().try_into()?;
-            self.day_color_setting.gamma = day;
-            self.night_color_setting.gamma = night;
-        }
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = *t
-        }
-        if let Some(t) = fade {
-            self.fade = *t
+        if let Some(DayNight { day, night }) = gamma {
+            self.day.gamma = day;
+            self.night.gamma = night;
         }
 
         if let Some(t) = transition_scheme {
-            self.transition_scheme.select = t.as_str().try_into()?;
+            self.scheme.select = t
         }
         if let Some(t) = time_ranges {
-            self.transition_scheme.time_ranges = t.try_into()?;
+            self.scheme.time_ranges = t.try_into()?;
         }
         if let Some(t) = elevation {
-            self.transition_scheme.elevation_range = t.try_into()?;
+            self.scheme.elevation_range = t.try_into()?;
         }
 
         if let Some(t) = location_provider {
-            self.location_provider.select = t.as_str().try_into()?;
+            self.provider.select = t;
         }
         if let Some(t) = manual {
-            self.location_provider.manual = t.try_into()?;
+            self.provider.manual = t;
         }
 
-        if let Some(t) = adjustment_method {
-            self.adjustment_method.select = t.as_str().try_into()?;
-        }
-        if let Some(t) = randr {
-            self.adjustment_method.randr = t.try_into()?;
-        }
-
-        Ok(self)
+        self.merge_with_config_args(c)
     }
 }
 
-impl ConfigFile {
+impl Config {
     fn new(config_path: Option<PathBuf>) -> Result<Self> {
         #[cfg(unix)]
         let system_config = PathBuf::from(formatcp!("/etc/{CARGO_PKG_NAME}/config.toml"));
@@ -461,32 +574,35 @@ impl ConfigFile {
             .ok_or(anyhow!("user_config"))?;
 
         let mut buf = String::new();
-        let mut read = |path| -> Result<ConfigFile> {
+        let mut read = |path| -> Result<Config> {
             File::open(path)?.read_to_string(&mut buf)?;
             Ok(toml::from_str(&buf)?)
         };
 
-        let config_file = ConfigFile::default();
+        let mut config = Config::default();
         #[cfg(unix)]
-        let config_file = config_file.merge(read(system_config)?);
-        let config_file = config_file.merge(read(user_config)?);
-        Ok(config_file)
+        config.merge(read(system_config)?);
+        config.merge(read(user_config)?);
+        Ok(config)
     }
 
-    fn merge(mut self, other: Self) -> Self {
-        let ConfigFile {
+    fn merge(&mut self, other: Self) {
+        let Config {
             temperature,
             brightness,
             gamma,
-            preserve_gamma,
-            fade,
             transition_scheme,
             time_ranges,
             elevation,
             location_provider,
             manual,
-            adjustment_method,
-            randr,
+            c:
+                ConfigArgs {
+                    preserve_gamma,
+                    fade,
+                    adjustment_method,
+                    randr,
+                },
         } = other;
 
         if let Some(t) = temperature {
@@ -497,12 +613,6 @@ impl ConfigFile {
         }
         if let Some(t) = gamma {
             self.gamma = Some(t);
-        }
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = Some(t);
-        }
-        if let Some(t) = fade {
-            self.fade = Some(t);
         }
         if let Some(t) = transition_scheme {
             self.transition_scheme = Some(t);
@@ -519,135 +629,31 @@ impl ConfigFile {
         if let Some(t) = manual {
             self.manual = Some(t);
         }
+
+        self.c.preserve_gamma = preserve_gamma;
+        self.c.fade = fade;
         if let Some(t) = adjustment_method {
-            self.adjustment_method = Some(t);
+            self.c.adjustment_method = Some(t);
         }
         if let Some(t) = randr {
-            self.randr = Some(t);
-        }
-
-        self
-    }
-}
-
-impl Default for Temperature {
-    fn default() -> Self {
-        Self(DEFAULT_TEMPERATURE)
-    }
-}
-
-impl Default for Brightness {
-    fn default() -> Self {
-        Brightness(DEFAULT_BRIGHTNESS)
-    }
-}
-
-impl Default for Gamma {
-    fn default() -> Self {
-        Gamma([DEFAULT_GAMMA; 3])
-    }
-}
-
-impl Default for ColorSetting {
-    fn default() -> Self {
-        Self {
-            temperature: Temperature::default(),
-            gamma: Gamma::default(),
-            brightness: Brightness::default(),
+            self.c.randr = Some(t);
         }
     }
 }
 
-impl ColorSetting {
-    pub fn default_day() -> Self {
-        Self {
-            temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
-            ..Default::default()
-        }
-    }
-
-    pub fn default_night() -> Self {
-        Self {
-            temperature: Temperature(DEFAULT_TEMPERATURE_NIGHT),
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for TimeRanges {
+impl Default for Options {
     fn default() -> Self {
-        todo!()
-    }
-}
-
-impl Default for ElevationRange {
-    fn default() -> Self {
-        Self {
-            high: Elevation(DEFAULT_ELEVATION_HIGH),
-            low: Elevation(DEFAULT_ELEVATION_LOW),
-        }
-    }
-}
-
-impl Default for TransitionScheme {
-    fn default() -> Self {
-        Self {
-            select: TransitionSchemeKind::TimeRanges,
-            time_ranges: TimeRanges::default(),
-            elevation_range: ElevationRange::default(),
-        }
-    }
-}
-
-impl Default for Location {
-    fn default() -> Self {
-        // TODO: find something generic
-        Self {
-            latitude: LatitudeDegree(48.1),
-            longitude: LongitudeDegree(11.6),
-        }
-    }
-}
-
-impl Default for LocationProvider {
-    fn default() -> Self {
-        Self {
-            select: LocationProviderKind::Manual,
-            manual: Location::default(),
-        }
-    }
-}
-
-impl Default for Randr {
-    fn default() -> Self {
-        Self { screen: 0 }
-    }
-}
-
-impl Default for AdjustmentMethod {
-    fn default() -> Self {
-        todo!()
-    }
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Self::Continual
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            mode: Mode::default(),
-            verbose: false,
-            day_color_setting: ColorSetting::default_day(),
-            night_color_setting: ColorSetting::default_night(),
+        Options {
             preserve_gamma: true,
             fade: true,
-            transition_scheme: TransitionScheme::default(),
-            location_provider: LocationProvider::default(),
-            adjustment_method: AdjustmentMethod::default(),
+            mode: Default::default(),
+            verbosity: Default::default(),
+            dry_run: Default::default(),
+            day: Default::default(),
+            night: Default::default(),
+            scheme: Default::default(),
+            provider: Default::default(),
+            method: Default::default(),
         }
     }
 }
@@ -662,20 +668,20 @@ pub struct DayNight<T> {
     night: T,
 }
 
-impl<'a, T> TryFrom<&'a str> for DayNight<T>
+impl<'a, 'b: 'a, T> TryFrom<&'b str> for DayNight<T>
 where
     T: Clone + TryFrom<&'a str, Error = anyhow::Error>,
 {
     type Error = anyhow::Error;
 
-    fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(s: &'b str) -> Result<Self, Self::Error> {
         match *s.split("-").map(str::trim).collect::<Vec<_>>().as_slice() {
             [day, night] => Ok(Self {
                 day: day.try_into()?,
                 night: night.try_into()?,
             }),
             _ => {
-                let temp: T = s.try_into()?;
+                let temp = T::try_from(s)?;
                 Ok(Self {
                     day: temp.clone(),
                     night: temp,
@@ -702,8 +708,7 @@ impl TryFrom<&str> for Temperature {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let n = s.parse::<u16>()?;
-        Self::try_from(n)
+        s.parse::<u16>()?.try_into()
     }
 }
 
@@ -724,12 +729,11 @@ impl TryFrom<&str> for Brightness {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let n = s.parse::<f32>()?;
-        Self::try_from(n)
+        s.parse::<f32>()?.try_into()
     }
 }
 
-fn gamma(n: f32) -> Result<f32> {
+fn is_gamma(n: f32) -> Result<f32> {
     if n >= MIN_GAMMA && n <= MAX_GAMMA {
         Ok(n)
     } else {
@@ -742,7 +746,7 @@ impl TryFrom<f32> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
-        let n = gamma(n)?;
+        let n = is_gamma(n)?;
         Ok(Self([n; 3]))
     }
 }
@@ -751,7 +755,7 @@ impl TryFrom<[f32; 3]> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from([r, g, b]: [f32; 3]) -> Result<Self, Self::Error> {
-        Ok(Self([gamma(r)?, gamma(g)?, gamma(b)?]))
+        Ok(Self([is_gamma(r)?, is_gamma(g)?, is_gamma(b)?]))
     }
 }
 
@@ -777,11 +781,10 @@ impl TryFrom<&str> for Gamma {
     }
 }
 
-impl TryFrom<&str> for Hour {
+impl TryFrom<u8> for Hour {
     type Error = anyhow::Error;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let n = s.parse::<u8>()?;
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
         if n < 24 {
             Ok(Self(n))
         } else {
@@ -790,16 +793,31 @@ impl TryFrom<&str> for Hour {
     }
 }
 
-impl TryFrom<&str> for Minute {
+impl TryFrom<&str> for Hour {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let n = s.parse::<u8>()?;
+        s.parse::<u8>()?.try_into()
+    }
+}
+
+impl TryFrom<u8> for Minute {
+    type Error = anyhow::Error;
+
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
         if n < 60 {
             Ok(Self(n))
         } else {
             Err(anyhow!("minute"))
         }
+    }
+}
+
+impl TryFrom<&str> for Minute {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        s.parse::<u8>()?.try_into()
     }
 }
 
@@ -856,6 +874,14 @@ impl TryFrom<f32> for Elevation {
     }
 }
 
+impl TryFrom<&str> for Elevation {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        s.parse::<f32>()?.try_into()
+    }
+}
+
 impl TryFrom<(Elevation, Elevation)> for ElevationRange {
     type Error = anyhow::Error;
 
@@ -884,7 +910,7 @@ impl TryFrom<&str> for ElevationRange {
     }
 }
 
-impl TryFrom<f32> for LatitudeDegree {
+impl TryFrom<f32> for Latitude {
     type Error = anyhow::Error;
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
@@ -901,7 +927,7 @@ impl TryFrom<f32> for LatitudeDegree {
     }
 }
 
-impl TryFrom<f32> for LongitudeDegree {
+impl TryFrom<f32> for Longitude {
     type Error = anyhow::Error;
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
@@ -918,7 +944,7 @@ impl TryFrom<f32> for LongitudeDegree {
     }
 }
 
-impl TryFrom<&str> for LongitudeDegree {
+impl TryFrom<&str> for Longitude {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -926,7 +952,7 @@ impl TryFrom<&str> for LongitudeDegree {
     }
 }
 
-impl TryFrom<&str> for LatitudeDegree {
+impl TryFrom<&str> for Latitude {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -948,51 +974,57 @@ impl TryFrom<&str> for Location {
     }
 }
 
-impl TryFrom<&LocationSection> for Location {
+impl TryFrom<LocationArgs> for Location {
     type Error = anyhow::Error;
 
-    fn try_from(t: &LocationSection) -> Result<Self, Self::Error> {
-        match *t {
-            LocationSection {
-                latitude: Some(lat),
-                longitude: Some(lon),
+    fn try_from(t: LocationArgs) -> Result<Self, Self::Error> {
+        match t {
+            LocationArgs {
+                latitude: Some(latitude),
+                longitude: Some(longitude),
             } => Ok(Self {
-                latitude: lat.try_into()?,
-                longitude: lon.try_into()?,
+                latitude,
+                longitude,
             }),
             _ => Err(anyhow!("location")),
         }
     }
 }
 
-impl TryFrom<&TimeRangesSection> for TimeRanges {
+impl TryFrom<TimeRangesArgs> for TimeRanges {
     type Error = anyhow::Error;
 
-    fn try_from(_t: &TimeRangesSection) -> Result<Self, Self::Error> {
-        todo!()
+    fn try_from(t: TimeRangesArgs) -> Result<Self, Self::Error> {
+        match t {
+            TimeRangesArgs {
+                dawn: Some(dawn),
+                dusk: Some(dusk),
+            } => Ok(Self { dawn, dusk }),
+            _ => Err(anyhow!("time_ranges")),
+        }
     }
 }
 
-impl TryFrom<&ElevationSection> for ElevationRange {
+impl TryFrom<ElevationArgs> for ElevationRange {
     type Error = anyhow::Error;
 
-    fn try_from(t: &ElevationSection) -> Result<Self, Self::Error> {
-        match *t {
-            ElevationSection {
+    fn try_from(t: ElevationArgs) -> Result<Self, Self::Error> {
+        match t {
+            ElevationArgs {
                 high: Some(high),
                 low: Some(low),
-            } => (Elevation::try_from(high)?, Elevation::try_from(low)?).try_into(),
+            } => (high, low).try_into(),
             _ => Err(anyhow!("elevation")),
         }
     }
 }
 
-impl TryFrom<&RandrSection> for Randr {
+impl TryFrom<RandrArgs> for Randr {
     type Error = anyhow::Error;
 
-    fn try_from(t: &RandrSection) -> Result<Self, Self::Error> {
-        match *t {
-            RandrSection { screen: Some(scr) } => Ok(Self { screen: scr }),
+    fn try_from(t: RandrArgs) -> Result<Self, Self::Error> {
+        match t {
+            RandrArgs { screen: Some(scr) } => Ok(Self { screen: scr }),
             _ => Err(anyhow!("randr")),
         }
     }
@@ -1005,7 +1037,7 @@ impl TryFrom<&str> for TransitionSchemeKind {
         match s {
             "time-ranges" => Ok(Self::TimeRanges),
             "elevation" => Ok(Self::Elevation),
-            _ => Err(anyhow!("location_provider")),
+            _ => Err(anyhow!("transition_scheme")),
         }
     }
 }
@@ -1035,8 +1067,148 @@ impl TryFrom<&str> for AdjustmentMethodKind {
     }
 }
 
+impl From<ColorSettingArgs> for ColorSetting {
+    fn from(t: ColorSettingArgs) -> Self {
+        let mut color_settings = Self::default();
+        let ColorSettingArgs {
+            temperature,
+            gamma,
+            brightness,
+        } = t;
+        if let Some(t) = temperature {
+            color_settings.temperature = t;
+        }
+        if let Some(t) = brightness {
+            color_settings.brightness = t;
+        }
+        if let Some(t) = gamma {
+            color_settings.gamma = t;
+        }
+        color_settings
+    }
+}
+
 //
-// Newtype impl boilerplate
+// boilerplates
+//
+
+impl<'de, T> Deserialize<'de> for DayNight<T>
+where
+    T: Clone + for<'a> TryFrom<&'a str, Error = anyhow::Error>,
+{
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = String::deserialize(d)?;
+        Self::try_from(t.as_str()).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Temperature {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = u16::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Brightness {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = f32::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Gamma {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = f32::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for TimeRange {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = String::deserialize(d)?;
+        Self::try_from(t.as_str()).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Elevation {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = f32::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Latitude {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = f32::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Longitude {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = f32::deserialize(d)?;
+        Self::try_from(t).map_err(|e| DeError::custom(e))
+    }
+}
+
+impl<'de> Deserialize<'de> for Location {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = String::deserialize(d)?;
+        Self::try_from(t.as_str()).map_err(|e| DeError::custom(e))
+    }
+}
+
+// clap_derive doesn't accept the trait form of the functions for some reason
+fn temperature(t: &str) -> Result<Temperature> {
+    t.try_into()
+}
+fn brightness(t: &str) -> Result<Brightness> {
+    t.try_into()
+}
+fn gamma(t: &str) -> Result<Gamma> {
+    t.try_into()
+}
+
+fn day_night_temperature(t: &str) -> Result<DayNight<Temperature>> {
+    t.try_into()
+}
+fn day_night_brightness(t: &str) -> Result<DayNight<Brightness>> {
+    t.try_into()
+}
+fn day_night_gamma(t: &str) -> Result<DayNight<Gamma>> {
+    t.try_into()
+}
+
+fn time_range(t: &str) -> Result<TimeRange> {
+    t.try_into()
+}
+fn elevation(t: &str) -> Result<Elevation> {
+    t.try_into()
+}
+fn latitude(t: &str) -> Result<Latitude> {
+    t.try_into()
+}
+fn longitude(t: &str) -> Result<Longitude> {
+    t.try_into()
+}
+
+fn location(t: &str) -> Result<Location> {
+    t.try_into()
+}
+fn transition_scheme_kind(t: &str) -> Result<TransitionSchemeKind> {
+    t.try_into()
+}
+fn adjustment_method_kind(t: &str) -> Result<AdjustmentMethodKind> {
+    t.try_into()
+}
+fn location_provider_kind(t: &str) -> Result<LocationProviderKind> {
+    t.try_into()
+}
+
+fn return_true() -> bool {
+    true
+}
+
 //
 
 impl AsRef<u16> for Temperature {
@@ -1081,17 +1253,132 @@ impl AsRef<f32> for Elevation {
     }
 }
 
-impl AsRef<f32> for LatitudeDegree {
+impl AsRef<f32> for Latitude {
     fn as_ref(&self) -> &f32 {
         &self.0
     }
 }
 
-impl AsRef<f32> for LongitudeDegree {
+impl AsRef<f32> for Longitude {
     fn as_ref(&self) -> &f32 {
         &self.0
     }
 }
+
+impl Default for Temperature {
+    fn default() -> Self {
+        Self(DEFAULT_TEMPERATURE)
+    }
+}
+
+//
+
+impl Default for Brightness {
+    fn default() -> Self {
+        Brightness(DEFAULT_BRIGHTNESS)
+    }
+}
+
+impl Default for Gamma {
+    fn default() -> Self {
+        Gamma([DEFAULT_GAMMA; 3])
+    }
+}
+
+impl Default for ColorSetting {
+    fn default() -> Self {
+        Self {
+            temperature: Temperature::default(),
+            gamma: Gamma::default(),
+            brightness: Brightness::default(),
+        }
+    }
+}
+
+impl ColorSetting {
+    pub fn default_day() -> Self {
+        Self {
+            temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
+            ..Default::default()
+        }
+    }
+
+    pub fn default_night() -> Self {
+        Self {
+            temperature: Temperature(DEFAULT_TEMPERATURE_NIGHT),
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for ElevationRange {
+    fn default() -> Self {
+        Self {
+            high: Elevation(DEFAULT_ELEVATION_HIGH),
+            low: Elevation(DEFAULT_ELEVATION_LOW),
+        }
+    }
+}
+
+impl Default for TimeRanges {
+    fn default() -> Self {
+        Self {
+            dawn: DEFAULT_TIME_RANGE_DAWN
+                .try_into()
+                .unwrap_or_else(|_| unreachable!()),
+            dusk: DEFAULT_TIME_RANGE_DUSK
+                .try_into()
+                .unwrap_or_else(|_| unreachable!()),
+        }
+    }
+}
+
+impl Default for TransitionScheme {
+    fn default() -> Self {
+        Self {
+            select: TransitionSchemeKind::TimeRanges,
+            time_ranges: TimeRanges::default(),
+            elevation_range: ElevationRange::default(),
+        }
+    }
+}
+
+impl Default for Latitude {
+    fn default() -> Self {
+        Self(DEFAULT_LATITUDE)
+    }
+}
+
+impl Default for Longitude {
+    fn default() -> Self {
+        Self(DEFAULT_LONGITUDE)
+    }
+}
+
+impl Default for LocationProvider {
+    fn default() -> Self {
+        Self {
+            select: LocationProviderKind::Manual,
+            manual: Location::default(),
+        }
+    }
+}
+
+impl Default for Randr {
+    fn default() -> Self {
+        Self { screen: 0 }
+    }
+}
+
+impl Default for AdjustmentMethod {
+    fn default() -> Self {
+        todo!()
+    }
+}
+
+//
+// Tests
+//
 
 #[cfg(test)]
 mod test {
@@ -1101,7 +1388,7 @@ mod test {
     fn test_config_template() -> Result<()> {
         const CONFIG_TEMPLATE: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        toml::from_str::<ConfigFile>(CONFIG_TEMPLATE)?;
+        toml::from_str::<Config>(CONFIG_TEMPLATE)?;
         Ok(())
     }
 

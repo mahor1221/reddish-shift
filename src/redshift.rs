@@ -19,7 +19,6 @@
 */
 
 pub mod colorramp;
-pub mod config;
 pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
@@ -27,16 +26,13 @@ pub mod gamma_vidmode;
 pub mod hooks;
 pub mod location_geoclue2;
 pub mod location_manual;
+pub mod options;
 pub mod pipeutils;
 pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
 use anyhow::Result;
-use config::{
-    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma, Location, Mode,
-    Temperature, TimeOffset, TimeRanges, TransitionSchemeKind,
-};
 use gamma_dummy::{Dummy, GammaAdjuster};
 use hooks::hooks_signal_period_change;
 use libc::{
@@ -44,6 +40,10 @@ use libc::{
     setvbuf, strcmp,
 };
 use location_manual::{LocationProvider, Manual};
+use options::{
+    Brightness, ColorSetting, Elevation, ElevationRange, Gamma, Location, Mode, Options,
+    Temperature, TimeOffset, TimeRanges, TransitionSchemeKind,
+};
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
 use std::{
@@ -275,12 +275,15 @@ fn interpolate_color_settings(
 
 // Return 1 if color settings have major differences, otherwise 0.
 // Used to determine if a fade should be applied in continual mode.
-fn is_color_setting_diff_major(lhs: &ColorSetting, rhs: &ColorSetting) -> bool {
-    (*lhs.temperature.as_ref() as i16 - *rhs.temperature.as_ref() as i16).abs() > 25
-        || (lhs.brightness.as_ref() - rhs.brightness.as_ref()).abs() > 0.1
-        || (lhs.gamma.as_ref()[0] - rhs.gamma.as_ref()[0]).abs() > 0.1
-        || (lhs.gamma.as_ref()[1] - rhs.gamma.as_ref()[1]).abs() > 0.1
-        || (lhs.gamma.as_ref()[2] - rhs.gamma.as_ref()[2]).abs() > 0.1
+
+impl ColorSetting {
+    fn is_very_diff_from(&self, other: &Self) -> bool {
+        (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16).abs() > 25
+            || (self.brightness.as_ref() - other.brightness.as_ref()).abs() > 0.1
+            || (self.gamma.as_ref()[0] - other.gamma.as_ref()[0]).abs() > 0.1
+            || (self.gamma.as_ref()[1] - other.gamma.as_ref()[1]).abs() > 0.1
+            || (self.gamma.as_ref()[2] - other.gamma.as_ref()[2]).abs() > 0.1
+    }
 }
 
 // Easing function for fade.
@@ -600,12 +603,11 @@ unsafe fn main_0() -> Result<()> {
     // try all providers until one that works is found.
     // let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
 
-    let config = Config::new()?;
+    let options = Options::new()?;
 
-    let need_location = match (config.mode, config.transition_scheme.select) {
-        (Mode::Reset | Mode::OneShotManual(_), _) => false,
-        (Mode::Continual | Mode::OneShot | Mode::Print, TransitionSchemeKind::Elevation) => true,
-        (Mode::Continual | Mode::OneShot | Mode::Print, TransitionSchemeKind::TimeRanges) => false,
+    let need_location = match (&options.mode, options.scheme.select) {
+        (Mode::Daemon | Mode::OneShot, TransitionSchemeKind::Elevation) => true,
+        (Mode::Set | Mode::Reset, _) | (_, TransitionSchemeKind::TimeRanges) => false,
     };
 
     if need_location {
@@ -619,48 +621,48 @@ unsafe fn main_0() -> Result<()> {
         //     // b"No more location providers to try.\n\0" as *const u8 as *const c_char,
         // }
 
-        if config.verbose {
-            // TRANSLATORS: Append degree symbols if possible.
-            // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
-        }
+        // if options.verbosity {
+        //     // TRANSLATORS: Append degree symbols if possible.
+        //     // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
+        // }
     }
 
-    if let Mode::Continual | Mode::OneShot | Mode::Print = config.mode {
-        if config.verbose {
-            // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
-        }
+    if let Mode::Daemon | Mode::OneShot | Mode::Set = options.mode {
+        // if options.verbosity {
+        //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
+        // }
     }
 
-    if config.verbose {
-        // b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
-        // options.scheme.day.brightness as c_double,
-        // options.scheme.night.brightness as c_double,
-    }
+    // if options.verbosity {
+    //     // b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
+    //     // options.scheme.day.brightness as c_double,
+    //     // options.scheme.night.brightness as c_double,
+    // }
 
-    if config.verbose {
-        // printf(
-        //     // gettext(
-        //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-        //     // gettext(
-        //     b"Daytime\0" as *const u8 as *const c_char,
-        //     options.scheme.day.gamma[0 as c_int as usize] as c_double,
-        //     options.scheme.day.gamma[1 as c_int as usize] as c_double,
-        //     options.scheme.day.gamma[2 as c_int as usize] as c_double,
-        // );
-        // printf(
-        //     // gettext(
-        //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-        //     // gettext(
-        //     b"Night\0" as *const u8 as *const c_char,
-        //     options.scheme.night.gamma[0 as c_int as usize] as c_double,
-        //     options.scheme.night.gamma[1 as c_int as usize] as c_double,
-        //     options.scheme.night.gamma[2 as c_int as usize] as c_double,
-        // );
-    }
+    // if options.verbosity {
+    //     // printf(
+    //     //     // gettext(
+    //     //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
+    //     //     // gettext(
+    //     //     b"Daytime\0" as *const u8 as *const c_char,
+    //     //     options.scheme.day.gamma[0 as c_int as usize] as c_double,
+    //     //     options.scheme.day.gamma[1 as c_int as usize] as c_double,
+    //     //     options.scheme.day.gamma[2 as c_int as usize] as c_double,
+    //     // );
+    //     // printf(
+    //     //     // gettext(
+    //     //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
+    //     //     // gettext(
+    //     //     b"Night\0" as *const u8 as *const c_char,
+    //     //     options.scheme.night.gamma[0 as c_int as usize] as c_double,
+    //     //     options.scheme.night.gamma[1 as c_int as usize] as c_double,
+    //     //     options.scheme.night.gamma[2 as c_int as usize] as c_double,
+    //     // );
+    // }
 
     // try all methods until one that works is found.
     // Gamma adjustment not needed for print mode
-    if config.mode != Mode::Print {
+    if !options.dry_run {
         // if !(options.method).is_null() {
         //     // Use method specified on command line.
         // } else {
@@ -672,8 +674,24 @@ unsafe fn main_0() -> Result<()> {
         // }
     }
 
-    match config.mode {
-        Mode::OneShot | Mode::Print => {
+    match options.mode {
+        Mode::Daemon => {
+            // r = run_continual_mode(
+            //     options.provider,
+            //     location_state,
+            //     scheme,
+            //     options.method,
+            //     method_state,
+            //     options.use_fade,
+            //     options.preserve_gamma,
+            //     options.verbose,
+            // );
+            // if r < 0 as c_int {
+            //     exit(1 as c_int);
+            // }
+        }
+
+        Mode::OneShot => {
             if need_location {
                 // b"Waiting for current location to become available...\n\0" as *const u8
 
@@ -687,7 +705,7 @@ unsafe fn main_0() -> Result<()> {
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
 
             let (period, transition_prog): (Period, TransitionProgress) =
-                match config.transition_scheme.select {
+                match options.scheme.select {
                     TransitionSchemeKind::TimeRanges => {
                         // let time_offset: c_int = get_seconds_since_midnight(now);
                         // period = get_period_from_time(scheme, time_offset);
@@ -709,19 +727,16 @@ unsafe fn main_0() -> Result<()> {
                 };
 
             // Use transition progress to set color temperature
-            let interp: ColorSetting = interpolate_color_settings(
-                &config.night_color_setting,
-                &config.day_color_setting,
-                transition_prog,
-            );
+            let interp: ColorSetting =
+                interpolate_color_settings(&options.night, &options.day, transition_prog);
 
-            if config.verbose || config.mode == Mode::Print {
-                // print_period(period, transition_prog);
-                // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-                // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-            }
+            // if options.verbosity {
+            //     // print_period(period, transition_prog);
+            //     // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+            //     // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+            // }
 
-            if config.mode != Mode::Print {
+            if !options.dry_run {
                 // Adjust temperature
                 // r = ((*options.method).set_temperature).expect("non-null function pointer")(
                 // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
@@ -737,15 +752,12 @@ unsafe fn main_0() -> Result<()> {
             }
         }
 
-        Mode::OneShotManual(temp) => {
-            if config.verbose {
-                // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-                todo!()
-            }
+        Mode::Set => {
+            // if options.verbosity {
+            //     // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+            // }
 
             // Adjust temperature
-            let mut manual: ColorSetting = config.day_color_setting;
-            manual.temperature = temp
             // r = ((*options.method).set_temperature).expect("non-null function pointer")(
             // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
 
@@ -777,23 +789,6 @@ unsafe fn main_0() -> Result<()> {
             //     pause();
             // }
         }
-
-        // Mode::Continual => {
-        //     r = run_continual_mode(
-        //         options.provider,
-        //         location_state,
-        //         scheme,
-        //         options.method,
-        //         method_state,
-        //         options.use_fade,
-        //         options.preserve_gamma,
-        //         options.verbose,
-        //     );
-        //     if r < 0 as c_int {
-        //         exit(1 as c_int);
-        //     }
-        // }
-        _ => {}
     }
 
     Ok(())

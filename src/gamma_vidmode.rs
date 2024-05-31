@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSetting};
+use crate::{colorramp::colorramp_fill, options::ColorSetting};
 use libc::{atoi, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE};
 use std::{
     ffi::{c_char, c_double, c_int, c_void},

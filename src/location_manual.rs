@@ -40,7 +40,7 @@
 //     pub get_fd: Option<location_provider_get_fd_func>,
 //     pub handle: Option<location_provider_handle_func>,
 
-use crate::config::Location;
+use crate::options::Location;
 use anyhow::{anyhow, Result};
 
 pub trait LocationProvider {

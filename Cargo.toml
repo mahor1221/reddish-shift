@@ -24,6 +24,7 @@ const_format = "0.2.32"
 dirs = "5.0.1"
 serde = { version = "1.0.202", features = ["derive"] }
 toml = "0.8.13"
+clap = { version = "4.5.4", features = ["derive"] }
 
 [build-dependencies]
 anyhow = "1.0.83"
