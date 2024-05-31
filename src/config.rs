@@ -20,11 +20,9 @@
 
 use crate::solar::SOLAR_CIVIL_TWILIGHT_ELEV;
 use anyhow::{anyhow, Result};
-use config::{Config as ConfigRs, File};
 use const_format::formatcp;
-use itertools::Itertools;
 use serde::Deserialize;
-use std::{env, path::PathBuf};
+use std::{env, fs::File, io::Read, path::PathBuf};
 
 // Bounds for parameters.
 pub const MIN_TEMPERATURE: u16 = 1000;
@@ -86,7 +84,8 @@ const PKG_BUGREPORT: &str = "https://github.com/mahor1221/reddish-shift/issues";
 // no-wrap
 // `list' must not be translated
 const HELP: &str = {
-    formatcp!("Usage: {CARGO_PKG_NAME} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
+    formatcp!(
+        "Usage: {CARGO_PKG_NAME} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
 
 Set color temperature of display according to time of day.
 
@@ -110,13 +109,17 @@ Set color temperature of display according to time of day.
   -r\t\tDisable fading between color temperatures
   -t DAY:NIGHT\tColor temperature to set at daytime/night
 
-The neutral temperature is {DEFAULT_TEMPERATURE}K. Using this value will not change the color\ntemperature of the display. Setting the color temperature to a value higher\nthan this results in more blue light, and setting a lower value will result in\nmore red light.
+The neutral temperature is {DEFAULT_TEMPERATURE}K. Using this value will not change the color
+temperature of the display. Setting the color temperature to a value higher
+than this results in more blue light, and setting a lower value will result in
+more red light.
 
 Default values:
   Daytime temperature: {DEFAULT_TEMPERATURE_DAY}K
   Night temperature: {DEFAULT_TEMPERATURE_NIGHT}K
 
-Please report bugs to <{PKG_BUGREPORT}>")
+Please report bugs to <{PKG_BUGREPORT}>"
+    )
 };
 
 fn print_method_list() {
@@ -270,14 +273,13 @@ pub struct AdjustmentMethod {
     pub randr: Randr,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    #[default]
     Continual,
     OneShot,
+    OneShotManual(Temperature),
     Print,
     Reset,
-    Manual,
 }
 
 #[derive(Debug, Clone)]
@@ -350,7 +352,7 @@ struct RandrSection {
     screen: Option<u16>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 struct ConfigFile {
     temperature: Option<String>,
     brightness: Option<String>,
@@ -379,6 +381,12 @@ struct ConfigFile {
 
 impl Config {
     pub fn new() -> Result<Self> {
+        let config_file = ConfigFile::new(None)?; // TODO: pass config_file from args
+        Config::default().merge_with_config_file(&config_file)
+    }
+
+    fn merge_with_config_file(mut self, config_file: &ConfigFile) -> Result<Self> {
+        // TODO: move conversions to ConfigFile filds definition with serde derives
         let ConfigFile {
             temperature,
             brightness,
@@ -392,78 +400,133 @@ impl Config {
             manual,
             adjustment_method,
             randr,
-        } = ConfigFile::new(None)?; // TODO: pass config_file from args
-
-        let mut config = Config::default();
+        } = config_file;
 
         if let Some(t) = temperature {
             let DayNight { day, night }: DayNight<Temperature> = t.as_str().try_into()?;
-            config.day_color_setting.temperature = day;
-            config.night_color_setting.temperature = night;
+            self.day_color_setting.temperature = day;
+            self.night_color_setting.temperature = night;
         }
         if let Some(t) = brightness {
             let DayNight { day, night }: DayNight<Brightness> = t.as_str().try_into()?;
-            config.day_color_setting.brightness = day;
-            config.night_color_setting.brightness = night;
+            self.day_color_setting.brightness = day;
+            self.night_color_setting.brightness = night;
         }
         if let Some(t) = gamma {
             let DayNight { day, night }: DayNight<Gamma> = t.as_str().try_into()?;
-            config.day_color_setting.gamma = day;
-            config.night_color_setting.gamma = night;
+            self.day_color_setting.gamma = day;
+            self.night_color_setting.gamma = night;
         }
         if let Some(t) = preserve_gamma {
-            config.preserve_gamma = t
+            self.preserve_gamma = *t
         }
         if let Some(t) = fade {
-            config.fade = t
+            self.fade = *t
         }
 
         if let Some(t) = transition_scheme {
-            config.transition_scheme.select = t.as_str().try_into()?;
+            self.transition_scheme.select = t.as_str().try_into()?;
         }
-        if let Some(t) = &time_ranges {
-            config.transition_scheme.time_ranges = t.try_into()?;
+        if let Some(t) = time_ranges {
+            self.transition_scheme.time_ranges = t.try_into()?;
         }
-        if let Some(t) = &elevation {
-            config.transition_scheme.elevation_range = t.try_into()?;
+        if let Some(t) = elevation {
+            self.transition_scheme.elevation_range = t.try_into()?;
         }
 
         if let Some(t) = location_provider {
-            config.location_provider.select = t.as_str().try_into()?;
+            self.location_provider.select = t.as_str().try_into()?;
         }
-        if let Some(t) = &manual {
-            config.location_provider.manual = t.try_into()?;
+        if let Some(t) = manual {
+            self.location_provider.manual = t.try_into()?;
         }
 
         if let Some(t) = adjustment_method {
-            config.adjustment_method.select = t.as_str().try_into()?;
+            self.adjustment_method.select = t.as_str().try_into()?;
         }
-        if let Some(t) = &randr {
-            config.adjustment_method.randr = t.try_into()?;
+        if let Some(t) = randr {
+            self.adjustment_method.randr = t.try_into()?;
         }
 
-        Ok(config)
+        Ok(self)
     }
 }
 
 impl ConfigFile {
-    fn new(custom_user_config_path: Option<PathBuf>) -> Result<Self> {
+    fn new(config_path: Option<PathBuf>) -> Result<Self> {
         #[cfg(unix)]
         let system_config = PathBuf::from(formatcp!("/etc/{CARGO_PKG_NAME}/config.toml"));
-        let user_config = custom_user_config_path
-            .or_else(|| dirs::config_dir().map(|d| d.join(CARGO_PKG_NAME).join("config.toml")));
+        let user_config = config_path
+            .or_else(|| dirs::config_dir().map(|d| d.join(CARGO_PKG_NAME).join("config.toml")))
+            .ok_or(anyhow!("user_config"))?;
 
-        // TODO: drop dependency on config-rs and merge manually
-        let config_file = ConfigRs::builder();
-        #[cfg(unix)]
-        let config_file = config_file.add_source(File::from(system_config).required(false));
-        let config_file = match user_config {
-            Some(path) => config_file.add_source(File::from(path).required(false)),
-            None => config_file,
+        let mut buf = String::new();
+        let mut read = |path| -> Result<ConfigFile> {
+            File::open(path)?.read_to_string(&mut buf)?;
+            Ok(toml::from_str(&buf)?)
         };
-        let config_file: ConfigFile = config_file.build()?.try_deserialize()?;
 
+        let config_file = ConfigFile::default();
+        #[cfg(unix)]
+        let config_file = config_file.merge(read(system_config)?);
+        let config_file = config_file.merge(read(user_config)?);
         Ok(config_file)
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        let ConfigFile {
+            temperature,
+            brightness,
+            gamma,
+            preserve_gamma,
+            fade,
+            transition_scheme,
+            time_ranges,
+            elevation,
+            location_provider,
+            manual,
+            adjustment_method,
+            randr,
+        } = other;
+
+        if let Some(t) = temperature {
+            self.temperature = Some(t);
+        }
+        if let Some(t) = brightness {
+            self.brightness = Some(t);
+        }
+        if let Some(t) = gamma {
+            self.gamma = Some(t);
+        }
+        if let Some(t) = preserve_gamma {
+            self.preserve_gamma = Some(t);
+        }
+        if let Some(t) = fade {
+            self.fade = Some(t);
+        }
+        if let Some(t) = transition_scheme {
+            self.transition_scheme = Some(t);
+        }
+        if let Some(t) = time_ranges {
+            self.time_ranges = Some(t);
+        }
+        if let Some(t) = elevation {
+            self.elevation = Some(t);
+        }
+        if let Some(t) = location_provider {
+            self.location_provider = Some(t);
+        }
+        if let Some(t) = manual {
+            self.manual = Some(t);
+        }
+        if let Some(t) = adjustment_method {
+            self.adjustment_method = Some(t);
+        }
+        if let Some(t) = randr {
+            self.randr = Some(t);
+        }
+
+        self
     }
 }
 
@@ -567,6 +630,12 @@ impl Default for AdjustmentMethod {
     }
 }
 
+impl Default for Mode {
+    fn default() -> Self {
+        Self::Continual
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -600,7 +669,7 @@ where
     type Error = anyhow::Error;
 
     fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-        match *s.split("-").map(str::trim).collect_vec().as_slice() {
+        match *s.split("-").map(str::trim).collect::<Vec<_>>().as_slice() {
             [day, night] => Ok(Self {
                 day: day.try_into()?,
                 night: night.try_into()?,
@@ -678,11 +747,21 @@ impl TryFrom<f32> for Gamma {
     }
 }
 
-impl TryFrom<(f32, f32, f32)> for Gamma {
+impl TryFrom<[f32; 3]> for Gamma {
     type Error = anyhow::Error;
 
-    fn try_from((r, g, b): (f32, f32, f32)) -> Result<Self, Self::Error> {
+    fn try_from([r, g, b]: [f32; 3]) -> Result<Self, Self::Error> {
         Ok(Self([gamma(r)?, gamma(g)?, gamma(b)?]))
+    }
+}
+
+impl TryFrom<Vec<f32>> for Gamma {
+    type Error = anyhow::Error;
+
+    fn try_from(vec: Vec<f32>) -> Result<Self, Self::Error> {
+        TryInto::<[f32; 3]>::try_into(vec)
+            .map_err(|_| anyhow!("wrong size"))?
+            .try_into()
     }
 }
 
@@ -690,8 +769,8 @@ impl TryFrom<&str> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split(":").map(str::trim).collect_vec().as_slice() {
-            [r, g, b] => (r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?).try_into(),
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+            [r, g, b] => [r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?].try_into(),
             [rbg] => rbg.parse::<f32>()?.try_into(),
             _ => Err(anyhow!("gamma")),
         }
@@ -728,7 +807,7 @@ impl TryFrom<&str> for Time {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split(":").map(str::trim).collect_vec().as_slice() {
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             [hour, minute] => Ok(Self {
                 hour: hour.try_into()?,
                 minute: minute.try_into()?,
@@ -748,7 +827,7 @@ impl TryFrom<&str> for TimeRange {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split("-").map(str::trim).collect_vec().as_slice() {
+        match *s.split("-").map(str::trim).collect::<Vec<_>>().as_slice() {
             [start, end] => {
                 let start: TimeOffset = Time::try_from(start)?.into();
                 let end: TimeOffset = Time::try_from(end)?.into();
@@ -794,7 +873,7 @@ impl TryFrom<&str> for ElevationRange {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split(":").map(str::trim).collect_vec().as_slice() {
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             [high, low] => (
                 Elevation::try_from(high.parse::<f32>()?)?,
                 Elevation::try_from(low.parse::<f32>()?)?,
@@ -859,7 +938,7 @@ impl TryFrom<&str> for Location {
     type Error = anyhow::Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match *s.split(":").map(str::trim).collect_vec().as_slice() {
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             [lat, lon] => Ok(Self {
                 latitude: lat.try_into()?,
                 longitude: lon.try_into()?,
@@ -1017,16 +1096,12 @@ impl AsRef<f32> for LongitudeDegree {
 #[cfg(test)]
 mod test {
     use super::*;
-    use config::FileFormat;
 
     #[test]
     fn test_config_template() -> Result<()> {
         const CONFIG_TEMPLATE: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        ConfigRs::builder()
-            .add_source(File::from_str(CONFIG_TEMPLATE, FileFormat::Toml))
-            .build()?
-            .try_deserialize::<ConfigFile>()?;
+        toml::from_str::<ConfigFile>(CONFIG_TEMPLATE)?;
         Ok(())
     }
 
