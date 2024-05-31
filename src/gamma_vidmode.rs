@@ -18,11 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
-    gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
-    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
-};
+use crate::{colorramp::colorramp_fill, config::ColorSetting};
 use libc::{atoi, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE};
 use std::{
     ffi::{c_char, c_double, c_int, c_void},
@@ -266,73 +262,3 @@ unsafe extern "C" fn vidmode_set_temperature(
     free(gamma_ramps as *mut c_void);
     0 as c_int
 }
-
-#[no_mangle]
-pub static mut vidmode_gamma_method: gamma_method_t = unsafe {
-    {
-        gamma_method_t {
-            name: b"vidmode\0" as *const u8 as *const c_char as *mut c_char,
-            autostart: 1 as c_int,
-            init: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut *mut vidmode_state_t) -> c_int>,
-                Option<gamma_method_init_func>,
-            >(Some(
-                vidmode_init as unsafe extern "C" fn(*mut *mut vidmode_state_t) -> c_int,
-            )),
-            start: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut vidmode_state_t) -> c_int>,
-                Option<gamma_method_start_func>,
-            >(Some(
-                vidmode_start as unsafe extern "C" fn(*mut vidmode_state_t) -> c_int,
-            )),
-            free: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut vidmode_state_t) -> ()>,
-                Option<gamma_method_free_func>,
-            >(Some(
-                vidmode_free as unsafe extern "C" fn(*mut vidmode_state_t) -> (),
-            )),
-            print_help: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut FILE) -> ()>,
-                Option<gamma_method_print_help_func>,
-            >(Some(
-                vidmode_print_help as unsafe extern "C" fn(*mut FILE) -> (),
-            )),
-            set_option: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(
-                        *mut vidmode_state_t,
-                        *const c_char,
-                        *const c_char,
-                    ) -> c_int,
-                >,
-                Option<gamma_method_set_option_func>,
-            >(Some(
-                vidmode_set_option
-                    as unsafe extern "C" fn(
-                        *mut vidmode_state_t,
-                        *const c_char,
-                        *const c_char,
-                    ) -> c_int,
-            )),
-            restore: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut vidmode_state_t) -> ()>,
-                Option<gamma_method_restore_func>,
-            >(Some(
-                vidmode_restore as unsafe extern "C" fn(*mut vidmode_state_t) -> (),
-            )),
-            set_temperature: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(*mut vidmode_state_t, *const ColorSetting, c_int) -> c_int,
-                >,
-                Option<gamma_method_set_temperature_func>,
-            >(Some(
-                vidmode_set_temperature
-                    as unsafe extern "C" fn(
-                        *mut vidmode_state_t,
-                        *const ColorSetting,
-                        c_int,
-                    ) -> c_int,
-            )),
-        }
-    }
-};

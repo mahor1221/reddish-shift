@@ -20,6 +20,26 @@
 
 // TODO: map country names to geo location
 
+// #[repr(C)]
+// pub struct location_provider_t {
+//     pub name: *mut c_char,
+
+//     // Initialize state. Options can be set between init and start.
+//     pub init: Option<location_provider_init_func>,
+//     // Allocate storage and make connections that depend on options.
+//     pub start: Option<location_provider_start_func>,
+//     // Free all allocated storage and close connections.
+//     pub free: Option<location_provider_free_func>,
+
+//     // Print help on options for this location provider.
+//     pub print_help: Option<location_provider_print_help_func>,
+//     // Set an option key, value-pair.
+//     pub set_option: Option<location_provider_set_option_func>,
+
+//     // Listen and handle location updates.
+//     pub get_fd: Option<location_provider_get_fd_func>,
+//     pub handle: Option<location_provider_handle_func>,
+
 use crate::config::Location;
 use anyhow::{anyhow, Result};
 

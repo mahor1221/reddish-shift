@@ -19,11 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    colorramp::colorramp_fill, gamma_method_free_func, gamma_method_init_func,
-    gamma_method_print_help_func, gamma_method_restore_func, gamma_method_set_option_func,
-    gamma_method_set_temperature_func, gamma_method_start_func, gamma_method_t, ColorSetting,
-};
+use crate::{colorramp::colorramp_fill, config::ColorSetting};
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc, drmModeFreeResources,
     drmModeGetCrtc, drmModeGetResources, drmModeRes,
@@ -305,7 +301,7 @@ unsafe extern "C" fn drm_set_option(
 
 unsafe extern "C" fn drm_set_temperature(
     state: *mut drm_state_t,
-    setting: *const ColorSetting,
+    setting: &ColorSetting,
     preserve: c_int,
 ) -> c_int {
     let mut crtcs: *mut drm_crtc_state_t = (*state).crtcs;
@@ -375,63 +371,3 @@ unsafe extern "C" fn drm_set_temperature(
     free(r_gamma as *mut c_void);
     0 as c_int
 }
-
-#[no_mangle]
-pub static mut drm_gamma_method: gamma_method_t = unsafe {
-    {
-        gamma_method_t {
-            name: b"drm\0" as *const u8 as *const c_char as *mut c_char,
-            autostart: 0 as c_int,
-            init: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut *mut drm_state_t) -> c_int>,
-                Option<gamma_method_init_func>,
-            >(Some(
-                drm_init as unsafe extern "C" fn(*mut *mut drm_state_t) -> c_int,
-            )),
-            start: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut drm_state_t) -> c_int>,
-                Option<gamma_method_start_func>,
-            >(Some(
-                drm_start as unsafe extern "C" fn(*mut drm_state_t) -> c_int,
-            )),
-            free: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut drm_state_t) -> ()>,
-                Option<gamma_method_free_func>,
-            >(Some(
-                drm_free as unsafe extern "C" fn(*mut drm_state_t) -> (),
-            )),
-            print_help: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut FILE) -> ()>,
-                Option<gamma_method_print_help_func>,
-            >(Some(
-                drm_print_help as unsafe extern "C" fn(*mut FILE) -> (),
-            )),
-            set_option: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(*mut drm_state_t, *const c_char, *const c_char) -> c_int,
-                >,
-                Option<gamma_method_set_option_func>,
-            >(Some(
-                drm_set_option
-                    as unsafe extern "C" fn(
-                        *mut drm_state_t,
-                        *const c_char,
-                        *const c_char,
-                    ) -> c_int,
-            )),
-            restore: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut drm_state_t) -> ()>,
-                Option<gamma_method_restore_func>,
-            >(Some(
-                drm_restore as unsafe extern "C" fn(*mut drm_state_t) -> (),
-            )),
-            set_temperature: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut drm_state_t, *const ColorSetting, c_int) -> c_int>,
-                Option<gamma_method_set_temperature_func>,
-            >(Some(
-                drm_set_temperature
-                    as unsafe extern "C" fn(*mut drm_state_t, *const ColorSetting, c_int) -> c_int,
-            )),
-        }
-    }
-};

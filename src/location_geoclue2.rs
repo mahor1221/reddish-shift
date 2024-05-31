@@ -19,12 +19,6 @@
 */
 
 use super::pipeutils::{pipeutils_create_nonblocking, pipeutils_handle_signal, pipeutils_signal};
-use crate::{
-    location_provider_free_func, location_provider_get_fd_func, location_provider_handle_func,
-    location_provider_init_func, location_provider_print_help_func,
-    location_provider_set_option_func, location_provider_start_func, location_provider_t,
-    location_t,
-};
 use gio_sys::{
     g_bus_unwatch_name, g_bus_watch_name, g_dbus_error_get_remote_error,
     g_dbus_error_is_remote_error, g_dbus_proxy_call_sync, g_dbus_proxy_get_cached_property,
@@ -47,6 +41,11 @@ use libc::{close, fputs, free, malloc, FILE};
 use std::ffi::{c_char, c_float, c_int, c_uint, c_void, CStr};
 
 pub type gboolean = c_int;
+
+struct location_t {
+    lat: f32,
+    lon: f32,
+}
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -519,79 +518,3 @@ unsafe extern "C" fn location_geoclue2_handle(
     }
     0 as c_int
 }
-#[no_mangle]
-pub static mut geoclue2_location_provider: location_provider_t = unsafe {
-    {
-        location_provider_t {
-            name: b"geoclue2\0" as *const u8 as *const c_char as *mut c_char,
-            init: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut *mut location_geoclue2_state_t) -> c_int>,
-                Option<location_provider_init_func>,
-            >(Some(
-                location_geoclue2_init
-                    as unsafe extern "C" fn(*mut *mut location_geoclue2_state_t) -> c_int,
-            )),
-            start: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut location_geoclue2_state_t) -> c_int>,
-                Option<location_provider_start_func>,
-            >(Some(
-                location_geoclue2_start
-                    as unsafe extern "C" fn(*mut location_geoclue2_state_t) -> c_int,
-            )),
-            free: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut location_geoclue2_state_t) -> ()>,
-                Option<location_provider_free_func>,
-            >(Some(
-                location_geoclue2_free
-                    as unsafe extern "C" fn(*mut location_geoclue2_state_t) -> (),
-            )),
-            print_help: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut FILE) -> ()>,
-                Option<location_provider_print_help_func>,
-            >(Some(
-                location_geoclue2_print_help as unsafe extern "C" fn(*mut FILE) -> (),
-            )),
-            set_option: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(
-                        *mut location_geoclue2_state_t,
-                        *const c_char,
-                        *const c_char,
-                    ) -> c_int,
-                >,
-                Option<location_provider_set_option_func>,
-            >(Some(
-                location_geoclue2_set_option
-                    as unsafe extern "C" fn(
-                        *mut location_geoclue2_state_t,
-                        *const c_char,
-                        *const c_char,
-                    ) -> c_int,
-            )),
-            get_fd: ::core::mem::transmute::<
-                Option<unsafe extern "C" fn(*mut location_geoclue2_state_t) -> c_int>,
-                Option<location_provider_get_fd_func>,
-            >(Some(
-                location_geoclue2_get_fd
-                    as unsafe extern "C" fn(*mut location_geoclue2_state_t) -> c_int,
-            )),
-            handle: ::core::mem::transmute::<
-                Option<
-                    unsafe extern "C" fn(
-                        *mut location_geoclue2_state_t,
-                        *mut location_t,
-                        *mut c_int,
-                    ) -> c_int,
-                >,
-                Option<location_provider_handle_func>,
-            >(Some(
-                location_geoclue2_handle
-                    as unsafe extern "C" fn(
-                        *mut location_geoclue2_state_t,
-                        *mut location_t,
-                        *mut c_int,
-                    ) -> c_int,
-            )),
-        }
-    }
-};

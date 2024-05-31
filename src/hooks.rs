@@ -18,12 +18,13 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{period_names, period_t};
 use libc::{
     __errno_location, _exit, close, dirent, execl, fork, getenv, getpwuid, getuid, opendir, perror,
     pid_t, readdir, snprintf, DIR,
 };
 use std::ffi::{c_char, c_int, c_void};
+
+use crate::{period_names, Period};
 
 // Try to open the directory containing hooks. HP is a string
 // of MAX_HOOK_PATH length that will be filled with the path
@@ -62,7 +63,7 @@ unsafe extern "C" fn open_hooks_dir(hp: *mut c_char) -> *mut DIR {
 
 // Run hooks with a signal that the period changed.
 #[no_mangle]
-pub unsafe extern "C" fn hooks_signal_period_change(prev_period: period_t, period: period_t) {
+pub unsafe extern "C" fn hooks_signal_period_change(prev_period: Period, period: Period) {
     let mut hooksdir_path: [c_char; 4096] = [0; 4096];
     let hooks_dir: *mut DIR = open_hooks_dir(hooksdir_path.as_mut_ptr());
     if hooks_dir.is_null() {

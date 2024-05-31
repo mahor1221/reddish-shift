@@ -162,13 +162,13 @@ Try `-l PROVIDER:help' for help.
 // Parsed types
 //
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Temperature(u16);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Brightness(f32);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Gamma([f32; 3]);
 
 #[derive(Debug, Clone)]
@@ -217,7 +217,7 @@ pub struct ElevationRange {
     pub low: Elevation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionSchemeKind {
     TimeRanges,
     Elevation,
