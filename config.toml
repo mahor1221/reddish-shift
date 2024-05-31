@@ -21,7 +21,7 @@ gamma = "0.8"
 # will gradually apply the new screen temperature over a couple of seconds.
 fade = true
 
-# Set transition scheme: 'time-ranges', 'elevation'
+# Set transition scheme: 'time', 'elevation'
 # Setting it to `elevation` requires using a location provider
 transition-scheme = "elevation"
 
