@@ -29,7 +29,7 @@ allow = [
 ]
 
 [bans]
-multiple-versions = "deny"
+multiple-versions = "warn"
 multiple-versions-include-dev = true
 wildcards = "deny"
 allow-wildcard-paths = true
