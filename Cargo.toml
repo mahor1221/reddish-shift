@@ -25,11 +25,10 @@ dirs = "5.0"
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 clap = { version = "4.5", features = ["derive"] }
-strum = { version = "0.26", features = ["derive"] }
 
 [build-dependencies]
-anyhow = "1.0.83"
-vergen = { version = "8.3.1", features = ["cargo", "git", "gitcl", "rustc"] }
+anyhow = "1.0"
+vergen = { version = "8.3", features = ["cargo", "git", "gitcl", "rustc"] }
 
 [profile.release]
 lto = true

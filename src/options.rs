@@ -24,7 +24,6 @@ use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de::Error as DeError, Deserialize, Deserializer};
 use std::{env, fs::File, io::Read, path::PathBuf, str::FromStr};
-use strum::{VariantArray, VariantNames};
 
 pub const MIN_TEMPERATURE: u16 = 1000;
 pub const MAX_TEMPERATURE: u16 = 25000;
@@ -187,7 +186,7 @@ pub struct Options {
     pub fade: bool,
     pub method: AdjustmentMethod,
     pub scheme: TransitionScheme,
-    pub provider: LocationProvider,
+    pub location: LocationProvider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,7 +227,7 @@ pub struct TimeRange {
     pub end: TimeOffset,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct TimeRanges {
     pub dawn: TimeRange,
     pub dusk: TimeRange,
@@ -244,20 +243,6 @@ pub struct ElevationRange {
     pub low: Elevation,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, VariantNames, VariantArray)]
-#[strum(serialize_all = "kebab-case")]
-pub enum TransitionSchemeKind {
-    Time,
-    Elevation,
-}
-
-#[derive(Debug, Clone)]
-pub struct TransitionScheme {
-    pub default: TransitionSchemeKind,
-    pub time_ranges: TimeRanges,
-    pub elevation_range: ElevationRange,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Latitude(f32);
 #[derive(Debug, Clone, Copy)]
@@ -268,31 +253,23 @@ pub struct Location {
     pub longitude: Longitude,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, VariantNames, VariantArray)]
-#[strum(serialize_all = "kebab-case")]
-pub enum LocationProviderKind {
-    Manual,
+#[derive(Debug, Clone)]
+pub enum TransitionScheme {
+    Time(TimeRanges),
+    Elevation(ElevationRange),
+}
+
+#[derive(Debug, Clone)]
+pub enum LocationProvider {
+    Manual(Location),
     Geoclue2,
 }
 
 #[derive(Debug, Clone)]
-pub struct LocationProvider {
-    pub default: LocationProviderKind,
-    pub manual: Location,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, VariantNames, VariantArray)]
-#[strum(serialize_all = "kebab-case")]
-pub enum AdjustmentMethodKind {
-    Randr,
+pub enum AdjustmentMethod {
+    Randr(u16),
     Drm,
     Vidmode,
-}
-
-#[derive(Debug, Clone)]
-pub struct AdjustmentMethod {
-    pub default: AdjustmentMethodKind,
-    pub randr: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -310,6 +287,23 @@ pub enum Verbosity {
     #[default]
     Low,
     High,
+}
+
+//
+// Config file
+//
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct Config {
+    temperature: Option<DayNight<Temperature>>,
+    brightness: Option<DayNight<Brightness>>,
+    gamma: Option<DayNight<Gamma>>,
+    preserve_gamma: Option<bool>,
+    fade: Option<bool>,
+    transition_scheme: Option<TransitionScheme>,
+    location_provider: Option<LocationProvider>,
+    adjustment_method: Option<AdjustmentMethod>,
 }
 
 //
@@ -363,33 +357,7 @@ enum ModeArgs {
     Reset(SetResetArgs),
 }
 
-#[derive(Debug, Clone)]
-enum TransitionSchemeArgs {
-    Time(Option<TimeRanges>),
-    Elevation(Option<ElevationRange>),
-}
-
-#[derive(Debug, Clone)]
-enum LocationProviderArgs {
-    Manual(Option<Location>),
-    Geoclue2,
-}
-
-#[derive(Debug, Clone, Default, Args)]
-struct AdjustmentMethodArgs {
-    #[arg(
-        long = "method",
-        short = 'm',
-        value_name = "ADJUSTMENT_METHOD",
-        help(formatcp!("[possible values: {ADJUSTMENT_METHOD_KINDS}]")),
-        value_parser = AdjustmentMethodKind::from_str
-    )]
-    default: Option<AdjustmentMethodKind>,
-    #[arg(long, value_name = "SCREEN_NUMBER")]
-    randr_screen: Option<u16>,
-}
-
-#[derive(Debug, Clone, Default, Args)]
+#[derive(Debug, Clone, Args)]
 struct SetResetArgs {
     #[arg(
         long,
@@ -406,8 +374,14 @@ struct SetResetArgs {
     )]
     fade: Option<bool>,
 
-    #[command(flatten)]
-    adjustment_method: AdjustmentMethodArgs,
+    #[arg(
+        long = "method",
+        short = 'm',
+        value_name = "ADJUSTMENT_METHOD[:<SCREEN_NUMBER>]",
+        help(formatcp!("[{ADJUSTMENT_METHOD_KINDS}]")),
+        value_parser = AdjustmentMethod::from_str
+    )]
+    adjustment_method: Option<AdjustmentMethod>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -420,62 +394,25 @@ struct DaemonOneShotArgs {
     gamma: Option<DayNight<Gamma>>,
 
     #[command(flatten)]
-    c: SetResetArgs,
+    set_reset_args: SetResetArgs,
 
     #[arg(
         long = "scheme",
         short = 's',
-        value_name = "TRANSITION_SCHEME | TIME_RANGE | ELEVATION",
-        help(formatcp!("[possible values: {TRANSITION_SCHEME_KINDS}]")),
-        value_parser = TransitionSchemeArgs::from_str
+        value_name = "TRANSITION_SCHEME | TIME | ELEVATION",
+        help(formatcp!("[{TRANSITION_SCHEME_KINDS}]")),
+        value_parser = TransitionScheme::from_str
     )]
-    transition_scheme: Option<TransitionSchemeArgs>,
+    transition_scheme: Option<TransitionScheme>,
 
     #[arg(
-        long = "provider",
+        long = "location",
         short = 'l',
         value_name = "LOCATION_PROVIDER | LOCATION",
-        help(formatcp!("[possible values: {LOCATION_PROVIDER_KINDS}]")),
-        value_parser = LocationProviderArgs::from_str
+        help(formatcp!("[{LOCATION_PROVIDER_KINDS}]")),
+        value_parser = LocationProvider::from_str
     )]
-    location_provider: Option<LocationProviderArgs>,
-}
-
-//
-// Config file
-//
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct Config {
-    temperature: Option<DayNight<Temperature>>,
-    brightness: Option<DayNight<Brightness>>,
-    gamma: Option<DayNight<Gamma>>,
-    preserve_gamma: Option<bool>,
-    fade: Option<bool>,
-    adjustment_method: AdjustmentMethodSection,
-    transition_scheme: TransitionSchemeSection,
-    location_provider: LocationProviderSection,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct TransitionSchemeSection {
-    default: Option<TransitionSchemeKind>,
-    #[serde(flatten)]
-    time_ranges: Option<TimeRanges>,
-    #[serde(flatten)]
-    elevation_range: Option<ElevationRange>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct LocationProviderSection {
-    default: Option<LocationProviderKind>,
-    manual: Option<Location>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct AdjustmentMethodSection {
-    default: Option<AdjustmentMethodKind>,
-    randr_screen: Option<u16>,
+    location_provider: Option<LocationProvider>,
 }
 
 //
@@ -496,200 +433,193 @@ impl Options {
         Ok(options)
     }
 
-    fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
-        let CliArgs {
-            config: _,
-            verbosity: VerbosityArgs { quite, verbose },
-            dry_run,
-            mode,
-        } = args;
+    // fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
+    //     let CliArgs {
+    //         config: _,
+    //         verbosity: VerbosityArgs { quite, verbose },
+    //         dry_run,
+    //         mode,
+    //     } = args;
 
-        let verbosity = match (quite, verbose) {
-            (true, false) => Verbosity::Quite,
-            (false, false) => Verbosity::Low,
-            (false, true) => Verbosity::High,
-            (true, true) => unreachable!(), // clap returns error
-        };
+    //     let verbosity = match (quite, verbose) {
+    //         (true, false) => Verbosity::Quite,
+    //         (false, false) => Verbosity::Low,
+    //         (false, true) => Verbosity::High,
+    //         (true, true) => unreachable!(), // clap returns error
+    //     };
 
-        self.verbosity = verbosity;
-        self.dry_run = dry_run;
-        match mode {
-            Some(ModeArgs::Daemon(c)) => {
-                self.merge_with_daemon_oneshot_args(c);
-                self.mode = Mode::Daemon;
-            }
-            Some(ModeArgs::OneShot(c)) => {
-                self.merge_with_daemon_oneshot_args(c);
-                self.mode = Mode::Oneshot;
-            }
-            Some(ModeArgs::Set { cs, sa: ca }) => {
-                self.merge_with_set_reset_args(ca);
-                self.day = cs.into();
-                self.mode = Mode::Set;
-            }
-            Some(ModeArgs::Reset(ca)) => {
-                self.merge_with_set_reset_args(ca);
-                self.mode = Mode::Reset;
-            }
-            None => {}
-        }
+    //     self.verbosity = verbosity;
+    //     self.dry_run = dry_run;
+    //     match mode {
+    //         Some(ModeArgs::Daemon(c)) => {
+    //             self.merge_with_daemon_oneshot_args(c);
+    //             self.mode = Mode::Daemon;
+    //         }
+    //         Some(ModeArgs::OneShot(c)) => {
+    //             self.merge_with_daemon_oneshot_args(c);
+    //             self.mode = Mode::Oneshot;
+    //         }
+    //         Some(ModeArgs::Set { cs, sa: ca }) => {
+    //             self.merge_with_set_reset_args(ca);
+    //             self.day = cs.into();
+    //             self.mode = Mode::Set;
+    //         }
+    //         Some(ModeArgs::Reset(ca)) => {
+    //             self.merge_with_set_reset_args(ca);
+    //             self.mode = Mode::Reset;
+    //         }
+    //         None => {}
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    fn merge_with_daemon_oneshot_args(&mut self, args: DaemonOneShotArgs) {
-        let DaemonOneShotArgs {
-            temperature,
-            brightness,
-            gamma,
-            c,
-            transition_scheme,
-            location_provider,
-        } = args;
+    // fn merge_with_daemon_oneshot_args(&mut self, args: DaemonOneShotArgs) {
+    //     let DaemonOneShotArgs {
+    //         temperature,
+    //         brightness,
+    //         gamma,
+    //         set_reset_args,
+    //         transition_scheme,
+    //         location_provider,
+    //     } = args;
 
-        if let Some(DayNight { day, night }) = temperature {
-            self.day.temperature = day;
-            self.night.temperature = night;
-        }
-        if let Some(DayNight { day, night }) = brightness {
-            self.day.brightness = day;
-            self.night.brightness = night;
-        }
-        if let Some(DayNight { day, night }) = gamma {
-            self.day.gamma = day;
-            self.night.gamma = night;
-        }
+    //     if let Some(DayNight { day, night }) = temperature {
+    //         self.day.temperature = day;
+    //         self.night.temperature = night;
+    //     }
+    //     if let Some(DayNight { day, night }) = brightness {
+    //         self.day.brightness = day;
+    //         self.night.brightness = night;
+    //     }
+    //     if let Some(DayNight { day, night }) = gamma {
+    //         self.day.gamma = day;
+    //         self.night.gamma = night;
+    //     }
 
-        self.merge_with_set_reset_args(c);
+    //     self.merge_with_set_reset_args(set_reset_args);
 
-        match transition_scheme {
-            Some(TransitionSchemeArgs::Time(t)) => {
-                self.scheme.default = TransitionSchemeKind::Time;
-                if let Some(t) = t {
-                    self.scheme.time_ranges = t;
-                }
-            }
-            Some(TransitionSchemeArgs::Elevation(t)) => {
-                self.scheme.default = TransitionSchemeKind::Elevation;
-                if let Some(t) = t {
-                    self.scheme.elevation_range = t;
-                }
-            }
-            None => {}
-        }
+    //     match transition_scheme {
+    //         Some(TransitionSchemeArgs::Time(t)) => {
+    //             self.scheme.default = TransitionSchemeKind::Time;
+    //             if let Some(t) = t {
+    //                 self.scheme.time = t;
+    //             }
+    //         }
+    //         Some(TransitionSchemeArgs::Elevation(t)) => {
+    //             self.scheme.default = TransitionSchemeKind::Elevation;
+    //             if let Some(t) = t {
+    //                 self.scheme.elevation = t;
+    //             }
+    //         }
+    //         None => {}
+    //     }
 
-        match location_provider {
-            Some(LocationProviderArgs::Manual(t)) => {
-                self.provider.default = LocationProviderKind::Manual;
-                if let Some(t) = t {
-                    self.provider.manual = t;
-                }
-            }
-            Some(LocationProviderArgs::Geoclue2) => {
-                self.provider.default = LocationProviderKind::Geoclue2;
-            }
-            None => {}
-        }
-    }
+    //     match location_provider {
+    //         Some(LocationProviderArgs::Manual(t)) => {
+    //             self.location.default = LocationProviderKind::Manual;
+    //             if let Some(t) = t {
+    //                 self.location.manual = t;
+    //             }
+    //         }
+    //         Some(LocationProviderArgs::Geoclue2) => {
+    //             self.location.default = LocationProviderKind::Geoclue2;
+    //         }
+    //         None => {}
+    //     }
+    // }
 
-    fn merge_with_set_reset_args(&mut self, args: SetResetArgs) {
-        let SetResetArgs {
-            preserve_gamma,
-            fade,
-            adjustment_method:
-                AdjustmentMethodArgs {
-                    default: m_default,
-                    randr_screen,
-                },
-        } = args;
+    // fn merge_with_set_reset_args(&mut self, args: SetResetArgs) {
+    //     let SetResetArgs {
+    //         preserve_gamma,
+    //         fade,
+    //         adjustment_method:
+    //             AdjustmentMethodArgs {
+    //                 default,
+    //                 randr_screen,
+    //             },
+    //     } = args;
 
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = t;
-        }
-        if let Some(t) = fade {
-            self.fade = t;
-        }
+    //     if let Some(t) = preserve_gamma {
+    //         self.preserve_gamma = t;
+    //     }
+    //     if let Some(t) = fade {
+    //         self.fade = t;
+    //     }
 
-        if let Some(t) = m_default {
-            self.method.default = t;
-        }
-        if let Some(t) = randr_screen {
-            self.method.randr = t;
-        }
-    }
+    //     if let Some(t) = default {
+    //         self.method.default = t;
+    //     }
+    //     if let Some(t) = randr_screen {
+    //         self.method.randr = t;
+    //     }
+    // }
 
-    fn merge_with_config(&mut self, config: Config) -> Result<()> {
-        // TODO: move conversions to ConfigFile filds definition with serde derives
-        let Config {
-            temperature,
-            brightness,
-            gamma,
+    // fn merge_with_config(&mut self, config: Config) {
+    //     // TODO: move conversions to ConfigFile filds definition with serde derives
+    //     let Config {
+    //         temperature,
+    //         brightness,
+    //         gamma,
 
-            preserve_gamma,
-            fade,
-            adjustment_method:
-                AdjustmentMethodSection {
-                    default: m_default,
-                    randr_screen,
-                },
-            transition_scheme:
-                TransitionSchemeSection {
-                    default: t_default,
-                    time_ranges,
-                    elevation_range,
-                },
-            location_provider:
-                LocationProviderSection {
-                    default: p_default,
-                    manual,
-                },
-        } = config;
+    //         preserve_gamma,
+    //         fade,
+    //         adjustment_method,
+    //         transition_scheme,
+    //         location_provider,
+    //     } = config;
 
-        if let Some(DayNight { day, night }) = temperature {
-            self.day.temperature = day;
-            self.night.temperature = night;
-        }
-        if let Some(DayNight { day, night }) = brightness {
-            self.day.brightness = day;
-            self.night.brightness = night;
-        }
-        if let Some(DayNight { day, night }) = gamma {
-            self.day.gamma = day;
-            self.night.gamma = night;
-        }
+    //     if let Some(DayNight { day, night }) = temperature {
+    //         self.day.temperature = day;
+    //         self.night.temperature = night;
+    //     }
+    //     if let Some(DayNight { day, night }) = brightness {
+    //         self.day.brightness = day;
+    //         self.night.brightness = night;
+    //     }
+    //     if let Some(DayNight { day, night }) = gamma {
+    //         self.day.gamma = day;
+    //         self.night.gamma = night;
+    //     }
 
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = t;
-        }
-        if let Some(t) = fade {
-            self.fade = t;
-        }
-        if let Some(t) = m_default {
-            self.method.default = t;
-        }
-        if let Some(t) = randr_screen {
-            self.method.randr = t;
-        }
+    //     if let Some(t) = preserve_gamma {
+    //         self.preserve_gamma = t;
+    //     }
+    //     if let Some(t) = fade {
+    //         self.fade = t;
+    //     }
 
-        if let Some(t) = t_default {
-            self.scheme.default = t
-        }
-        if let Some(t) = time_ranges {
-            self.scheme.time_ranges = t; // TODO: check if dawn is before dusk
-        }
-        if let Some(t) = elevation_range {
-            self.scheme.elevation_range = t;
-        }
+    //     let AdjustmentMethodSection { default, randr } = adjustment_method;
+    //     if let Some(t) = default {
+    //         self.method.default = t;
+    //     }
+    //     if let RandrSection { screen: Some(t) } = randr {
+    //         self.method.randr = t;
+    //     }
 
-        if let Some(t) = p_default {
-            self.provider.default = t;
-        }
-        if let Some(t) = manual {
-            self.provider.manual = t;
-        }
+    //     let TransitionSchemeSection {
+    //         default,
+    //         time,
+    //         elevation,
+    //     } = transition_scheme;
+    //     if let Some(t) = default {
+    //         self.scheme.default = t
+    //     }
+    //     if let Some(t) = time {
+    //         self.scheme.time = t;
+    //     }
+    //     if let Some(t) = elevation {
+    //         self.scheme.elevation = t;
+    //     }
 
-        Ok(())
-    }
+    //     let LocationProviderSection { default, manual } = location_provider;
+    //     if let Some(t) = default {
+    //         self.location.default = t;
+    //     }
+    //     if let Some(t) = manual {
+    //         self.location.manual = t;
+    //     }
+    // }
 }
 
 impl Config {
@@ -713,67 +643,61 @@ impl Config {
         Ok(config)
     }
 
-    fn merge(&mut self, other: Self) {
-        let Self {
-            temperature,
-            brightness,
-            gamma,
-            preserve_gamma,
-            fade,
-            transition_scheme:
-                TransitionSchemeSection {
-                    default: s_default,
-                    time_ranges,
-                    elevation_range,
-                },
-            location_provider:
-                LocationProviderSection {
-                    default: p_default,
-                    manual,
-                },
-            adjustment_method:
-                AdjustmentMethodSection {
-                    default: m_default,
-                    randr_screen,
-                },
-        } = other;
+    // fn merge(&mut self, other: Self) {
+    //     let Self {
+    //         temperature,
+    //         brightness,
+    //         gamma,
+    //         preserve_gamma,
+    //         fade,
+    //         adjustment_method,
+    //         transition_scheme,
+    //         location_provider,
+    //     } = other;
 
-        if let Some(t) = temperature {
-            self.temperature = Some(t);
-        }
-        if let Some(t) = brightness {
-            self.brightness = Some(t);
-        }
-        if let Some(t) = gamma {
-            self.gamma = Some(t);
-        }
-        self.preserve_gamma = preserve_gamma;
-        self.fade = fade;
+    //     if let Some(t) = temperature {
+    //         self.temperature = Some(t);
+    //     }
+    //     if let Some(t) = brightness {
+    //         self.brightness = Some(t);
+    //     }
+    //     if let Some(t) = gamma {
+    //         self.gamma = Some(t);
+    //     }
+    //     self.preserve_gamma = preserve_gamma;
+    //     self.fade = fade;
 
-        if let Some(t) = s_default {
-            self.transition_scheme.default = Some(t);
-        }
-        if let Some(t) = time_ranges {
-            self.transition_scheme.time_ranges = Some(t);
-        }
-        if let Some(t) = elevation_range {
-            self.transition_scheme.elevation_range = Some(t);
-        }
+    //     let AdjustmentMethodSection { default, randr } = adjustment_method;
+    //     if let Some(t) = default {
+    //         self.adjustment_method.default = Some(t);
+    //     }
+    //     if let RandrSection { screen: Some(t) } = randr {
+    //         self.adjustment_method.randr.screen = Some(t);
+    //     }
 
-        if let Some(t) = p_default {
-            self.location_provider.default = Some(t);
-        }
-        if let Some(t) = manual {
-            self.location_provider.manual = Some(t);
-        }
+    //     let TransitionSchemeSection {
+    //         default,
+    //         time,
+    //         elevation,
+    //     } = transition_scheme;
+    //     if let Some(t) = default {
+    //         self.transition_scheme.default = Some(t);
+    //     }
+    //     if let Some(t) = time {
+    //         self.transition_scheme.time = Some(t);
+    //     }
+    //     if let Some(t) = elevation {
+    //         self.transition_scheme.elevation = Some(t);
+    //     }
 
-        if let Some(t) = m_default {
-            self.adjustment_method.default = Some(t);
-        }
-        if let Some(t) = randr_screen {
-            self.adjustment_method.randr_screen = Some(t);
-        }
-    }
+    //     let LocationProviderSection { default, manual } = location_provider;
+    //     if let Some(t) = default {
+    //         self.location_provider.default = Some(t);
+    //     }
+    //     if let Some(t) = manual {
+    //         self.location_provider.manual = Some(t);
+    //     }
+    // }
 }
 
 impl Default for Options {
@@ -786,9 +710,9 @@ impl Default for Options {
             dry_run: Default::default(),
             day: Default::default(),
             night: Default::default(),
-            scheme: Default::default(),
-            provider: Default::default(),
             method: Default::default(),
+            scheme: Default::default(),
+            location: Default::default(),
         }
     }
 }
@@ -796,6 +720,32 @@ impl Default for Options {
 //
 // Parse strings and numbers to strong types
 //
+
+fn gamma(n: f32) -> Result<f32> {
+    if n >= MIN_GAMMA && n <= MAX_GAMMA {
+        Ok(n)
+    } else {
+        // b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
+        Err(anyhow!("gamma"))
+    }
+}
+
+fn time_ranges(time: TimeRanges) -> Result<TimeRanges> {
+    if time.dawn.end < time.dusk.start {
+        Ok(time)
+    } else {
+        Err(anyhow!("time_ranges"))
+    }
+}
+
+fn elevation_range(elev: ElevationRange) -> Result<ElevationRange> {
+    if elev.high >= elev.low {
+        Ok(elev)
+    } else {
+        // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
+        Err(anyhow!("elevation"))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DayNight<T> {
@@ -866,21 +816,11 @@ impl FromStr for Brightness {
     }
 }
 
-fn is_gamma(n: f32) -> Result<f32> {
-    if n >= MIN_GAMMA && n <= MAX_GAMMA {
-        Ok(n)
-    } else {
-        // b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
-        Err(anyhow!("gamma"))
-    }
-}
-
 impl TryFrom<f32> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from(n: f32) -> Result<Self, Self::Error> {
-        let n = is_gamma(n)?;
-        Ok(Self([n; 3]))
+        Ok(Self([gamma(n)?; 3]))
     }
 }
 
@@ -888,7 +828,7 @@ impl TryFrom<[f32; 3]> for Gamma {
     type Error = anyhow::Error;
 
     fn try_from([r, g, b]: [f32; 3]) -> Result<Self, Self::Error> {
-        Ok(Self([is_gamma(r)?, is_gamma(g)?, is_gamma(b)?]))
+        Ok(Self([gamma(r)?, gamma(g)?, gamma(b)?]))
     }
 }
 
@@ -1002,24 +942,18 @@ impl FromStr for TimeRanges {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let time_ranges = match *s.split("-").collect::<Vec<_>>().as_slice() {
+        match *s.split("-").collect::<Vec<_>>().as_slice() {
             [dawn, dusk] => {
                 let dawn: TimeRange = dawn.parse()?;
                 let dusk: TimeRange = dusk.parse()?;
-                Ok(Self { dawn, dusk })
+                time_ranges(Self { dawn, dusk })
             }
             [dawn_start, dawn_end, "", dusk_start, dusk_end] => {
                 let dawn: TimeRange = [dawn_start, dawn_end].concat().parse()?;
                 let dusk: TimeRange = [dusk_start, dusk_end].concat().parse()?;
-                Ok(Self { dawn, dusk })
+                time_ranges(Self { dawn, dusk })
             }
             _ => Err(anyhow!("time_ranges")),
-        }?;
-
-        if time_ranges.dawn.end < time_ranges.dusk.start {
-            Ok(time_ranges)
-        } else {
-            Err(anyhow!("time_ranges"))
         }
     }
 }
@@ -1049,13 +983,7 @@ impl FromStr for ElevationRange {
             [high, low] => {
                 let high = Elevation::try_from(high.parse::<f32>()?)?;
                 let low = Elevation::try_from(low.parse::<f32>()?)?;
-
-                if high >= low {
-                    Ok(Self { high, low })
-                } else {
-                    // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
-                    Err(anyhow!("elevation"))
-                }
+                elevation_range(Self { high, low })
             }
             _ => Err(anyhow!("elevation")),
         }
@@ -1126,110 +1054,42 @@ impl FromStr for Location {
     }
 }
 
-impl FromStr for TransitionSchemeKind {
+impl FromStr for TransitionScheme {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        <Self as VariantNames>::VARIANTS
-            .into_iter()
-            .enumerate()
-            .find(|(_, v)| **v == s.to_lowercase())
-            .map(|(i, _)| VariantArray::VARIANTS[i])
-            .ok_or(anyhow!("scheme"))
+        TimeRanges::from_str(s)
+            .map(Self::Time)
+            .or_else(|_| Ok(Self::Elevation(ElevationRange::from_str(s)?)))
+        // .map_err(|_: anyhow::Error| anyhow!("asdf"))
     }
 }
 
-impl FromStr for LocationProviderKind {
+impl FromStr for LocationProvider {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        <Self as VariantNames>::VARIANTS
-            .into_iter()
-            .enumerate()
-            .find(|(_, v)| **v == s.to_lowercase())
-            .map(|(i, _)| VariantArray::VARIANTS[i])
-            .ok_or(anyhow!("provider"))
+        // TODO: map cities or countries to locations
+        match s {
+            "geoclue2" => Ok(Self::Geoclue2),
+            _ => Ok(Self::Manual(Location::from_str(s)?)),
+        }
     }
 }
 
-impl FromStr for AdjustmentMethodKind {
+impl FromStr for AdjustmentMethod {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        <Self as VariantNames>::VARIANTS
-            .into_iter()
-            .enumerate()
-            .find(|(_, v)| **v == s.to_lowercase())
-            .map(|(i, _)| VariantArray::VARIANTS[i])
-            .ok_or(anyhow!("method"))
+        match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+            ["randr"] => Ok(Self::Randr(Default::default())),
+            ["randr", n] => Ok(Self::Randr(n.parse()?)),
+            ["drm"] => Ok(Self::Drm),
+            ["vidmode"] => Ok(Self::Vidmode),
+            _ => Err(anyhow!("method")),
+        }
     }
 }
-
-impl FromStr for TransitionSchemeArgs {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<TransitionSchemeKind>()
-            .map(|kind| match kind {
-                TransitionSchemeKind::Time => Self::Time(None),
-                TransitionSchemeKind::Elevation => Self::Elevation(None),
-            })
-            .or_else(|_| {
-                let t = s.parse::<TimeRanges>()?;
-                Ok(Self::Time(Some(t)))
-            })
-            .or_else(|_: anyhow::Error| {
-                let t = s.parse::<ElevationRange>()?;
-                Ok(Self::Elevation(Some(t)))
-            })
-            .map_err(|_: anyhow::Error| anyhow!("asdf"))
-    }
-}
-
-impl FromStr for LocationProviderArgs {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<LocationProviderKind>()
-            .map(|kind| match kind {
-                LocationProviderKind::Manual => Self::Manual(None),
-                LocationProviderKind::Geoclue2 => Self::Geoclue2,
-            })
-            .or_else(|_| {
-                let t = s.parse::<Location>()?;
-                Ok(Self::Manual(Some(t)))
-            })
-            .map_err(|_: anyhow::Error| anyhow!("asdf"))
-    }
-}
-
-// impl TryFrom<TimeRangesSection> for TimeRanges {
-//     type Error = anyhow::Error;
-
-//     fn try_from(t: TimeRangesSection) -> Result<Self, Self::Error> {
-//         match t {
-//             TimeRangesArgs {
-//                 dawn: Some(dawn),
-//                 dusk: Some(dusk),
-//             } => Ok(Self { dawn, dusk }),
-//             _ => Err(anyhow!("time_ranges")),
-//         }
-//     }
-// }
-
-// impl TryFrom<ElevationRangeSection> for ElevationRange {
-//     type Error = anyhow::Error;
-
-//     fn try_from(t: ElevationRangeSection) -> Result<Self, Self::Error> {
-//         match t {
-//             ElevationRangeArgs {
-//                 high: Some(high),
-//                 low: Some(low),
-//             } => (high, low).try_into(),
-//             _ => Err(anyhow!("elevation")),
-//         }
-//     }
-// }
 
 impl From<ColorSettingArgs> for ColorSetting {
     fn from(t: ColorSettingArgs) -> Self {
@@ -1261,73 +1121,79 @@ where
     T: Clone + FromStr<Err = anyhow::Error>,
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?
-            .parse()
-            .map_err(|e| DeError::custom(e))
+        String::deserialize(d)?.parse().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Temperature {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        u16::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        u16::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Brightness {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        f32::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Gamma {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        f32::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for TimeRange {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?
-            .parse()
-            .map_err(|e| DeError::custom(e))
+        String::deserialize(d)?.parse().map_err(DeError::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for TimeRanges {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Elevation {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        f32::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Latitude {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        f32::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Longitude {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?
-            .try_into()
-            .map_err(|e| DeError::custom(e))
+        f32::deserialize(d)?.try_into().map_err(DeError::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for Location {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?
-            .parse()
-            .map_err(|e| DeError::custom(e))
+        String::deserialize(d)?.parse().map_err(DeError::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransitionScheme {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(DeError::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for LocationProvider {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(DeError::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for AdjustmentMethod {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(DeError::custom)
     }
 }
 
@@ -1387,13 +1253,13 @@ impl AsRef<f32> for Longitude {
     }
 }
 
+//
+
 impl Default for Temperature {
     fn default() -> Self {
         Self(DEFAULT_TEMPERATURE)
     }
 }
-
-//
 
 impl Default for Brightness {
     fn default() -> Self {
@@ -1457,11 +1323,7 @@ impl Default for TimeRanges {
 
 impl Default for TransitionScheme {
     fn default() -> Self {
-        Self {
-            default: TransitionSchemeKind::Time,
-            time_ranges: TimeRanges::default(),
-            elevation_range: ElevationRange::default(),
-        }
+        Self::Elevation(Default::default())
     }
 }
 
@@ -1479,10 +1341,7 @@ impl Default for Longitude {
 
 impl Default for LocationProvider {
     fn default() -> Self {
-        Self {
-            default: LocationProviderKind::Manual,
-            manual: Location::default(),
-        }
+        Self::Manual(Default::default())
     }
 }
 
@@ -1504,8 +1363,11 @@ mod test {
     fn test_config_template() -> Result<()> {
         const CONFIG_TEMPLATE: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        toml::from_str::<Config>(CONFIG_TEMPLATE)?;
-        Ok(())
+        let cfg = toml::from_str::<Config>(CONFIG_TEMPLATE)?;
+
+        dbg!(cfg.location_provider);
+        panic!()
+        // Ok(())
     }
 
     // TODO: assert_eq default config with config.toml
