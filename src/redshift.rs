@@ -605,8 +605,8 @@ unsafe fn main_0() -> Result<()> {
 
     let options = Options::new()?;
 
-    let need_location = match (&options.mode, options.scheme.kind) {
-        (Mode::Daemon | Mode::OneShot, TransitionSchemeKind::Elevation) => true,
+    let need_location = match (&options.mode, options.scheme.default) {
+        (Mode::Daemon | Mode::Oneshot, TransitionSchemeKind::Elevation) => true,
         (Mode::Set | Mode::Reset, _) | (_, TransitionSchemeKind::Time) => false,
     };
 
@@ -627,7 +627,7 @@ unsafe fn main_0() -> Result<()> {
         // }
     }
 
-    if let Mode::Daemon | Mode::OneShot | Mode::Set = options.mode {
+    if let Mode::Daemon | Mode::Oneshot | Mode::Set = options.mode {
         // if options.verbosity {
         //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
         // }
@@ -691,7 +691,7 @@ unsafe fn main_0() -> Result<()> {
             // }
         }
 
-        Mode::OneShot => {
+        Mode::Oneshot => {
             if need_location {
                 // b"Waiting for current location to become available...\n\0" as *const u8
 
@@ -704,27 +704,27 @@ unsafe fn main_0() -> Result<()> {
             // let now: c_double = systemtime_get_time();
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
 
-            let (period, transition_prog): (Period, TransitionProgress) = match options.scheme.kind
-            {
-                TransitionSchemeKind::Time => {
-                    // let time_offset: c_int = get_seconds_since_midnight(now);
-                    // period = get_period_from_time(scheme, time_offset);
-                    // transition_prog = get_transition_progress_from_time(scheme, time_offset);
-                    todo!()
-                }
-                TransitionSchemeKind::Elevation => {
-                    // // Current angular elevation of the sun
-                    // let elevation: c_double = solar_elevation(now, loc.lat, loc.lon);
-                    // if config.verbose {
-                    //     // TRANSLATORS: Append degree symbol if possible.
-                    //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
-                    //     todo!()
-                    // }
-                    // period = get_period_from_elevation(scheme, elevation);
-                    // transition_prog = get_transition_progress_from_elevation(scheme, elevation);
-                    todo!()
-                }
-            };
+            let (period, transition_prog): (Period, TransitionProgress) =
+                match options.scheme.default {
+                    TransitionSchemeKind::Time => {
+                        // let time_offset: c_int = get_seconds_since_midnight(now);
+                        // period = get_period_from_time(scheme, time_offset);
+                        // transition_prog = get_transition_progress_from_time(scheme, time_offset);
+                        todo!()
+                    }
+                    TransitionSchemeKind::Elevation => {
+                        // // Current angular elevation of the sun
+                        // let elevation: c_double = solar_elevation(now, loc.lat, loc.lon);
+                        // if config.verbose {
+                        //     // TRANSLATORS: Append degree symbol if possible.
+                        //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
+                        //     todo!()
+                        // }
+                        // period = get_period_from_elevation(scheme, elevation);
+                        // transition_prog = get_transition_progress_from_elevation(scheme, elevation);
+                        todo!()
+                    }
+                };
 
             // Use transition progress to set color temperature
             let interp: ColorSetting =
