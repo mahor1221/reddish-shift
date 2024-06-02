@@ -23,7 +23,10 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de::Error as DeError, Deserialize, Deserializer};
-use std::{env, fs::File, io::Read, path::PathBuf, str::FromStr};
+use std::{
+    env, fmt::Display, fs::File, io::Read, marker::PhantomData, path::PathBuf,
+    str::FromStr,
+};
 
 pub const MIN_TEMPERATURE: u16 = 1000;
 pub const MAX_TEMPERATURE: u16 = 25000;
@@ -57,14 +60,14 @@ const TRANSITION_SCHEME_KINDS: &str = "time, elevation";
 const ADJUSTMENT_METHOD_KINDS: &str = "dummy, drm, randr";
 const LOCATION_PROVIDER_KINDS: &str = "manual, geoclue2";
 
-const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 const VERSION: &str = {
-    const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+    const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
     const GIT_DESCRIBE: &str = env!("VERGEN_GIT_DESCRIBE");
     const GIT_COMMIT_DATE: &str = env!("VERGEN_GIT_COMMIT_DATE");
 
-    formatcp!("{CARGO_PKG_NAME} {CARGO_PKG_VERSION} ({GIT_DESCRIBE} {GIT_COMMIT_DATE})")
+    formatcp!("{PKG_NAME} {PKG_VERSION} ({GIT_DESCRIBE} {GIT_COMMIT_DATE})")
 };
 
 const VERBOSE_VERSION: &str = {
@@ -93,7 +96,7 @@ const PKG_BUGREPORT: &str = "https://github.com/mahor1221/reddish-shift/issues";
 // `list' must not be translated
 const HELP: &str = {
     formatcp!(
-        "Usage: {CARGO_PKG_NAME} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
+        "Usage: {PKG_NAME} -l LAT:LON -t DAY:NIGHT [OPTIONS...]
 
 Set color temperature of display according to time of day.
 
@@ -195,8 +198,18 @@ pub struct Temperature(u16);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Brightness(f32);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gamma([f32; 3]);
+
+#[derive(Debug, Clone)]
+pub struct DayNight<T> {
+    day: T,
+    night: T,
+}
+
+pub type TemperatureRange = DayNight<Temperature>;
+pub type BrightnessRange = DayNight<Brightness>;
+pub type GammaRange = DayNight<Gamma>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorSetting {
@@ -219,25 +232,25 @@ pub struct Time {
 
 /// Offset from midnight in seconds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeOffset(u32);
+pub struct Offset(u32);
 
 #[derive(Debug, Clone, Copy)]
-pub struct TimeRange {
-    pub start: TimeOffset,
-    pub end: TimeOffset,
+pub struct OffsetRange {
+    pub start: Offset,
+    pub end: Offset,
 }
 
 #[derive(Debug, Clone)]
-pub struct TimeRanges {
-    pub dawn: TimeRange,
-    pub dusk: TimeRange,
+pub struct TimeRange {
+    pub dawn: OffsetRange,
+    pub dusk: OffsetRange,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Elevation(f32);
 
 /// The solar elevations at which the transition begins/ends,
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct ElevationRange {
     pub high: Elevation,
     pub low: Elevation,
@@ -255,7 +268,7 @@ pub struct Location {
 
 #[derive(Debug, Clone)]
 pub enum TransitionScheme {
-    Time(TimeRanges),
+    Time(TimeRange),
     Elevation(ElevationRange),
 }
 
@@ -296,14 +309,20 @@ pub enum Verbosity {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct Config {
-    temperature: Option<DayNight<Temperature>>,
-    brightness: Option<DayNight<Brightness>>,
-    gamma: Option<DayNight<Gamma>>,
+    temperature: Option<Either<u16, TemperatureRange>>,
+    brightness: Option<Either<f32, BrightnessRange>>,
+    gamma: Option<Either<f32, GammaRange>>,
     preserve_gamma: Option<bool>,
     fade: Option<bool>,
-    transition_scheme: Option<TransitionScheme>,
-    location_provider: Option<LocationProvider>,
-    adjustment_method: Option<AdjustmentMethod>,
+    scheme: Option<TransitionScheme>,
+    location: Option<LocationProvider>,
+    method: Option<AdjustmentMethod>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Either<U: TryInto<T>, T> {
+    t: T,
+    p: PhantomData<U>,
 }
 
 //
@@ -375,44 +394,44 @@ struct SetResetArgs {
     fade: Option<bool>,
 
     #[arg(
-        long = "method",
-        short = 'm',
+        long,
+        short,
         value_name = "ADJUSTMENT_METHOD[:<SCREEN_NUMBER>]",
         help(formatcp!("[{ADJUSTMENT_METHOD_KINDS}]")),
         value_parser = AdjustmentMethod::from_str
     )]
-    adjustment_method: Option<AdjustmentMethod>,
+    method: Option<AdjustmentMethod>,
 }
 
 #[derive(Debug, Clone, Args)]
 struct DaemonOneShotArgs {
-    #[arg(long, short, value_name = "TEMPERATURE_RANGE", value_parser = DayNight::<Temperature>::from_str)]
-    temperature: Option<DayNight<Temperature>>,
-    #[arg(long, short, value_name = "BRIGHTNESS_RANGE", value_parser = DayNight::<Brightness>::from_str)]
-    brightness: Option<DayNight<Brightness>>,
-    #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = DayNight::<Gamma>::from_str)]
-    gamma: Option<DayNight<Gamma>>,
+    #[arg(long, short, value_name = "TEMPERATURE_RANGE", value_parser = TemperatureRange::from_str)]
+    temperature: Option<TemperatureRange>,
+    #[arg(long, short, value_name = "BRIGHTNESS_RANGE", value_parser = BrightnessRange::from_str)]
+    brightness: Option<BrightnessRange>,
+    #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = GammaRange::from_str)]
+    gamma: Option<GammaRange>,
 
     #[command(flatten)]
     set_reset_args: SetResetArgs,
 
     #[arg(
-        long = "scheme",
-        short = 's',
-        value_name = "TRANSITION_SCHEME | TIME | ELEVATION",
+        long,
+        short,
+        value_name = "TIME | ELEVATION",
         help(formatcp!("[{TRANSITION_SCHEME_KINDS}]")),
         value_parser = TransitionScheme::from_str
     )]
-    transition_scheme: Option<TransitionScheme>,
+    scheme: Option<TransitionScheme>,
 
     #[arg(
-        long = "location",
-        short = 'l',
+        long,
+        short,
         value_name = "LOCATION_PROVIDER | LOCATION",
         help(formatcp!("[{LOCATION_PROVIDER_KINDS}]")),
         value_parser = LocationProvider::from_str
     )]
-    location_provider: Option<LocationProvider>,
+    location: Option<LocationProvider>,
 }
 
 //
@@ -433,201 +452,151 @@ impl Options {
         Ok(options)
     }
 
-    // fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
-    //     let CliArgs {
-    //         config: _,
-    //         verbosity: VerbosityArgs { quite, verbose },
-    //         dry_run,
-    //         mode,
-    //     } = args;
+    fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
+        let CliArgs {
+            config: _,
+            verbosity: VerbosityArgs { quite, verbose },
+            dry_run,
+            mode,
+        } = args;
 
-    //     let verbosity = match (quite, verbose) {
-    //         (true, false) => Verbosity::Quite,
-    //         (false, false) => Verbosity::Low,
-    //         (false, true) => Verbosity::High,
-    //         (true, true) => unreachable!(), // clap returns error
-    //     };
+        let verbosity = match (quite, verbose) {
+            (true, false) => Verbosity::Quite,
+            (false, false) => Verbosity::Low,
+            (false, true) => Verbosity::High,
+            (true, true) => unreachable!(), // clap returns error
+        };
 
-    //     self.verbosity = verbosity;
-    //     self.dry_run = dry_run;
-    //     match mode {
-    //         Some(ModeArgs::Daemon(c)) => {
-    //             self.merge_with_daemon_oneshot_args(c);
-    //             self.mode = Mode::Daemon;
-    //         }
-    //         Some(ModeArgs::OneShot(c)) => {
-    //             self.merge_with_daemon_oneshot_args(c);
-    //             self.mode = Mode::Oneshot;
-    //         }
-    //         Some(ModeArgs::Set { cs, sa: ca }) => {
-    //             self.merge_with_set_reset_args(ca);
-    //             self.day = cs.into();
-    //             self.mode = Mode::Set;
-    //         }
-    //         Some(ModeArgs::Reset(ca)) => {
-    //             self.merge_with_set_reset_args(ca);
-    //             self.mode = Mode::Reset;
-    //         }
-    //         None => {}
-    //     }
+        self.verbosity = verbosity;
+        self.dry_run = dry_run;
+        match mode {
+            Some(ModeArgs::Daemon(c)) => {
+                self.merge_with_daemon_oneshot_args(c);
+                self.mode = Mode::Daemon;
+            }
+            Some(ModeArgs::OneShot(c)) => {
+                self.merge_with_daemon_oneshot_args(c);
+                self.mode = Mode::Oneshot;
+            }
+            Some(ModeArgs::Set { cs, sa: ca }) => {
+                self.merge_with_set_reset_args(ca);
+                self.day = cs.into();
+                self.mode = Mode::Set;
+            }
+            Some(ModeArgs::Reset(ca)) => {
+                self.merge_with_set_reset_args(ca);
+                self.mode = Mode::Reset;
+            }
+            None => {}
+        }
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // fn merge_with_daemon_oneshot_args(&mut self, args: DaemonOneShotArgs) {
-    //     let DaemonOneShotArgs {
-    //         temperature,
-    //         brightness,
-    //         gamma,
-    //         set_reset_args,
-    //         transition_scheme,
-    //         location_provider,
-    //     } = args;
+    fn merge_with_daemon_oneshot_args(&mut self, args: DaemonOneShotArgs) {
+        let DaemonOneShotArgs {
+            temperature,
+            brightness,
+            gamma,
+            set_reset_args,
+            scheme,
+            location,
+        } = args;
 
-    //     if let Some(DayNight { day, night }) = temperature {
-    //         self.day.temperature = day;
-    //         self.night.temperature = night;
-    //     }
-    //     if let Some(DayNight { day, night }) = brightness {
-    //         self.day.brightness = day;
-    //         self.night.brightness = night;
-    //     }
-    //     if let Some(DayNight { day, night }) = gamma {
-    //         self.day.gamma = day;
-    //         self.night.gamma = night;
-    //     }
+        if let Some(t) = temperature {
+            self.day.temperature = t.day;
+            self.night.temperature = t.night;
+        }
+        if let Some(t) = brightness {
+            self.day.brightness = t.day;
+            self.night.brightness = t.night;
+        }
+        if let Some(t) = gamma {
+            self.day.gamma = t.day;
+            self.night.gamma = t.night;
+        }
 
-    //     self.merge_with_set_reset_args(set_reset_args);
+        if let Some(t) = scheme {
+            self.scheme = t;
+        }
+        if let Some(t) = location {
+            self.location = t;
+        }
+        self.merge_with_set_reset_args(set_reset_args);
+    }
 
-    //     match transition_scheme {
-    //         Some(TransitionSchemeArgs::Time(t)) => {
-    //             self.scheme.default = TransitionSchemeKind::Time;
-    //             if let Some(t) = t {
-    //                 self.scheme.time = t;
-    //             }
-    //         }
-    //         Some(TransitionSchemeArgs::Elevation(t)) => {
-    //             self.scheme.default = TransitionSchemeKind::Elevation;
-    //             if let Some(t) = t {
-    //                 self.scheme.elevation = t;
-    //             }
-    //         }
-    //         None => {}
-    //     }
+    fn merge_with_set_reset_args(&mut self, args: SetResetArgs) {
+        let SetResetArgs {
+            preserve_gamma,
+            fade,
+            method,
+        } = args;
 
-    //     match location_provider {
-    //         Some(LocationProviderArgs::Manual(t)) => {
-    //             self.location.default = LocationProviderKind::Manual;
-    //             if let Some(t) = t {
-    //                 self.location.manual = t;
-    //             }
-    //         }
-    //         Some(LocationProviderArgs::Geoclue2) => {
-    //             self.location.default = LocationProviderKind::Geoclue2;
-    //         }
-    //         None => {}
-    //     }
-    // }
+        if let Some(t) = preserve_gamma {
+            self.preserve_gamma = t;
+        }
+        if let Some(t) = fade {
+            self.fade = t;
+        }
+        if let Some(t) = method {
+            self.method = t;
+        }
+    }
 
-    // fn merge_with_set_reset_args(&mut self, args: SetResetArgs) {
-    //     let SetResetArgs {
-    //         preserve_gamma,
-    //         fade,
-    //         adjustment_method:
-    //             AdjustmentMethodArgs {
-    //                 default,
-    //                 randr_screen,
-    //             },
-    //     } = args;
+    fn merge_with_config(&mut self, config: Config) {
+        // TODO: move conversions to ConfigFile filds definition with serde derives
+        let Config {
+            temperature,
+            brightness,
+            gamma,
+            preserve_gamma,
+            fade,
+            method,
+            scheme,
+            location,
+        } = config;
 
-    //     if let Some(t) = preserve_gamma {
-    //         self.preserve_gamma = t;
-    //     }
-    //     if let Some(t) = fade {
-    //         self.fade = t;
-    //     }
+        if let Some(t) = temperature {
+            self.day.temperature = t.t.day;
+            self.night.temperature = t.t.night;
+        }
+        if let Some(t) = brightness {
+            self.day.brightness = t.t.day;
+            self.night.brightness = t.t.night;
+        }
+        if let Some(t) = gamma {
+            self.day.gamma = t.t.day;
+            self.night.gamma = t.t.night;
+        }
 
-    //     if let Some(t) = default {
-    //         self.method.default = t;
-    //     }
-    //     if let Some(t) = randr_screen {
-    //         self.method.randr = t;
-    //     }
-    // }
+        if let Some(t) = preserve_gamma {
+            self.preserve_gamma = t;
+        }
+        if let Some(t) = fade {
+            self.fade = t;
+        }
 
-    // fn merge_with_config(&mut self, config: Config) {
-    //     // TODO: move conversions to ConfigFile filds definition with serde derives
-    //     let Config {
-    //         temperature,
-    //         brightness,
-    //         gamma,
-
-    //         preserve_gamma,
-    //         fade,
-    //         adjustment_method,
-    //         transition_scheme,
-    //         location_provider,
-    //     } = config;
-
-    //     if let Some(DayNight { day, night }) = temperature {
-    //         self.day.temperature = day;
-    //         self.night.temperature = night;
-    //     }
-    //     if let Some(DayNight { day, night }) = brightness {
-    //         self.day.brightness = day;
-    //         self.night.brightness = night;
-    //     }
-    //     if let Some(DayNight { day, night }) = gamma {
-    //         self.day.gamma = day;
-    //         self.night.gamma = night;
-    //     }
-
-    //     if let Some(t) = preserve_gamma {
-    //         self.preserve_gamma = t;
-    //     }
-    //     if let Some(t) = fade {
-    //         self.fade = t;
-    //     }
-
-    //     let AdjustmentMethodSection { default, randr } = adjustment_method;
-    //     if let Some(t) = default {
-    //         self.method.default = t;
-    //     }
-    //     if let RandrSection { screen: Some(t) } = randr {
-    //         self.method.randr = t;
-    //     }
-
-    //     let TransitionSchemeSection {
-    //         default,
-    //         time,
-    //         elevation,
-    //     } = transition_scheme;
-    //     if let Some(t) = default {
-    //         self.scheme.default = t
-    //     }
-    //     if let Some(t) = time {
-    //         self.scheme.time = t;
-    //     }
-    //     if let Some(t) = elevation {
-    //         self.scheme.elevation = t;
-    //     }
-
-    //     let LocationProviderSection { default, manual } = location_provider;
-    //     if let Some(t) = default {
-    //         self.location.default = t;
-    //     }
-    //     if let Some(t) = manual {
-    //         self.location.manual = t;
-    //     }
-    // }
+        if let Some(t) = scheme {
+            self.scheme = t;
+        }
+        if let Some(t) = location {
+            self.location = t;
+        }
+        if let Some(t) = method {
+            self.method = t;
+        }
+    }
 }
 
 impl Config {
     fn new(config_path: Option<PathBuf>) -> Result<Self> {
         #[cfg(unix)]
-        let system_config = PathBuf::from(formatcp!("/etc/{CARGO_PKG_NAME}/config.toml"));
+        let system_config =
+            PathBuf::from(formatcp!("/etc/{PKG_NAME}/config.toml"));
         let user_config = config_path
-            .or_else(|| dirs::config_dir().map(|d| d.join(CARGO_PKG_NAME).join("config.toml")))
+            .or_else(|| {
+                dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"))
+            })
             .ok_or(anyhow!("user_config"))?;
 
         let mut buf = String::new();
@@ -643,61 +612,40 @@ impl Config {
         Ok(config)
     }
 
-    // fn merge(&mut self, other: Self) {
-    //     let Self {
-    //         temperature,
-    //         brightness,
-    //         gamma,
-    //         preserve_gamma,
-    //         fade,
-    //         adjustment_method,
-    //         transition_scheme,
-    //         location_provider,
-    //     } = other;
+    fn merge(&mut self, other: Self) {
+        let Self {
+            temperature,
+            brightness,
+            gamma,
+            preserve_gamma,
+            fade,
+            method,
+            scheme,
+            location,
+        } = other;
 
-    //     if let Some(t) = temperature {
-    //         self.temperature = Some(t);
-    //     }
-    //     if let Some(t) = brightness {
-    //         self.brightness = Some(t);
-    //     }
-    //     if let Some(t) = gamma {
-    //         self.gamma = Some(t);
-    //     }
-    //     self.preserve_gamma = preserve_gamma;
-    //     self.fade = fade;
+        if let Some(t) = temperature {
+            self.temperature = Some(t);
+        }
+        if let Some(t) = brightness {
+            self.brightness = Some(t);
+        }
+        if let Some(t) = gamma {
+            self.gamma = Some(t);
+        }
+        self.preserve_gamma = preserve_gamma;
+        self.fade = fade;
 
-    //     let AdjustmentMethodSection { default, randr } = adjustment_method;
-    //     if let Some(t) = default {
-    //         self.adjustment_method.default = Some(t);
-    //     }
-    //     if let RandrSection { screen: Some(t) } = randr {
-    //         self.adjustment_method.randr.screen = Some(t);
-    //     }
-
-    //     let TransitionSchemeSection {
-    //         default,
-    //         time,
-    //         elevation,
-    //     } = transition_scheme;
-    //     if let Some(t) = default {
-    //         self.transition_scheme.default = Some(t);
-    //     }
-    //     if let Some(t) = time {
-    //         self.transition_scheme.time = Some(t);
-    //     }
-    //     if let Some(t) = elevation {
-    //         self.transition_scheme.elevation = Some(t);
-    //     }
-
-    //     let LocationProviderSection { default, manual } = location_provider;
-    //     if let Some(t) = default {
-    //         self.location_provider.default = Some(t);
-    //     }
-    //     if let Some(t) = manual {
-    //         self.location_provider.manual = Some(t);
-    //     }
-    // }
+        if let Some(t) = scheme {
+            self.scheme = Some(t);
+        }
+        if let Some(t) = location {
+            self.location = Some(t);
+        }
+        if let Some(t) = method {
+            self.method = Some(t);
+        }
+    }
 }
 
 impl Default for Options {
@@ -730,11 +678,11 @@ fn gamma(n: f32) -> Result<f32> {
     }
 }
 
-fn time_ranges(time: TimeRanges) -> Result<TimeRanges> {
+fn time_range(time: TimeRange) -> Result<TimeRange> {
     if time.dawn.end < time.dusk.start {
         Ok(time)
     } else {
-        Err(anyhow!("time_ranges"))
+        Err(anyhow!("time_range"))
     }
 }
 
@@ -744,33 +692,6 @@ fn elevation_range(elev: ElevationRange) -> Result<ElevationRange> {
     } else {
         // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
         Err(anyhow!("elevation"))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DayNight<T> {
-    day: T,
-    night: T,
-}
-
-impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
-            [day_night] => {
-                let day_night = day_night.parse::<T>()?;
-                Ok(Self {
-                    day: day_night.clone(),
-                    night: day_night,
-                })
-            }
-            [day, night] => Ok(Self {
-                day: day.parse()?,
-                night: night.parse()?,
-            }),
-            _ => Err(anyhow!("day_night")),
-        }
     }
 }
 
@@ -787,14 +708,6 @@ impl TryFrom<u16> for Temperature {
     }
 }
 
-impl FromStr for Temperature {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u16>()?.try_into()
-    }
-}
-
 impl TryFrom<f32> for Brightness {
     type Error = anyhow::Error;
 
@@ -805,14 +718,6 @@ impl TryFrom<f32> for Brightness {
             // b"Brightness values must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
             Err(anyhow!("brightness"))
         }
-    }
-}
-
-impl FromStr for Brightness {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
     }
 }
 
@@ -839,154 +744,6 @@ impl TryFrom<Vec<f32>> for Gamma {
         TryInto::<[f32; 3]>::try_into(vec)
             .map_err(|_| anyhow!("wrong size"))?
             .try_into()
-    }
-}
-
-impl FromStr for Gamma {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
-            [r, g, b] => [r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?].try_into(),
-            [rbg] => rbg.parse::<f32>()?.try_into(),
-            _ => Err(anyhow!("gamma")),
-        }
-    }
-}
-
-impl TryFrom<u8> for Hour {
-    type Error = anyhow::Error;
-
-    fn try_from(n: u8) -> Result<Self, Self::Error> {
-        if n < 24 {
-            Ok(Self(n))
-        } else {
-            Err(anyhow!("hour"))
-        }
-    }
-}
-
-impl FromStr for Hour {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u8>()?.try_into()
-    }
-}
-
-impl TryFrom<u8> for Minute {
-    type Error = anyhow::Error;
-
-    fn try_from(n: u8) -> Result<Self, Self::Error> {
-        if n < 60 {
-            Ok(Self(n))
-        } else {
-            Err(anyhow!("minute"))
-        }
-    }
-}
-
-impl FromStr for Minute {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u8>()?.try_into()
-    }
-}
-
-impl FromStr for Time {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").collect::<Vec<_>>().as_slice() {
-            [hour, minute] => Ok(Self {
-                hour: hour.parse()?,
-                minute: minute.parse()?,
-            }),
-            _ => Err(anyhow!("time")),
-        }
-    }
-}
-
-impl From<Time> for TimeOffset {
-    fn from(Time { hour, minute }: Time) -> Self {
-        Self((*hour.as_ref() as u32 * 60 * 60) + (*minute.as_ref() as u32 * 60))
-    }
-}
-
-impl FromStr for TimeRange {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
-            [start, end] => {
-                let start: TimeOffset = start.parse::<Time>()?.into();
-                let end: TimeOffset = end.parse::<Time>()?.into();
-
-                if start <= end {
-                    Ok(Self { start, end })
-                } else {
-                    Err(anyhow!("time_range"))
-                }
-            }
-            [time] => {
-                let t: TimeOffset = time.parse::<Time>()?.into();
-                Ok(Self { start: t, end: t })
-            }
-            _ => Err(anyhow!("time_range")),
-        }
-    }
-}
-
-impl FromStr for TimeRanges {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
-            [dawn, dusk] => {
-                let dawn: TimeRange = dawn.parse()?;
-                let dusk: TimeRange = dusk.parse()?;
-                time_ranges(Self { dawn, dusk })
-            }
-            [dawn_start, dawn_end, "", dusk_start, dusk_end] => {
-                let dawn: TimeRange = [dawn_start, dawn_end].concat().parse()?;
-                let dusk: TimeRange = [dusk_start, dusk_end].concat().parse()?;
-                time_ranges(Self { dawn, dusk })
-            }
-            _ => Err(anyhow!("time_ranges")),
-        }
-    }
-}
-
-impl TryFrom<f32> for Elevation {
-    type Error = anyhow::Error;
-
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
-        // TODO: any bound? probably lower than a certain degree
-        Ok(Self(n))
-    }
-}
-
-impl FromStr for Elevation {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
-    }
-}
-
-impl FromStr for ElevationRange {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").collect::<Vec<_>>().as_slice() {
-            [high, low] => {
-                let high = Elevation::try_from(high.parse::<f32>()?)?;
-                let low = Elevation::try_from(low.parse::<f32>()?)?;
-                elevation_range(Self { high, low })
-            }
-            _ => Err(anyhow!("elevation")),
-        }
     }
 }
 
@@ -1024,6 +781,117 @@ impl TryFrom<f32> for Longitude {
     }
 }
 
+impl TryFrom<u8> for Hour {
+    type Error = anyhow::Error;
+
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        if n < 24 {
+            Ok(Self(n))
+        } else {
+            Err(anyhow!("hour"))
+        }
+    }
+}
+
+impl TryFrom<u8> for Minute {
+    type Error = anyhow::Error;
+
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        if n < 60 {
+            Ok(Self(n))
+        } else {
+            Err(anyhow!("minute"))
+        }
+    }
+}
+
+impl From<Time> for Offset {
+    fn from(Time { hour, minute }: Time) -> Self {
+        Self((*hour.as_ref() as u32 * 60 * 60) + (*minute.as_ref() as u32 * 60))
+    }
+}
+
+impl TryFrom<(Offset, Offset)> for OffsetRange {
+    type Error = anyhow::Error;
+
+    fn try_from((start, end): (Offset, Offset)) -> Result<Self, Self::Error> {
+        if start <= end {
+            Ok(Self { start, end })
+        } else {
+            Err(anyhow!("offset_range"))
+        }
+    }
+}
+
+impl TryFrom<f32> for Elevation {
+    type Error = anyhow::Error;
+
+    fn try_from(n: f32) -> Result<Self, Self::Error> {
+        // TODO: any bound? probably lower than a certain degree
+        Ok(Self(n))
+    }
+}
+
+impl TryFrom<u16> for TemperatureRange {
+    type Error = anyhow::Error;
+
+    fn try_from(n: u16) -> Result<Self, Self::Error> {
+        let t = Temperature::try_from(n)?;
+        Ok(Self { day: t, night: t })
+    }
+}
+
+impl TryFrom<f32> for BrightnessRange {
+    type Error = anyhow::Error;
+
+    fn try_from(n: f32) -> Result<Self, Self::Error> {
+        let t = Brightness::try_from(n)?;
+        Ok(Self { day: t, night: t })
+    }
+}
+
+impl TryFrom<f32> for GammaRange {
+    type Error = anyhow::Error;
+
+    fn try_from(n: f32) -> Result<Self, Self::Error> {
+        let t = Gamma::try_from(n)?;
+        Ok(Self { day: t, night: t })
+    }
+}
+
+//
+
+impl FromStr for Temperature {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.trim().parse::<u16>()?.try_into()
+    }
+}
+
+impl FromStr for Brightness {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.trim().parse::<f32>()?.try_into()
+    }
+}
+
+impl FromStr for Gamma {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+            [r, g, b] => {
+                [r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?]
+                    .try_into()
+            }
+            [rbg] => rbg.parse::<f32>()?.try_into(),
+            _ => Err(anyhow!("gamma")),
+        }
+    }
+}
+
 impl FromStr for Latitude {
     type Err = anyhow::Error;
 
@@ -1054,14 +922,120 @@ impl FromStr for Location {
     }
 }
 
+impl FromStr for Hour {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.trim().parse::<u8>()?.try_into()
+    }
+}
+
+impl FromStr for Minute {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.trim().parse::<u8>()?.try_into()
+    }
+}
+
+impl FromStr for Time {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split(":").collect::<Vec<_>>().as_slice() {
+            [hour, minute] => Ok(Self {
+                hour: hour.parse()?,
+                minute: minute.parse()?,
+            }),
+            _ => Err(anyhow!("time")),
+        }
+    }
+}
+
+impl FromStr for Offset {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(s.parse::<Time>()?.into())
+    }
+}
+
+impl FromStr for Elevation {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.trim().parse::<f32>()?.try_into()
+    }
+}
+
+impl FromStr for OffsetRange {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split("-").collect::<Vec<_>>().as_slice() {
+            [start, end] => {
+                (start.parse::<Offset>()?, end.parse::<Offset>()?).try_into()
+            }
+            [time] => {
+                let t = time.parse::<Offset>()?;
+                Ok(Self { start: t, end: t })
+            }
+            _ => Err(anyhow!("time_range")),
+        }
+    }
+}
+
+impl FromStr for TimeRange {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split("-").collect::<Vec<_>>().as_slice() {
+            [dawn, dusk] => {
+                let dawn: OffsetRange = dawn.parse()?;
+                let dusk: OffsetRange = dusk.parse()?;
+                time_range(Self { dawn, dusk })
+            }
+            [dawn_start, dawn_end, dusk_start, dusk_end] => {
+                let dawn: OffsetRange =
+                    [dawn_start, dawn_end].concat().parse()?;
+                let dusk: OffsetRange =
+                    [dusk_start, dusk_end].concat().parse()?;
+                time_range(Self { dawn, dusk })
+            }
+            _ => Err(anyhow!("time_range")),
+        }
+    }
+}
+
+impl FromStr for ElevationRange {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split(":").collect::<Vec<_>>().as_slice() {
+            [high, low] => {
+                let high: Elevation = high.parse()?;
+                let low: Elevation = low.parse()?;
+                elevation_range(Self { high, low })
+            }
+            _ => Err(anyhow!("elevation")),
+        }
+    }
+}
+
 impl FromStr for TransitionScheme {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TimeRanges::from_str(s)
-            .map(Self::Time)
-            .or_else(|_| Ok(Self::Elevation(ElevationRange::from_str(s)?)))
-        // .map_err(|_: anyhow::Error| anyhow!("asdf"))
+        Err(())
+            .or_else(|_| {
+                Ok::<_, Self::Err>(Self::Time(TimeRange::from_str(s)?))
+            })
+            .or_else(|_| {
+                Ok::<_, Self::Err>(Self::Elevation(ElevationRange::from_str(
+                    s,
+                )?))
+            })
+            .map_err(|_| anyhow!("asdf"))
     }
 }
 
@@ -1072,8 +1046,9 @@ impl FromStr for LocationProvider {
         // TODO: map cities or countries to locations
         match s {
             "geoclue2" => Ok(Self::Geoclue2),
-            _ => Ok(Self::Manual(Location::from_str(s)?)),
+            _ => s.parse().map(Self::Manual),
         }
+        .map_err(|_| anyhow!("asdf"))
     }
 }
 
@@ -1083,7 +1058,9 @@ impl FromStr for AdjustmentMethod {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             ["randr"] => Ok(Self::Randr(Default::default())),
-            ["randr", n] => Ok(Self::Randr(n.parse()?)),
+            ["randr", n] => {
+                n.parse().map(Self::Randr).map_err(|_| anyhow!("asdf"))
+            }
             ["drm"] => Ok(Self::Drm),
             ["vidmode"] => Ok(Self::Vidmode),
             _ => Err(anyhow!("method")),
@@ -1112,68 +1089,57 @@ impl From<ColorSettingArgs> for ColorSetting {
     }
 }
 
+impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.split("-").collect::<Vec<_>>().as_slice() {
+            [day_night] => {
+                let day_night = day_night.parse::<T>()?;
+                Ok(Self {
+                    day: day_night.clone(),
+                    night: day_night,
+                })
+            }
+            [day, night] => Ok(Self {
+                day: day.parse()?,
+                night: night.parse()?,
+            }),
+            _ => Err(anyhow!("day_night")),
+        }
+    }
+}
+
 //
 // boilerplates
 //
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum EitherInner<U, T> {
+    A(T),
+    B(U),
+}
+
+impl<'de, T, U> Deserialize<'de> for Either<U, T>
+where
+    EitherInner<U, T>: Deserialize<'de>,
+    U: TryInto<T>,
+    U::Error: Display,
+{
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let t = match EitherInner::<U, T>::deserialize(d)? {
+            EitherInner::A(t) => t,
+            EitherInner::B(u) => u.try_into().map_err(DeError::custom)?,
+        };
+        Ok(Self { t, p: PhantomData })
+    }
+}
 
 impl<'de, T> Deserialize<'de> for DayNight<T>
 where
     T: Clone + FromStr<Err = anyhow::Error>,
 {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Temperature {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        u16::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Brightness {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Gamma {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for TimeRange {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for TimeRanges {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Elevation {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Latitude {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Longitude {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        f32::deserialize(d)?.try_into().map_err(DeError::custom)
-    }
-}
-
-impl<'de> Deserialize<'de> for Location {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         String::deserialize(d)?.parse().map_err(DeError::custom)
     }
@@ -1229,7 +1195,7 @@ impl AsRef<u8> for Minute {
     }
 }
 
-impl AsRef<u32> for TimeOffset {
+impl AsRef<u32> for Offset {
     fn as_ref(&self) -> &u32 {
         &self.0
     }
@@ -1308,7 +1274,7 @@ impl Default for ElevationRange {
     }
 }
 
-impl Default for TimeRanges {
+impl Default for TimeRange {
     fn default() -> Self {
         Self {
             dawn: DEFAULT_TIME_RANGE_DAWN
@@ -1347,7 +1313,8 @@ impl Default for LocationProvider {
 
 impl Default for AdjustmentMethod {
     fn default() -> Self {
-        todo!()
+        // TODO: change default depending on OS
+        Self::Randr(Default::default())
     }
 }
 
@@ -1365,7 +1332,7 @@ mod test {
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
         let cfg = toml::from_str::<Config>(CONFIG_TEMPLATE)?;
 
-        dbg!(cfg.location_provider);
+        dbg!(cfg.location);
         panic!()
         // Ok(())
     }

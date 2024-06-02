@@ -42,7 +42,7 @@ use libc::{
 use location_manual::{LocationProvider, Manual};
 use options::{
     Brightness, ColorSetting, Elevation, ElevationRange, Gamma, Location, Mode, Options,
-    Temperature, TimeOffset, TimeRanges, TransitionSchemeKind,
+    Temperature, Offset, TimeRange, TransitionScheme,
 };
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
@@ -112,8 +112,8 @@ impl From<TransitionProgress> for Alpha {
 
 impl Period {
     // Determine which period we are currently in based on time offset.
-    fn from_time(time_ranges: &TimeRanges, time: TimeOffset) -> Self {
-        let TimeRanges { dawn, dusk } = time_ranges;
+    fn from_time(time_range: &TimeRange, time: Offset) -> Self {
+        let TimeRange { dawn, dusk } = time_range;
         if time < dawn.start || time >= dusk.end {
             Self::Night
         } else if time >= dawn.end && time < dusk.start {
@@ -138,9 +138,9 @@ impl Period {
 
 impl TransitionProgress {
     // Determine how far through the transition we are based on time offset.
-    fn from_time(time_ranges: &TimeRanges, time: TimeOffset) -> Self {
-        let TimeRanges { dawn, dusk } = time_ranges;
-        let sub = |a: TimeOffset, b: TimeOffset| (a.as_ref() - b.as_ref()) as f32;
+    fn from_time(time_ranges: &TimeRange, time: Offset) -> Self {
+        let TimeRange { dawn, dusk } = time_ranges;
+        let sub = |a: Offset, b: Offset| (a.as_ref() - b.as_ref()) as f32;
 
         if time < dawn.start || time >= dusk.end {
             Self(0.0)
@@ -605,9 +605,9 @@ unsafe fn main_0() -> Result<()> {
 
     let options = Options::new()?;
 
-    let need_location = match (&options.mode, options.scheme.default) {
-        (Mode::Daemon | Mode::Oneshot, TransitionSchemeKind::Elevation) => true,
-        (Mode::Set | Mode::Reset, _) | (_, TransitionSchemeKind::Time) => false,
+    let need_location = match (&options.mode, &options.scheme) {
+        (Mode::Daemon | Mode::Oneshot, TransitionScheme::Elevation(_)) => true,
+        (Mode::Set | Mode::Reset, _) | (_, TransitionScheme::Time(_)) => false,
     };
 
     if need_location {
@@ -705,14 +705,14 @@ unsafe fn main_0() -> Result<()> {
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
 
             let (period, transition_prog): (Period, TransitionProgress) =
-                match options.scheme.default {
-                    TransitionSchemeKind::Time => {
+                match options.scheme {
+                    TransitionScheme::Time(_) => {
                         // let time_offset: c_int = get_seconds_since_midnight(now);
                         // period = get_period_from_time(scheme, time_offset);
                         // transition_prog = get_transition_progress_from_time(scheme, time_offset);
                         todo!()
                     }
-                    TransitionSchemeKind::Elevation => {
+                    TransitionScheme::Elevation(_) => {
                         // // Current angular elevation of the sun
                         // let elevation: c_double = solar_elevation(now, loc.lat, loc.lon);
                         // if config.verbose {
