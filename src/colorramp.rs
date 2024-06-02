@@ -25,8 +25,7 @@ use crate::ColorSetting;
 // These will be interpolated for the actual temperature.
 // This table was provided by Ingo Thies, 2013. See
 // the file doc/redshift-colorramp.md for more information.
-#[allow(clippy::excessive_precision)]
-const BLACKBODY_COLOR: [[f32; 3]; 242] = [
+const BLACKBODY_COLOR: [[f64; 3]; 242] = [
     [1.00000000, 0.18172716, 0.00000000], // 1000K
     [1.00000000, 0.25503671, 0.00000000], // 1100K
     [1.00000000, 0.30942099, 0.00000000], // 1200K
@@ -272,7 +271,7 @@ const BLACKBODY_COLOR: [[f32; 3]; 242] = [
 ];
 
 #[inline]
-fn interpolate_color(alpha: f32, c1: &[f32], c2: &[f32]) -> [f32; 3] {
+fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
     [
         (1.0 - alpha) * c1[0] + alpha * c2[0],
         (1.0 - alpha) * c1[1] + alpha * c2[1],
@@ -281,8 +280,8 @@ fn interpolate_color(alpha: f32, c1: &[f32], c2: &[f32]) -> [f32; 3] {
 }
 
 #[inline]
-fn approximate_white_point(setting: &ColorSetting) -> [f32; 3] {
-    let alpha = ((setting.temperature.as_ref() % 100) as f64 / 100.0) as f32;
+fn approximate_white_point(setting: &ColorSetting) -> [f64; 3] {
+    let alpha = (setting.temperature.as_ref() % 100) as f64 / 100.0;
     let temp_index = (setting.temperature.as_ref() - 1000) as usize / 100;
     interpolate_color(
         alpha,
@@ -300,8 +299,8 @@ pub fn colorramp_fill(
     let white_point = approximate_white_point(setting);
     let f = |y: u16, c: usize| -> u16 {
         let r = y as f64 / (u16::MAX as u32 + 1) as f64;
-        let r = r * *setting.brightness.as_ref() as f64 * white_point[c] as f64;
-        let r = r.powf(1.0 / setting.gamma.as_ref()[c] as f64);
+        let r = r * setting.brightness.as_ref() * white_point[c];
+        let r = r.powf(1.0 / setting.gamma.as_ref()[c]);
         let r = r * (u16::MAX as u32 + 1) as f64;
         r as u16
     };
@@ -314,18 +313,16 @@ pub fn colorramp_fill(
 }
 
 pub fn colorramp_fill_float(
-    gamma_r: &mut [f32],
-    gamma_g: &mut [f32],
-    gamma_b: &mut [f32],
+    gamma_r: &mut [f64],
+    gamma_g: &mut [f64],
+    gamma_b: &mut [f64],
     setting: &ColorSetting,
 ) {
     let white_point = approximate_white_point(setting);
-    let f = |y: f32, c: usize| -> f32 {
-        let r = y as f64
-            * *setting.brightness.as_ref() as f64
-            * white_point[c] as f64;
-        let r = r.powf(1.0 / setting.gamma.as_ref()[c] as f64);
-        r as f32
+    let f = |y: f64, c: usize| -> f64 {
+        let r = y * setting.brightness.as_ref() * white_point[c];
+        let r = r.powf(1.0 / setting.gamma.as_ref()[c]);
+        r
     };
 
     for i in 0..gamma_r.len() {

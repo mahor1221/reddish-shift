@@ -41,26 +41,26 @@ use toml::Value;
 // transition period starts and ends (in degrees).
 // Transition during twilight, and while the sun is lower than
 // 3.0 degrees above the horizon.
-const DEFAULT_ELEVATION_LOW: f32 = SOLAR_CIVIL_TWILIGHT_ELEV;
-const DEFAULT_ELEVATION_HIGH: f32 = 3.0;
-const DEFAULT_LATITUDE: f32 = 0.0; // Null Island
-const DEFAULT_LONGITUDE: f32 = 0.0;
+const DEFAULT_ELEVATION_LOW: f64 = SOLAR_CIVIL_TWILIGHT_ELEV;
+const DEFAULT_ELEVATION_HIGH: f64 = 3.0;
+const DEFAULT_LATITUDE: f64 = 0.0; // Null Island
+const DEFAULT_LONGITUDE: f64 = 0.0;
 const DEFAULT_TEMPERATURE: u16 = 6500;
 const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
 const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
-const DEFAULT_BRIGHTNESS: f32 = 1.0;
-const DEFAULT_GAMMA: f32 = 1.0;
+const DEFAULT_BRIGHTNESS: f64 = 1.0;
+const DEFAULT_GAMMA: f64 = 1.0;
 
 const MIN_TEMPERATURE: u16 = 1000;
 const MAX_TEMPERATURE: u16 = 25000;
-const MIN_BRIGHTNESS: f32 = 0.1;
-const MAX_BRIGHTNESS: f32 = 1.0;
-const MIN_GAMMA: f32 = 0.1;
-const MAX_GAMMA: f32 = 10.0;
-const MIN_LATITUDE: f32 = -90.0;
-const MAX_LATITUDE: f32 = 90.0;
-const MIN_LONGITUDE: f32 = -180.0;
-const MAX_LONGITUDE: f32 = 180.0;
+const MIN_BRIGHTNESS: f64 = 0.1;
+const MAX_BRIGHTNESS: f64 = 1.0;
+const MIN_GAMMA: f64 = 0.1;
+const MAX_GAMMA: f64 = 10.0;
+const MIN_LATITUDE: f64 = -90.0;
+const MAX_LATITUDE: f64 = 90.0;
+const MIN_LONGITUDE: f64 = -180.0;
+const MAX_LONGITUDE: f64 = 180.0;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -200,10 +200,10 @@ pub struct Config {
 pub struct Temperature(u16);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Brightness(f32);
+pub struct Brightness(f64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Gamma([f32; 3]);
+pub struct Gamma([f64; 3]);
 
 #[derive(Debug, Clone)]
 pub struct DayNight<T> {
@@ -244,14 +244,14 @@ pub struct OffsetRange {
     pub end: Offset,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeRange {
     pub dawn: OffsetRange,
     pub dusk: OffsetRange,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Elevation(f32);
+pub struct Elevation(f64);
 
 /// The solar elevations at which the transition begins/ends,
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -261,9 +261,9 @@ pub struct ElevationRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Latitude(f32);
+pub struct Latitude(f64);
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Longitude(f32);
+pub struct Longitude(f64);
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Location {
     pub latitude: Latitude,
@@ -290,7 +290,7 @@ pub enum AdjustmentMethod {
     Vidmode(Vidmode),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Mode {
     #[default]
     Daemon,
@@ -299,7 +299,7 @@ pub enum Mode {
     Reset,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Verbosity {
     Quite,
     #[default]
@@ -315,8 +315,8 @@ pub enum Verbosity {
 #[serde(rename_all = "kebab-case")]
 struct ConfigFile {
     temperature: Option<Either<u16, TemperatureRange>>,
-    brightness: Option<Either<f32, BrightnessRange>>,
-    gamma: Option<Either<f32, GammaRange>>,
+    brightness: Option<Either<f64, BrightnessRange>>,
+    gamma: Option<Either<f64, GammaRange>>,
     preserve_gamma: Option<bool>,
     fade: Option<bool>,
     scheme: Option<TransitionScheme>,
@@ -679,7 +679,7 @@ impl ConfigFile {
 // Parse strings and numbers to strong types
 //
 
-fn gamma(n: f32) -> Result<f32> {
+fn gamma(n: f64) -> Result<f64> {
     if n >= MIN_GAMMA && n <= MAX_GAMMA {
         Ok(n)
     } else {
@@ -701,10 +701,10 @@ impl TryFrom<u16> for Temperature {
     }
 }
 
-impl TryFrom<f32> for Brightness {
+impl TryFrom<f64> for Brightness {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         if n >= MIN_BRIGHTNESS && n <= MAX_BRIGHTNESS {
             Ok(Self(n))
         } else {
@@ -714,36 +714,36 @@ impl TryFrom<f32> for Brightness {
     }
 }
 
-impl TryFrom<f32> for Gamma {
+impl TryFrom<f64> for Gamma {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         Ok(Self([gamma(n)?; 3]))
     }
 }
 
-impl TryFrom<[f32; 3]> for Gamma {
+impl TryFrom<[f64; 3]> for Gamma {
     type Error = anyhow::Error;
 
-    fn try_from([r, g, b]: [f32; 3]) -> Result<Self, Self::Error> {
+    fn try_from([r, g, b]: [f64; 3]) -> Result<Self, Self::Error> {
         Ok(Self([gamma(r)?, gamma(g)?, gamma(b)?]))
     }
 }
 
-impl TryFrom<Vec<f32>> for Gamma {
+impl TryFrom<Vec<f64>> for Gamma {
     type Error = anyhow::Error;
 
-    fn try_from(vec: Vec<f32>) -> Result<Self, Self::Error> {
-        TryInto::<[f32; 3]>::try_into(vec)
+    fn try_from(vec: Vec<f64>) -> Result<Self, Self::Error> {
+        TryInto::<[f64; 3]>::try_into(vec)
             .map_err(|_| anyhow!("wrong size"))?
             .try_into()
     }
 }
 
-impl TryFrom<f32> for Latitude {
+impl TryFrom<f64> for Latitude {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         if n >= MIN_LATITUDE && n <= MAX_LATITUDE {
             Ok(Self(n))
         } else {
@@ -757,10 +757,10 @@ impl TryFrom<f32> for Latitude {
     }
 }
 
-impl TryFrom<f32> for Longitude {
+impl TryFrom<f64> for Longitude {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         if n >= MIN_LONGITUDE && n <= MAX_LONGITUDE {
             Ok(Self(n))
         } else {
@@ -816,10 +816,10 @@ impl TryFrom<(Offset, Offset)> for OffsetRange {
     }
 }
 
-impl TryFrom<f32> for Elevation {
+impl TryFrom<f64> for Elevation {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         // TODO: any bound? probably lower than a certain degree
         Ok(Self(n))
     }
@@ -834,19 +834,19 @@ impl TryFrom<u16> for TemperatureRange {
     }
 }
 
-impl TryFrom<f32> for BrightnessRange {
+impl TryFrom<f64> for BrightnessRange {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         let t = Brightness::try_from(n)?;
         Ok(Self { day: t, night: t })
     }
 }
 
-impl TryFrom<f32> for GammaRange {
+impl TryFrom<f64> for GammaRange {
     type Error = anyhow::Error;
 
-    fn try_from(n: f32) -> Result<Self, Self::Error> {
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
         let t = Gamma::try_from(n)?;
         Ok(Self { day: t, night: t })
     }
@@ -866,7 +866,7 @@ impl FromStr for Brightness {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
+        s.trim().parse::<f64>()?.try_into()
     }
 }
 
@@ -876,10 +876,10 @@ impl FromStr for Gamma {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             [r, g, b] => {
-                [r.parse::<f32>()?, g.parse::<f32>()?, b.parse::<f32>()?]
+                [r.parse::<f64>()?, g.parse::<f64>()?, b.parse::<f64>()?]
                     .try_into()
             }
-            [rbg] => rbg.parse::<f32>()?.try_into(),
+            [rbg] => rbg.parse::<f64>()?.try_into(),
             _ => Err(anyhow!("gamma")),
         }
     }
@@ -889,7 +889,7 @@ impl FromStr for Latitude {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
+        s.trim().parse::<f64>()?.try_into()
     }
 }
 
@@ -897,7 +897,7 @@ impl FromStr for Longitude {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
+        s.trim().parse::<f64>()?.try_into()
     }
 }
 
@@ -957,7 +957,7 @@ impl FromStr for Elevation {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f32>()?.try_into()
+        s.trim().parse::<f64>()?.try_into()
     }
 }
 
@@ -1161,14 +1161,14 @@ impl AsRef<u16> for Temperature {
     }
 }
 
-impl AsRef<f32> for Brightness {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for Brightness {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }
 
-impl AsRef<[f32; 3]> for Gamma {
-    fn as_ref(&self) -> &[f32; 3] {
+impl AsRef<[f64; 3]> for Gamma {
+    fn as_ref(&self) -> &[f64; 3] {
         &self.0
     }
 }
@@ -1191,20 +1191,20 @@ impl AsRef<u32> for Offset {
     }
 }
 
-impl AsRef<f32> for Elevation {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for Elevation {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }
 
-impl AsRef<f32> for Latitude {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for Latitude {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }
 
-impl AsRef<f32> for Longitude {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for Longitude {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }

@@ -47,7 +47,7 @@ pub trait LocationProvider {
     fn start();
     fn help() -> &'static str;
     fn fd() -> Result<()>;
-    fn handle(&self) -> Result<(Location, bool)>;
+    fn handle(&self) -> Result<(&Location, bool)>;
 }
 
 pub struct Manual {
@@ -73,8 +73,8 @@ impl LocationProvider for Manual {
         Err(anyhow!("-1"))
     }
 
-    fn handle(&self) -> Result<(Location, bool)> {
+    fn handle(&self) -> Result<(&Location, bool)> {
         let available = true;
-        Ok((self.location, available))
+        Ok((&self.location, available))
     }
 }

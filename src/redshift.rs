@@ -89,19 +89,19 @@ enum Period {
 }
 
 // Between 0 and 1
-struct TransitionProgress(f32);
+struct TransitionProgress(f64);
 
 // Between 0 and 1
-struct Alpha(f32);
+struct Alpha(f64);
 
-impl AsRef<f32> for TransitionProgress {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for TransitionProgress {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }
 
-impl AsRef<f32> for Alpha {
-    fn as_ref(&self) -> &f32 {
+impl AsRef<f64> for Alpha {
+    fn as_ref(&self) -> &f64 {
         &self.0
     }
 }
@@ -145,7 +145,7 @@ impl TransitionProgress {
     // Determine how far through the transition we are based on time offset.
     fn from_time(time_ranges: &TimeRange, time: Offset) -> Self {
         let TimeRange { dawn, dusk } = time_ranges;
-        let sub = |a: Offset, b: Offset| (a.as_ref() - b.as_ref()) as f32;
+        let sub = |a: Offset, b: Offset| (a.as_ref() - b.as_ref()) as f64;
 
         if time < dawn.start || time >= dusk.end {
             Self(0.0)
@@ -164,7 +164,7 @@ impl TransitionProgress {
         elevation: Elevation,
     ) -> Self {
         let ElevationRange { high, low } = elevation_range;
-        let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref()) as f32;
+        let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref());
 
         if elevation < elevation_range.low {
             Self(0.0)
@@ -238,7 +238,8 @@ fn get_seconds_since_midnight(_timestamp: c_double) -> c_int {
     todo!()
 }
 
-fn clamp(alpha: f32) -> f32 {
+fn clamp(alpha: impl AsRef<f64>) -> f64 {
+    let alpha = *alpha.as_ref();
     if 0.0 > alpha {
         0.0
     } else if alpha < 1.0 {
@@ -254,13 +255,13 @@ fn interpolate_color_settings(
     rhs: &ColorSetting,
     alpha: impl Into<Alpha>,
 ) -> ColorSetting {
-    // let alpha = clamp(alpha);
     let alpha: Alpha = alpha.into();
-    let alpha = alpha.as_ref();
+    // TODO: what does this do?
+    let alpha = clamp(alpha);
 
     let temperature: Temperature =
-        (((1.0 - alpha) * *lhs.temperature.as_ref() as f32
-            + alpha * *rhs.temperature.as_ref() as f32) as u16)
+        (((1.0 - alpha) * *lhs.temperature.as_ref() as f64
+            + alpha * *rhs.temperature.as_ref() as f64) as u16)
             .try_into()
             .unwrap_or_else(|_| unreachable!());
 
@@ -303,7 +304,7 @@ impl ColorSetting {
 
 // Easing function for fade.
 // See https://github.com/mietek/ease-tween
-fn ease_fade(t: f32) -> f32 {
+fn ease_fade(t: f64) -> f64 {
     if t <= 0.0 {
         0.0
     } else if t >= 1.0 {
