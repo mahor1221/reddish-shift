@@ -60,7 +60,7 @@ location = "0.0:0.0"
 # type 'reddish-shift -m list' to see all possible values.
 # 'randr' is the preferred method, 'vidmode' is an older API. but works in some
 # cases when 'randr' does not.
-method = "randr:0"
+#method = "randr:0"
 
 # Configuration of the adjustment-method
 # type 'reddish-shift -m METHOD:help' to see the settings.

@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSetting, GammaAdjuster};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror,
     strcasecmp, strtol, FILE,
@@ -45,7 +45,7 @@ impl Randr {
     }
 }
 
-impl GammaAdjuster for Randr {}
+impl Method for Randr {}
 
 // #[derive(Copy, Clone)]
 #[repr(C)]
@@ -497,7 +497,7 @@ unsafe extern "C" fn randr_set_option(
 unsafe extern "C" fn randr_set_temperature_for_crtc(
     state: *mut randr_state_t,
     crtc_num: c_int,
-    setting: *const ColorSetting,
+    setting: *const ColorSettings,
     preserve: c_int,
 ) -> c_int {
     let error: *mut xcb_generic_error_t =
@@ -609,7 +609,7 @@ unsafe extern "C" fn randr_set_temperature_for_crtc(
 
 unsafe extern "C" fn randr_set_temperature(
     state: *mut randr_state_t,
-    setting: *const ColorSetting,
+    setting: *const ColorSettings,
     preserve: c_int,
 ) -> c_int {
     let mut r: c_int = 0;

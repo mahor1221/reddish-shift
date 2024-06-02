@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSetting, GammaAdjuster};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc,
     drmModeFreeResources, drmModeGetCrtc, drmModeGetResources, drmModeRes,
@@ -32,7 +32,7 @@ use std::ffi::{c_char, c_double, c_int, c_long, c_void, CStr};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Drm;
-impl GammaAdjuster for Drm {}
+impl Method for Drm {}
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -323,7 +323,7 @@ unsafe extern "C" fn drm_set_option(
 
 unsafe extern "C" fn drm_set_temperature(
     state: *mut drm_state_t,
-    setting: &ColorSetting,
+    setting: &ColorSettings,
     preserve: c_int,
 ) -> c_int {
     let mut crtcs: *mut drm_crtc_state_t = (*state).crtcs;

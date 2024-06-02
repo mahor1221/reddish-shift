@@ -20,7 +20,7 @@
 
 use crate::{
     gamma_drm::Drm, gamma_dummy::Dummy, gamma_randr::Randr,
-    gamma_vidmode::Vidmode, solar::SOLAR_CIVIL_TWILIGHT_ELEV, IsDefault,
+    gamma_vidmode::Vidmode, solar::SOLAR_CIVIL_TWILIGHT_ELEV,
 };
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -185,15 +185,13 @@ pub struct Config {
     pub dry_run: bool,
     pub mode: Mode,
 
-    pub day: ColorSetting,
-    pub night: ColorSetting,
+    pub day: ColorSettings,
+    pub night: ColorSettings,
     pub preserve_gamma: bool,
     pub fade: bool,
-    pub method: AdjustmentMethod,
     pub scheme: TransitionScheme,
     pub location: LocationProvider,
-
-    pub need_location: bool,
+    pub method: Option<AdjustmentMethod>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,7 +214,7 @@ pub type BrightnessRange = DayNight<Brightness>;
 pub type GammaRange = DayNight<Gamma>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ColorSetting {
+pub struct ColorSettings {
     pub temperature: Temperature,
     pub gamma: Gamma,
     pub brightness: Brightness,
@@ -359,7 +357,7 @@ struct VerbosityArgs {
 
 #[derive(Args)]
 #[group(required = true, multiple = true)]
-struct ColorSettingArgs {
+struct ColorSettingsArgs {
     #[arg(long, short, value_parser = Temperature::from_str)]
     temperature: Option<Temperature>,
     #[arg(long, short, value_parser = Gamma::from_str)]
@@ -374,7 +372,7 @@ enum ModeArgs {
     Oneshot(CmdArgs),
     Set {
         #[command(flatten)]
-        cs: ColorSettingArgs,
+        cs: ColorSettingsArgs,
         #[command(flatten)]
         sa: CmdInnerArgs,
     },
@@ -455,17 +453,8 @@ impl Config {
         cfg.merge_with_config_file(config_file);
         cfg.merge_with_cli_args(cli_args);
 
-        use TransitionScheme::*;
-        cfg.need_location = match (&cfg.mode, &cfg.scheme) {
-            (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
-            (Mode::Set | Mode::Reset, _) | (_, Time(_)) => false,
-        };
-
-        match (cfg.need_location, &cfg.location) {
-            (true, LocationProvider::Manual(loc)) if loc.is_default() => {
-                eprintln!("using default location");
-            }
-            _ => {}
+        if let None = cfg.method {
+            todo!()
         }
 
         Ok(cfg)
@@ -556,7 +545,7 @@ impl Config {
             self.preserve_gamma = t;
         }
         if let Some(t) = method {
-            self.method = t;
+            self.method = Some(t);
         }
     }
 
@@ -600,7 +589,7 @@ impl Config {
             self.location = t;
         }
         if let Some(t) = method {
-            self.method = t;
+            self.method = Some(t);
         }
     }
 }
@@ -1051,6 +1040,7 @@ impl FromStr for AdjustmentMethod {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+            ["dummy"] => Ok(Self::Dummy(Default::default())),
             ["randr"] => Ok(Self::Randr(Default::default())),
             ["randr", n] => Ok(Self::Randr(Randr::new(n.parse()?))),
             ["drm"] => Ok(Self::Drm(Default::default())),
@@ -1060,10 +1050,10 @@ impl FromStr for AdjustmentMethod {
     }
 }
 
-impl From<ColorSettingArgs> for ColorSetting {
-    fn from(t: ColorSettingArgs) -> Self {
+impl From<ColorSettingsArgs> for ColorSettings {
+    fn from(t: ColorSettingsArgs) -> Self {
         let mut color_settings = Self::default();
-        let ColorSettingArgs {
+        let ColorSettingsArgs {
             temperature,
             gamma,
             brightness,
@@ -1250,7 +1240,7 @@ impl Default for Longitude {
     }
 }
 
-impl ColorSetting {
+impl ColorSettings {
     pub fn default_day() -> Self {
         Self {
             temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
@@ -1266,7 +1256,7 @@ impl ColorSetting {
     }
 }
 
-impl Default for ColorSetting {
+impl Default for ColorSettings {
     fn default() -> Self {
         Self {
             temperature: Temperature::default(),
@@ -1287,24 +1277,16 @@ impl Default for LocationProvider {
     }
 }
 
-impl Default for AdjustmentMethod {
-    fn default() -> Self {
-        // TODO: change default depending on OS
-        Self::Randr(Default::default())
-    }
-}
-
 impl Default for Config {
     fn default() -> Self {
         Config {
             preserve_gamma: true,
             fade: true,
-            need_location: true,
             mode: Default::default(),
             verbosity: Default::default(),
             dry_run: Default::default(),
-            day: ColorSetting::default_day(),
-            night: ColorSetting::default_night(),
+            day: ColorSettings::default_day(),
+            night: ColorSettings::default_night(),
             method: Default::default(),
             scheme: Default::default(),
             location: Default::default(),

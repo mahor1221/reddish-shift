@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::ColorSetting;
+use crate::ColorSettings;
 
 // Whitepoint values for temperatures at 100K intervals.
 // These will be interpolated for the actual temperature.
@@ -280,7 +280,7 @@ fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
 }
 
 #[inline]
-fn approximate_white_point(setting: &ColorSetting) -> [f64; 3] {
+fn approximate_white_point(setting: &ColorSettings) -> [f64; 3] {
     let alpha = (setting.temperature.as_ref() % 100) as f64 / 100.0;
     let temp_index = (setting.temperature.as_ref() - 1000) as usize / 100;
     interpolate_color(
@@ -294,7 +294,7 @@ pub fn colorramp_fill(
     gamma_r: &mut [u16],
     gamma_g: &mut [u16],
     gamma_b: &mut [u16],
-    setting: &ColorSetting,
+    setting: &ColorSettings,
 ) {
     let white_point = approximate_white_point(setting);
     let f = |y: u16, c: usize| -> u16 {
@@ -316,7 +316,7 @@ pub fn colorramp_fill_float(
     gamma_r: &mut [f64],
     gamma_g: &mut [f64],
     gamma_b: &mut [f64],
-    setting: &ColorSetting,
+    setting: &ColorSettings,
 ) {
     let white_point = approximate_white_point(setting);
     let f = |y: f64, c: usize| -> f64 {

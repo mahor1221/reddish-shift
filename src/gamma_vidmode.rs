@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSetting, GammaAdjuster};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
 use libc::{
     atoi, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE,
 };
@@ -33,7 +33,7 @@ use x11_dl::{
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Vidmode;
-impl GammaAdjuster for Vidmode {}
+impl Method for Vidmode {}
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -222,7 +222,7 @@ unsafe extern "C" fn vidmode_restore(state: *mut vidmode_state_t) {
 
 unsafe extern "C" fn vidmode_set_temperature(
     state: *mut vidmode_state_t,
-    setting: *const ColorSetting,
+    setting: *const ColorSettings,
     preserve: c_int,
 ) -> c_int {
     let r: c_int = 0;

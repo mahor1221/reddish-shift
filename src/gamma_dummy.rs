@@ -43,11 +43,22 @@
 //     pub set_temperature: Option<gamma_method_set_temperature_func>,
 // }
 
-use crate::GammaAdjuster;
+use crate::{config::ColorSettings, Method};
+use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dummy;
-impl GammaAdjuster for Dummy {}
+impl Method for Dummy {
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        // println!("Temperature: {temp}"); // (*setting).temperature);
+        println!("{cs:?}\npreserve_gamma: {preserve_gamma}");
+        Ok(())
+    }
+}
 
 // impl GammaAdjuster for Dummy {
 //     fn start() {

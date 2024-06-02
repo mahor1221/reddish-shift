@@ -32,9 +32,9 @@ pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use config::{
-    AdjustmentMethod, Brightness, ColorSetting, Config, Elevation,
+    AdjustmentMethod, Brightness, ColorSettings, Config, Elevation,
     ElevationRange, Gamma, Location, Mode, Offset, Temperature, TimeRange,
     TransitionScheme,
 };
@@ -251,10 +251,10 @@ fn clamp(alpha: impl AsRef<f64>) -> f64 {
 
 // Interpolate color setting structs given alpha.
 fn interpolate_color_settings(
-    lhs: &ColorSetting,
-    rhs: &ColorSetting,
+    lhs: &ColorSettings,
+    rhs: &ColorSettings,
     alpha: impl Into<Alpha>,
-) -> ColorSetting {
+) -> ColorSettings {
     let alpha: Alpha = alpha.into();
     // TODO: what does this do?
     let alpha = clamp(alpha);
@@ -279,7 +279,7 @@ fn interpolate_color_settings(
         .try_into()
         .unwrap_or_else(|_| unreachable!());
 
-    ColorSetting {
+    ColorSettings {
         temperature,
         gamma,
         brightness,
@@ -289,7 +289,7 @@ fn interpolate_color_settings(
 // Return 1 if color settings have major differences, otherwise 0.
 // Used to determine if a fade should be applied in continual mode.
 
-impl ColorSetting {
+impl ColorSettings {
     fn is_very_diff_from(&self, other: &Self) -> bool {
         (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16)
             .abs()
@@ -608,33 +608,37 @@ impl<T: Default + PartialEq> IsDefault for T {
     }
 }
 
-// TODO: remove default fn impls
-pub trait GammaAdjuster {
+// TODO: remove default impls
+pub trait Method {
     fn start() {}
     fn restore() {}
     fn free() {}
     fn print_help() {}
-    fn set_option() {}
-    fn set_temperature(&self, cs: &ColorSetting) -> Result<()> {
-        Ok(())
+    fn set_color(
+        &self,
+        _cs: &ColorSettings,
+        _preserve_gamma: bool,
+    ) -> Result<()> {
+        Err(anyhow!("Temperature adjustment failed."))
     }
 }
 
-impl GammaAdjuster for AdjustmentMethod {
+impl Method for AdjustmentMethod {
     fn start() {}
     fn restore() {}
     fn free() {}
     fn print_help() {}
-    fn set_option() {}
-    fn set_temperature(&self, cs: &ColorSetting) -> Result<()> {
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
         match self {
-            AdjustmentMethod::Dummy(t) => todo!(),
-            AdjustmentMethod::Randr(t) => todo!(),
-            AdjustmentMethod::Drm(t) => todo!(),
-            AdjustmentMethod::Vidmode(t) => todo!(),
+            AdjustmentMethod::Dummy(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Randr(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Drm(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Vidmode(t) => t.set_color(cs, preserve_gamma),
         }
-        Ok(())
-        // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
 
         // // In Quartz (OSX) the gamma adjustments will automatically
         // //    revert when the process exits. Therefore, we have to loop
@@ -644,6 +648,18 @@ impl GammaAdjuster for AdjustmentMethod {
         //     pause();
         //     todo!()
         // }
+    }
+}
+
+impl Method for Option<AdjustmentMethod> {
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        self.as_ref()
+            .unwrap_or_else(|| unreachable!())
+            .set_color(cs, preserve_gamma)
     }
 }
 
@@ -665,30 +681,39 @@ unsafe fn main_0() -> Result<()> {
     // setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
     // setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
 
-    // Initialize location provider if needed. If provider is NULL
-    // try all providers until one that works is found.
-    // let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
-
     let cfg = Config::new()?;
 
-    if cfg.need_location {
-        // if !(options.provider).is_null() {
-        //     // Use provider specified on command line.
-        // } else {
-        //     // Try all providers, use the first that works.
-        //     // b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
-        //     //     b"Trying next provider...\n\0" as *const u8 as *const c_char,
-        //     //     b"Using provider `%s'.\n\0" as *const u8 as *const c_char,
-        //     // b"No more location providers to try.\n\0" as *const u8 as *const c_char,
-        // }
+    // use TransitionScheme::*;
+    // cfg.need_location = match (&cfg.mode, &cfg.scheme) {
+    //     (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
+    //     (Mode::Set | Mode::Reset, _) | (_, Time(_)) => false,
+    // };
 
-        // if options.verbosity {
-        //     // TRANSLATORS: Append degree symbols if possible.
-        //     // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
-        // }
-    }
+    // match (cfg.need_location, &cfg.location) {
+    //     (true, LocationProvider::Manual(loc)) if loc.is_default() => {
+    //         eprintln!("using default location");
+    //     }
+    //     _ => {}
+    // }
 
-    if let Mode::Daemon | Mode::Oneshot | Mode::Set = cfg.mode {
+    // if cfg.need_location {
+    // if !(options.provider).is_null() {
+    //     // Use provider specified on command line.
+    // } else {
+    //     // Try all providers, use the first that works.
+    //     // b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
+    //     //     b"Trying next provider...\n\0" as *const u8 as *const c_char,
+    //     //     b"Using provider `%s'.\n\0" as *const u8 as *const c_char,
+    //     // b"No more location providers to try.\n\0" as *const u8 as *const c_char,
+    // }
+
+    // if options.verbosity {
+    //     // TRANSLATORS: Append degree symbols if possible.
+    //     // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
+    // }
+    // }
+
+    if let Mode::Daemon | Mode::Oneshot = cfg.mode {
         // if options.verbosity {
         //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
         // }
@@ -753,14 +778,13 @@ unsafe fn main_0() -> Result<()> {
         }
 
         Mode::Oneshot => {
-            if cfg.need_location {
-                // b"Waiting for current location to become available...\n\0" as *const u8
+            // if cfg.need_location {
+            // b"Waiting for current location to become available...\n\0" as *const u8
 
-                // Wait for location provider.
-                // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-                // print_location(&mut loc);
-                todo!()
-            }
+            // Wait for location provider.
+            // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
+            // print_location(&mut loc);
+            // }
 
             // let now: c_double = systemtime_get_time();
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
@@ -788,7 +812,7 @@ unsafe fn main_0() -> Result<()> {
                 };
 
             // Use transition progress to set color temperature
-            let interp: ColorSetting = interpolate_color_settings(
+            let interp: ColorSettings = interpolate_color_settings(
                 &cfg.night,
                 &cfg.day,
                 transition_prog,
@@ -820,7 +844,7 @@ unsafe fn main_0() -> Result<()> {
             // if cfg.verbosity {
             //     // "Color temperature: %uK\n"
             // }
-            cfg.method.set_temperature(&cfg.day)?;
+            cfg.method.set_color(&cfg.day, cfg.preserve_gamma)?;
         }
 
         Mode::Reset => {
