@@ -1,5 +1,5 @@
 # Set the day and night screen temperatures
-temperature = "5700-3500"
+temperature = "6500-4500"
 #temperature = 6500
 
 # Set the screen brightness. Default is 1.0.
@@ -8,7 +8,7 @@ brightness = 1.0
 #brightness = "0.7-0.4"
 
 # Set the screen gamma (for all colors, or each color channel individually)
-gamma = 0.8
+gamma = 1.0
 #gamma = "0.8:0.7:0.8"
 # This can also be set individually for day and night
 #gamma = "0.8:0.7:0.8 - 0.6"
@@ -24,11 +24,14 @@ fade = true
 
 # Set transition scheme: 'time', 'elevation'
 # Setting it to `elevation` requires using a location provider
-scheme = "6:00-7:45 - 18:35-20:15"
-#scheme = "7:45 - 20:15"
-#scheme = "3:-6"      #elevation
-#scheme = "dawn:dusk" #elevation
 
+# Custom dawn/dusk ranges.
+# Instead of using the solar elevation, the time ranges of dawn and dusk can
+# be specified manually. The times must be specified as HH:MM in 24-hour format.
+# time.dawn = "6:00-7:45"
+# time.dusk = "18:35-20:15"
+#scheme = "6:00-7:45 - 18:35-20:15"
+#scheme = "7:45 - 20:15"
 
 # Solar elevation thresholds.
 # By default, Reddish Shift will use the current elevation of the sun to
@@ -37,25 +40,21 @@ scheme = "6:00-7:45 - 18:35-20:15"
 # daytime and below elevation-low it is considered night.
 # elevation.high = 3
 # elevation.low = -6
+scheme = "3:-6"
+#scheme = "dawn:dusk"
 
-# Custom dawn/dusk ranges.
-# Instead of using the solar elevation, the time ranges of dawn and dusk can
-# be specified manually. The times must be specified as HH:MM in 24-hour format.
-# time.dawn = "6:00-7:45"
-# time.dusk = "18:35-20:15"
 
 # Set the location-provider: 'geoclue2', 'manual'
 # type 'reddish-shift -l list' to see possible values.
-location = "48.1:11.6"
 
 # Configuration of the location-provider:
 # type 'reddish-shift -l PROVIDER:help' to see the settings.
 # ex: 'reddish-shift -l manual:help'
 # Keep in mind that longitudes west of Greenwich (e.g. the Americas)
 # are negative numbers.
-#manual = "48.1:11.6"
-#manual.latitude = 48.1
-#manual.longitude = 11.6
+location = "0.0:0.0"
+#manual = "geoclue2"
+#manual = "Newyork"
 
 # Set the adjustment-method: 'randr', 'vidmode', 'drm'
 # type 'reddish-shift -m list' to see all possible values.

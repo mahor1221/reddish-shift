@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, options::ColorSetting};
+use crate::{colorramp::colorramp_fill, config::ColorSetting};
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc,
     drmModeFreeResources, drmModeGetCrtc, drmModeGetResources, drmModeRes,

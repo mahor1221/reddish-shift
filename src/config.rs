@@ -33,33 +33,30 @@ use std::{
     str::FromStr,
 };
 
-pub const MIN_TEMPERATURE: u16 = 1000;
-pub const MAX_TEMPERATURE: u16 = 25000;
-pub const MIN_BRIGHTNESS: f32 = 0.1;
-pub const MAX_BRIGHTNESS: f32 = 1.0;
-pub const MIN_GAMMA: f32 = 0.1;
-pub const MAX_GAMMA: f32 = 10.0;
-pub const MIN_LATITUDE: f32 = -90.0;
-pub const MAX_LATITUDE: f32 = 90.0;
-pub const MIN_LONGITUDE: f32 = -180.0;
-pub const MAX_LONGITUDE: f32 = 180.0;
-
-pub const DEFAULT_TEMPERATURE: u16 = 6500;
-pub const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
-pub const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
-pub const DEFAULT_BRIGHTNESS: f32 = 1.0;
-pub const DEFAULT_GAMMA: f32 = 1.0;
 // Angular elevation of the sun at which the color temperature
 // transition period starts and ends (in degrees).
 // Transition during twilight, and while the sun is lower than
 // 3.0 degrees above the horizon.
-pub const DEFAULT_ELEVATION_LOW: f32 = SOLAR_CIVIL_TWILIGHT_ELEV;
-pub const DEFAULT_ELEVATION_HIGH: f32 = 3.0;
-pub const DEFAULT_TIME_RANGE_DAWN: &str = "06:00-07:00";
-pub const DEFAULT_TIME_RANGE_DUSK: &str = "18:00-19:00";
-// TODO: find something generic
-pub const DEFAULT_LATITUDE: f32 = 48.1;
-pub const DEFAULT_LONGITUDE: f32 = 11.6;
+const DEFAULT_ELEVATION_LOW: f32 = SOLAR_CIVIL_TWILIGHT_ELEV;
+const DEFAULT_ELEVATION_HIGH: f32 = 3.0;
+const DEFAULT_LATITUDE: f32 = 0.0; // Null Island
+const DEFAULT_LONGITUDE: f32 = 0.0;
+const DEFAULT_TEMPERATURE: u16 = 6500;
+const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
+const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
+const DEFAULT_BRIGHTNESS: f32 = 1.0;
+const DEFAULT_GAMMA: f32 = 1.0;
+
+const MIN_TEMPERATURE: u16 = 1000;
+const MAX_TEMPERATURE: u16 = 25000;
+const MIN_BRIGHTNESS: f32 = 0.1;
+const MAX_BRIGHTNESS: f32 = 1.0;
+const MIN_GAMMA: f32 = 0.1;
+const MAX_GAMMA: f32 = 10.0;
+const MIN_LATITUDE: f32 = -90.0;
+const MAX_LATITUDE: f32 = 90.0;
+const MIN_LONGITUDE: f32 = -180.0;
+const MAX_LONGITUDE: f32 = 180.0;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -178,7 +175,7 @@ Try `-l PROVIDER:help' for help.
 //
 
 /// Merge of cli arguments and config files
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub verbosity: Verbosity,
     pub dry_run: bool,
@@ -191,6 +188,8 @@ pub struct Config {
     pub method: AdjustmentMethod,
     pub scheme: TransitionScheme,
     pub location: LocationProvider,
+
+    pub need_location: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,13 +234,13 @@ pub struct Time {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Offset(u32);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OffsetRange {
     pub start: Offset,
     pub end: Offset,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeRange {
     pub dawn: OffsetRange,
     pub dusk: OffsetRange,
@@ -251,35 +250,35 @@ pub struct TimeRange {
 pub struct Elevation(f32);
 
 /// The solar elevations at which the transition begins/ends,
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ElevationRange {
     pub high: Elevation,
     pub low: Elevation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Latitude(f32);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Longitude(f32);
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Location {
     pub latitude: Latitude,
     pub longitude: Longitude,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TransitionScheme {
     Time(TimeRange),
     Elevation(ElevationRange),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LocationProvider {
     Manual(Location),
     Geoclue2,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdjustmentMethod {
     Randr(u16),
     Drm,
@@ -445,14 +444,22 @@ struct CmdArgs {
 impl Config {
     pub fn new() -> Result<Self> {
         let args = CliArgs::parse();
-        let config_file = ConfigFile::new(args.config.as_deref())?;
+        let cfg = ConfigFile::new(args.config.as_deref())?;
+
         let mut config = Config::default();
-        config.merge_with_config_file(config_file);
-        config.merge_with_cli_args(args)?;
+        config.merge_with_config_file(cfg);
+        config.merge_with_cli_args(args);
+
+        use TransitionScheme::*;
+        config.need_location = match (&config.mode, &config.scheme) {
+            (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
+            (Mode::Set | Mode::Reset, _) | (_, Time(_)) => false,
+        };
+
         Ok(config)
     }
 
-    fn merge_with_cli_args(&mut self, cli_args: CliArgs) -> Result<()> {
+    fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
         let CliArgs {
             config: _,
             verbosity: VerbosityArgs { quite, verbose },
@@ -489,8 +496,6 @@ impl Config {
             }
             None => {}
         }
-
-        Ok(())
     }
 
     fn merge_with_cmd_args(&mut self, args: CmdArgs) {
@@ -643,23 +648,6 @@ impl ConfigFile {
         }
         if let Some(t) = method {
             self.method = Some(t);
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            preserve_gamma: true,
-            fade: true,
-            mode: Default::default(),
-            verbosity: Default::default(),
-            dry_run: Default::default(),
-            day: Default::default(),
-            night: Default::default(),
-            method: Default::default(),
-            scheme: Default::default(),
-            location: Default::default(),
         }
     }
 }
@@ -1257,19 +1245,6 @@ impl Default for ElevationRange {
     }
 }
 
-impl Default for TimeRange {
-    fn default() -> Self {
-        Self {
-            dawn: DEFAULT_TIME_RANGE_DAWN
-                .parse()
-                .unwrap_or_else(|_| unreachable!()),
-            dusk: DEFAULT_TIME_RANGE_DUSK
-                .parse()
-                .unwrap_or_else(|_| unreachable!()),
-        }
-    }
-}
-
 impl Default for TransitionScheme {
     fn default() -> Self {
         Self::Elevation(Default::default())
@@ -1301,24 +1276,45 @@ impl Default for AdjustmentMethod {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            preserve_gamma: true,
+            fade: true,
+            need_location: true,
+            mode: Default::default(),
+            verbosity: Default::default(),
+            dry_run: Default::default(),
+            day: ColorSetting::default_day(),
+            night: ColorSetting::default_night(),
+            method: Default::default(),
+            scheme: Default::default(),
+            location: Default::default(),
+        }
+    }
+}
+
 //
 // Tests
 //
 
 #[cfg(test)]
 mod test {
-    use std::cell::OnceCell;
-
     use super::*;
 
-    static CONFIG: OnceCell<ConfigFile> = OnceCell::new();
+    #[test]
+    fn test_creating_default_config() {
+        Config::default();
+    }
 
     #[test]
-    fn test_config_template() -> Result<()> {
-        const CONFIG_TEMPLATE: &str =
+    fn test_config_toml_has_default_values() {
+        const CONFIG_TOML: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        toml::from_str::<ConfigFile>(CONFIG_TEMPLATE)?;
-        Ok(())
+        let cfg = toml::from_str(CONFIG_TOML).unwrap();
+        let mut config = Config::default();
+        config.merge_with_config_file(cfg);
+        assert_eq!(config, Config::default())
     }
 
     // TODO: assert_eq default config with config.toml

@@ -37,6 +37,7 @@ use config::{
     Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma,
     Location, Mode, Offset, Temperature, TimeRange, TransitionScheme,
 };
+
 use gamma_dummy::{Dummy, GammaAdjuster};
 use hooks::hooks_signal_period_change;
 use libc::{
@@ -617,14 +618,9 @@ unsafe fn main_0() -> Result<()> {
     // try all providers until one that works is found.
     // let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
 
-    let options = Config::new()?;
+    let cfg = Config::new()?;
 
-    let need_location = match (&options.mode, &options.scheme) {
-        (Mode::Daemon | Mode::Oneshot, TransitionScheme::Elevation(_)) => true,
-        (Mode::Set | Mode::Reset, _) | (_, TransitionScheme::Time(_)) => false,
-    };
-
-    if need_location {
+    if cfg.need_location {
         // if !(options.provider).is_null() {
         //     // Use provider specified on command line.
         // } else {
@@ -641,7 +637,7 @@ unsafe fn main_0() -> Result<()> {
         // }
     }
 
-    if let Mode::Daemon | Mode::Oneshot | Mode::Set = options.mode {
+    if let Mode::Daemon | Mode::Oneshot | Mode::Set = cfg.mode {
         // if options.verbosity {
         //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
         // }
@@ -676,7 +672,7 @@ unsafe fn main_0() -> Result<()> {
 
     // try all methods until one that works is found.
     // Gamma adjustment not needed for print mode
-    if !options.dry_run {
+    if !cfg.dry_run {
         // if !(options.method).is_null() {
         //     // Use method specified on command line.
         // } else {
@@ -688,7 +684,7 @@ unsafe fn main_0() -> Result<()> {
         // }
     }
 
-    match options.mode {
+    match cfg.mode {
         Mode::Daemon => {
             // r = run_continual_mode(
             //     options.provider,
@@ -706,7 +702,7 @@ unsafe fn main_0() -> Result<()> {
         }
 
         Mode::Oneshot => {
-            if need_location {
+            if cfg.need_location {
                 // b"Waiting for current location to become available...\n\0" as *const u8
 
                 // Wait for location provider.
@@ -719,7 +715,7 @@ unsafe fn main_0() -> Result<()> {
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
 
             let (period, transition_prog): (Period, TransitionProgress) =
-                match options.scheme {
+                match cfg.scheme {
                     TransitionScheme::Time(_) => {
                         // let time_offset: c_int = get_seconds_since_midnight(now);
                         // period = get_period_from_time(scheme, time_offset);
@@ -742,8 +738,8 @@ unsafe fn main_0() -> Result<()> {
 
             // Use transition progress to set color temperature
             let interp: ColorSetting = interpolate_color_settings(
-                &options.night,
-                &options.day,
+                &cfg.night,
+                &cfg.day,
                 transition_prog,
             );
 
@@ -753,7 +749,7 @@ unsafe fn main_0() -> Result<()> {
             //     // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
             // }
 
-            if !options.dry_run {
+            if !cfg.dry_run {
                 // Adjust temperature
                 // r = ((*options.method).set_temperature).expect("non-null function pointer")(
                 // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,

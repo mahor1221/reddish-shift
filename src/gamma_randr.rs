@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, options::ColorSetting};
+use crate::{colorramp::colorramp_fill, config::ColorSetting};
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror,
     strcasecmp, strtol, FILE,
