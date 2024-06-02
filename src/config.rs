@@ -22,7 +22,7 @@ use crate::{solar::SOLAR_CIVIL_TWILIGHT_ELEV, IsDefault};
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
-use serde::{de::Error as DeError, Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 use std::{
     env,
     fmt::Display,
@@ -32,6 +32,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use toml::Value;
 
 // Angular elevation of the sun at which the color temperature
 // transition period starts and ends (in degrees).
@@ -446,7 +447,6 @@ impl Config {
     pub fn new() -> Result<Self> {
         let cli_args = CliArgs::parse();
         let config_file = ConfigFile::new(cli_args.config.as_deref())?;
-
         let mut cfg = Config::default();
         cfg.merge_with_config_file(config_file);
         cfg.merge_with_cli_args(cli_args);
@@ -1104,24 +1104,22 @@ impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
 // boilerplates
 //
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum EitherInner<U, T> {
-    A(T),
-    B(U),
-}
-
 impl<'de, T, U> Deserialize<'de> for Either<U, T>
 where
-    EitherInner<U, T>: Deserialize<'de>,
-    U: TryInto<T>,
+    T: Deserialize<'de>,
+    U: Deserialize<'de> + TryInto<T>,
     U::Error: Display,
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let t = match EitherInner::<U, T>::deserialize(d)? {
-            EitherInner::A(t) => t,
-            EitherInner::B(u) => u.try_into().map_err(DeError::custom)?,
+        let v = Value::deserialize(d)?;
+        let t = match U::deserialize(v.clone()) {
+            Ok(u) => u.try_into().map_err(de::Error::custom)?,
+            Err(_) => match T::deserialize(v) {
+                Ok(t) => t,
+                Err(e) => Err(de::Error::custom(e))?,
+            },
         };
+
         Ok(Self { t, p: PhantomData })
     }
 }
@@ -1131,25 +1129,25 @@ where
     T: Clone + FromStr<Err = anyhow::Error>,
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
+        String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for TransitionScheme {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
+        String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for LocationProvider {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
+        String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
 
 impl<'de> Deserialize<'de> for AdjustmentMethod {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(DeError::custom)
+        String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
 
@@ -1326,13 +1324,14 @@ mod test {
     }
 
     #[test]
-    fn test_config_toml_has_default_values() {
+    fn test_config_toml_has_default_values() -> Result<()> {
         const CONFIG_TOML: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        let cfg = toml::from_str(CONFIG_TOML).unwrap();
+        let cfg = toml::from_str(CONFIG_TOML)?;
         let mut config = Config::default();
         config.merge_with_config_file(cfg);
-        assert_eq!(config, Config::default())
+        assert_eq!(config, Config::default());
+        Ok(())
     }
 
     // TODO: assert_eq default config with config.toml
