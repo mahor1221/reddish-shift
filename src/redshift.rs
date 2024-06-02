@@ -34,11 +34,12 @@ pub mod systemtime;
 
 use anyhow::Result;
 use config::{
-    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma,
-    Location, Mode, Offset, Temperature, TimeRange, TransitionScheme,
+    AdjustmentMethod, Brightness, ColorSetting, Config, Elevation,
+    ElevationRange, Gamma, Location, Mode, Offset, Temperature, TimeRange,
+    TransitionScheme,
 };
 
-use gamma_dummy::{Dummy, GammaAdjuster};
+use gamma_dummy::Dummy;
 use hooks::hooks_signal_period_change;
 use libc::{
     __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd,
@@ -596,6 +597,55 @@ fn ease_fade(t: f32) -> f32 {
 //     0 as c_int
 // }
 
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        *self == T::default()
+    }
+}
+
+// TODO: remove default fn impls
+pub trait GammaAdjuster {
+    fn start() {}
+    fn restore() {}
+    fn free() {}
+    fn print_help() {}
+    fn set_option() {}
+    fn set_temperature(&self, cs: &ColorSetting) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl GammaAdjuster for AdjustmentMethod {
+    fn start() {}
+    fn restore() {}
+    fn free() {}
+    fn print_help() {}
+    fn set_option() {}
+    fn set_temperature(&self, cs: &ColorSetting) -> Result<()> {
+        match self {
+            AdjustmentMethod::Dummy(t) => todo!(),
+            AdjustmentMethod::Randr(t) => todo!(),
+            AdjustmentMethod::Drm(t) => todo!(),
+            AdjustmentMethod::Vidmode(t) => todo!(),
+        }
+        Ok(())
+        // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
+
+        // // In Quartz (OSX) the gamma adjustments will automatically
+        // //    revert when the process exits. Therefore, we have to loop
+        // //    until CTRL-C is received.
+        // if strcmp(options.method.name, "quartz") == 0 as c_int {
+        //     // b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
+        //     pause();
+        //     todo!()
+        // }
+    }
+}
+
 unsafe fn main_0() -> Result<()> {
     // // Init locale
     // setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
@@ -766,22 +816,10 @@ unsafe fn main_0() -> Result<()> {
         }
 
         Mode::Set => {
-            // if options.verbosity {
-            //     // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+            // if cfg.verbosity {
+            //     // "Color temperature: %uK\n"
             // }
-
-            // Adjust temperature
-            // r = ((*options.method).set_temperature).expect("non-null function pointer")(
-            // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
-
-            // // In Quartz (OSX) the gamma adjustments will automatically
-            // //    revert when the process exits. Therefore, we have to loop
-            // //    until CTRL-C is received.
-            // if strcmp(options.method.name, "quartz") == 0 as c_int {
-            //     // b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
-            //     pause();
-            //     todo!()
-            // }
+            cfg.method.set_temperature(&cfg.day)?;
         }
 
         Mode::Reset => {
@@ -805,16 +843,6 @@ unsafe fn main_0() -> Result<()> {
     }
 
     Ok(())
-}
-
-pub trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T: Default + PartialEq> IsDefault for T {
-    fn is_default(&self) -> bool {
-        *self == T::default()
-    }
 }
 
 fn main() {

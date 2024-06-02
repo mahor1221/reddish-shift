@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSetting};
+use crate::{colorramp::colorramp_fill, config::ColorSetting, GammaAdjuster};
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror,
     strcasecmp, strtol, FILE,
@@ -33,6 +33,19 @@ use xcb::{
     x::Screen,
     Connection,
 };
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Randr {
+    screen: usize,
+}
+
+impl Randr {
+    pub fn new(screen: usize) -> Self {
+        Self { screen }
+    }
+}
+
+impl GammaAdjuster for Randr {}
 
 // #[derive(Copy, Clone)]
 #[repr(C)]

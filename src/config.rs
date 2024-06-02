@@ -18,7 +18,10 @@
 
 // TODO: use snafu for error handling
 
-use crate::{solar::SOLAR_CIVIL_TWILIGHT_ELEV, IsDefault};
+use crate::{
+    gamma_drm::Drm, gamma_dummy::Dummy, gamma_randr::Randr,
+    gamma_vidmode::Vidmode, solar::SOLAR_CIVIL_TWILIGHT_ELEV, IsDefault,
+};
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
@@ -281,9 +284,10 @@ pub enum LocationProvider {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdjustmentMethod {
-    Randr(u16),
-    Drm,
-    Vidmode,
+    Dummy(Dummy),
+    Randr(Randr),
+    Drm(Drm),
+    Vidmode(Vidmode),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1048,11 +1052,9 @@ impl FromStr for AdjustmentMethod {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             ["randr"] => Ok(Self::Randr(Default::default())),
-            ["randr", n] => {
-                n.parse().map(Self::Randr).map_err(|_| anyhow!("asdf"))
-            }
-            ["drm"] => Ok(Self::Drm),
-            ["vidmode"] => Ok(Self::Vidmode),
+            ["randr", n] => Ok(Self::Randr(Randr::new(n.parse()?))),
+            ["drm"] => Ok(Self::Drm(Default::default())),
+            ["vidmode"] => Ok(Self::Vidmode(Default::default())),
             _ => Err(anyhow!("method")),
         }
     }

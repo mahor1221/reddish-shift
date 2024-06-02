@@ -43,49 +43,44 @@
 //     pub set_temperature: Option<gamma_method_set_temperature_func>,
 // }
 
+use crate::GammaAdjuster;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dummy;
+impl GammaAdjuster for Dummy {}
 
-pub trait GammaAdjuster {
-    fn start();
-    fn restore();
-    fn free();
-    fn print_help();
-    fn set_option();
-    fn set_temperature();
-}
+// impl GammaAdjuster for Dummy {
+//     fn start() {
+//         eprintln!(
+//             "WARNING: Using dummy gamma method! Display will not be affected by this gamma method."
+//         );
+//     }
 
-impl GammaAdjuster for Dummy {
-    fn start() {
-        eprintln!(
-            "WARNING: Using dummy gamma method! Display will not be affected by this gamma method."
-        );
-    }
+//     fn restore() {}
 
-    fn restore() {}
+//     fn free() {}
 
-    fn free() {}
+//     fn print_help() {
+//         println!("Does not affect the display but prints the color temperature to the terminal.")
+//     }
 
-    fn print_help() {
-        println!("Does not affect the display but prints the color temperature to the terminal.")
-    }
+//     fn set_option() {
+//         // state: *mut c_void,
+//         // key: *const c_char,
+//         // value: *const c_char,
+//         let key = "";
+//         eprintln!("Unknown method parameter: `{key}`");
+//         // return -1
+//     }
 
-    fn set_option() {
-        // state: *mut c_void,
-        // key: *const c_char,
-        // value: *const c_char,
-        let key = "";
-        eprintln!("Unknown method parameter: `{key}`");
-        // return -1
-    }
+//     fn set_temperature(&self) {
+//         // state: *mut c_void,
+//         // setting: *const ColorSetting,
+//         // preserve: c_int,
 
-    fn set_temperature() {
-        // state: *mut c_void,
-        // setting: *const ColorSetting,
-        // preserve: c_int,
+//         let temp = "";
+//         println!("Temperature: {temp}"); // (*setting).temperature);
 
-        let temp = "";
-        println!("Temperature: {temp}"); // (*setting).temperature);
-
-        // return 0
-    }
-}
+//         // return 0
+//     }
+// }
