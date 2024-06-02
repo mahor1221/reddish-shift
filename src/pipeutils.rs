@@ -23,13 +23,16 @@ use std::ffi::{c_char, c_int, c_void};
 
 // Create non-blocking set of pipe fds.
 #[no_mangle]
-pub unsafe extern "C" fn pipeutils_create_nonblocking(pipefds: *mut c_int) -> c_int {
+pub unsafe extern "C" fn pipeutils_create_nonblocking(
+    pipefds: *mut c_int,
+) -> c_int {
     let mut r: c_int = pipe(pipefds);
     if r == -(1 as c_int) {
         perror(b"pipe\0" as *const u8 as *const c_char);
         return -(1 as c_int);
     }
-    let mut flags: c_int = fcntl(*pipefds.offset(0 as c_int as isize), 3 as c_int);
+    let mut flags: c_int =
+        fcntl(*pipefds.offset(0 as c_int as isize), 3 as c_int);
     if flags == -(1 as c_int) {
         perror(b"fcntl\0" as *const u8 as *const c_char);
         close(*pipefds.offset(0 as c_int as isize));

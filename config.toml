@@ -1,5 +1,6 @@
 # Set the day and night screen temperatures
 temperature = "5700-3500"
+#temperature = 6500
 
 # Set the screen brightness. Default is 1.0.
 brightness = 1.0
@@ -24,11 +25,9 @@ fade = true
 # Set transition scheme: 'time', 'elevation'
 # Setting it to `elevation` requires using a location provider
 scheme = "6:00-7:45 - 18:35-20:15"
-# scheme = "6:00 -- 18:35-20:15"
-# scheme = "6:00-7:45 -- 20:15"
-# scheme = "7:45 -- 20:15"
-# scheme = "dawn-morning -- dusk-night" #elevation
-# scheme = "3 - 7 -- -6 - 2"            #elevation
+#scheme = "7:45 - 20:15"
+#scheme = "3:-6"      #elevation
+#scheme = "dawn:dusk" #elevation
 
 
 # Solar elevation thresholds.

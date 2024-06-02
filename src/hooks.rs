@@ -19,8 +19,8 @@
 */
 
 use libc::{
-    __errno_location, _exit, close, dirent, execl, fork, getenv, getpwuid, getuid, opendir, perror,
-    pid_t, readdir, snprintf, DIR,
+    __errno_location, _exit, close, dirent, execl, fork, getenv, getpwuid,
+    getuid, opendir, perror, pid_t, readdir, snprintf, DIR,
 };
 use std::ffi::{c_char, c_int, c_void};
 
@@ -32,7 +32,9 @@ use crate::{period_names, Period};
 unsafe extern "C" fn open_hooks_dir(hp: *mut c_char) -> *mut DIR {
     let mut env: *mut c_char = std::ptr::null_mut::<c_char>();
     env = getenv(b"XDG_CONFIG_HOME\0" as *const u8 as *const c_char);
-    if !env.is_null() && *env.offset(0 as c_int as isize) as c_int != '\0' as i32 {
+    if !env.is_null()
+        && *env.offset(0 as c_int as isize) as c_int != '\0' as i32
+    {
         snprintf(
             hp,
             4096,
@@ -42,7 +44,9 @@ unsafe extern "C" fn open_hooks_dir(hp: *mut c_char) -> *mut DIR {
         return opendir(hp);
     }
     env = getenv(b"HOME\0" as *const u8 as *const c_char);
-    if !env.is_null() && *env.offset(0 as c_int as isize) as c_int != '\0' as i32 {
+    if !env.is_null()
+        && *env.offset(0 as c_int as isize) as c_int != '\0' as i32
+    {
         snprintf(
             hp,
             4096,
@@ -63,7 +67,10 @@ unsafe extern "C" fn open_hooks_dir(hp: *mut c_char) -> *mut DIR {
 
 // Run hooks with a signal that the period changed.
 #[no_mangle]
-pub unsafe extern "C" fn hooks_signal_period_change(prev_period: Period, period: Period) {
+pub unsafe extern "C" fn hooks_signal_period_change(
+    prev_period: Period,
+    period: Period,
+) {
     let mut hooksdir_path: [c_char; 4096] = [0; 4096];
     let hooks_dir: *mut DIR = open_hooks_dir(hooksdir_path.as_mut_ptr());
     if hooks_dir.is_null() {

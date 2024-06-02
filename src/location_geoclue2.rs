@@ -18,25 +18,33 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use super::pipeutils::{pipeutils_create_nonblocking, pipeutils_handle_signal, pipeutils_signal};
+use super::pipeutils::{
+    pipeutils_create_nonblocking, pipeutils_handle_signal, pipeutils_signal,
+};
 use gio_sys::{
     g_bus_unwatch_name, g_bus_watch_name, g_dbus_error_get_remote_error,
-    g_dbus_error_is_remote_error, g_dbus_proxy_call_sync, g_dbus_proxy_get_cached_property,
-    g_dbus_proxy_get_connection, g_dbus_proxy_new_sync, GCancellable, GDBusConnection,
-    GDBusInterfaceInfo, GDBusProxy, G_BUS_NAME_WATCHER_FLAGS_AUTO_START, G_BUS_TYPE_SYSTEM,
+    g_dbus_error_is_remote_error, g_dbus_proxy_call_sync,
+    g_dbus_proxy_get_cached_property, g_dbus_proxy_get_connection,
+    g_dbus_proxy_new_sync, GCancellable, GDBusConnection, GDBusInterfaceInfo,
+    GDBusProxy, G_BUS_NAME_WATCHER_FLAGS_AUTO_START, G_BUS_TYPE_SYSTEM,
     G_DBUS_CALL_FLAGS_NONE, G_DBUS_PROXY_FLAGS_NONE,
 };
 use glib_sys::{
-    g_error_free, g_free, g_io_channel_unix_new, g_io_channel_unref, g_io_create_watch,
-    g_main_context_new, g_main_context_push_thread_default, g_main_context_unref, g_main_loop_new,
-    g_main_loop_quit, g_main_loop_run, g_main_loop_unref, g_mutex_clear, g_mutex_init,
-    g_mutex_lock, g_mutex_unlock, g_printerr, g_source_attach, g_source_set_callback,
-    g_source_unref, g_strcmp0, g_thread_join, g_thread_new, g_variant_get, g_variant_get_child,
-    g_variant_get_double, g_variant_new, g_variant_unref, gpointer, GError, GIOChannel,
-    GIOCondition, GMainContext, GMainLoop, GMutex, GSource, GSourceFunc, GThread, GVariant,
-    G_IO_ERR, G_IO_HUP, G_IO_IN,
+    g_error_free, g_free, g_io_channel_unix_new, g_io_channel_unref,
+    g_io_create_watch, g_main_context_new, g_main_context_push_thread_default,
+    g_main_context_unref, g_main_loop_new, g_main_loop_quit, g_main_loop_run,
+    g_main_loop_unref, g_mutex_clear, g_mutex_init, g_mutex_lock,
+    g_mutex_unlock, g_printerr, g_source_attach, g_source_set_callback,
+    g_source_unref, g_strcmp0, g_thread_join, g_thread_new, g_variant_get,
+    g_variant_get_child, g_variant_get_double, g_variant_new, g_variant_unref,
+    gpointer, GError, GIOChannel, GIOCondition, GMainContext, GMainLoop,
+    GMutex, GSource, GSourceFunc, GThread, GVariant, G_IO_ERR, G_IO_HUP,
+    G_IO_IN,
 };
-use gobject_sys::{g_object_unref, g_signal_connect_data, GCallback, GObject, G_CONNECT_DEFAULT};
+use gobject_sys::{
+    g_object_unref, g_signal_connect_data, GCallback, GObject,
+    G_CONNECT_DEFAULT,
+};
 use libc::{close, fputs, free, malloc, FILE};
 use std::ffi::{c_char, c_float, c_int, c_uint, c_void, CStr};
 
@@ -87,7 +95,8 @@ unsafe extern "C" fn geoclue_client_signal_cb(
     parameters: *mut GVariant,
     user_data: gpointer,
 ) {
-    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t =
+        user_data as *mut location_geoclue2_state_t;
 
     // Only handle LocationUpdated signals
     if g_strcmp0(
@@ -130,11 +139,15 @@ unsafe extern "C" fn geoclue_client_signal_cb(
     }
     g_mutex_lock(&mut (*state).lock);
     // Read location properties
-    let lat_v: *mut GVariant =
-        g_dbus_proxy_get_cached_property(location, b"Latitude\0" as *const u8 as *const c_char);
+    let lat_v: *mut GVariant = g_dbus_proxy_get_cached_property(
+        location,
+        b"Latitude\0" as *const u8 as *const c_char,
+    );
     (*state).latitude = g_variant_get_double(lat_v) as c_float;
-    let lon_v: *mut GVariant =
-        g_dbus_proxy_get_cached_property(location, b"Longitude\0" as *const u8 as *const c_char);
+    let lon_v: *mut GVariant = g_dbus_proxy_get_cached_property(
+        location,
+        b"Longitude\0" as *const u8 as *const c_char,
+    );
     (*state).longitude = g_variant_get_double(lon_v) as c_float;
     (*state).available = 1 as c_int;
     g_mutex_unlock(&mut (*state).lock);
@@ -148,7 +161,8 @@ unsafe extern "C" fn on_name_appeared(
     name_owner: *const c_char,
     user_data: gpointer,
 ) {
-    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t =
+        user_data as *mut location_geoclue2_state_t;
     // Obtain GeoClue Manager
     let mut error: *mut GError = std::ptr::null_mut::<GError>();
     let geoclue_manager: *mut GDBusProxy = g_dbus_proxy_new_sync(
@@ -164,7 +178,8 @@ unsafe extern "C" fn on_name_appeared(
     if geoclue_manager.is_null() {
         g_printerr(
             // gettext(
-            b"Unable to obtain GeoClue Manager: %s.\n\0" as *const u8 as *const c_char,
+            b"Unable to obtain GeoClue Manager: %s.\n\0" as *const u8
+                as *const c_char,
             // ),
             (*error).message,
         );
@@ -186,7 +201,8 @@ unsafe extern "C" fn on_name_appeared(
     if client_path_v.is_null() {
         g_printerr(
             // gettext(
-            b"Unable to obtain GeoClue client path: %s.\n\0" as *const u8 as *const c_char,
+            b"Unable to obtain GeoClue client path: %s.\n\0" as *const u8
+                as *const c_char,
             // ),
             (*error).message,
         );
@@ -216,7 +232,8 @@ unsafe extern "C" fn on_name_appeared(
     if geoclue_client.is_null() {
         g_printerr(
             // gettext(
-            b"Unable to obtain GeoClue Client: %s.\n\0" as *const u8 as *const c_char,
+            b"Unable to obtain GeoClue Client: %s.\n\0" as *const u8
+                as *const c_char,
             // ),
             (*error).message,
         );
@@ -275,7 +292,8 @@ unsafe extern "C" fn on_name_appeared(
     if ret_v.is_null() {
         g_printerr(
             // gettext(
-            b"Unable to set distance threshold: %s.\n\0" as *const u8 as *const c_char,
+            b"Unable to set distance threshold: %s.\n\0" as *const u8
+                as *const c_char,
             // ),
             (*error).message,
         );
@@ -331,7 +349,8 @@ unsafe extern "C" fn on_name_appeared(
     if ret_v.is_null() {
         g_printerr(
             // gettext(
-            b"Unable to start GeoClue client: %s.\n\0" as *const u8 as *const c_char,
+            b"Unable to start GeoClue client: %s.\n\0" as *const u8
+                as *const c_char,
             // ),
             (*error).message,
         );
@@ -339,7 +358,8 @@ unsafe extern "C" fn on_name_appeared(
             let dbus_error: *mut c_char = g_dbus_error_get_remote_error(error);
             if g_strcmp0(
                 dbus_error,
-                b"org.freedesktop.DBus.Error.AccessDenied\0" as *const u8 as *const c_char,
+                b"org.freedesktop.DBus.Error.AccessDenied\0" as *const u8
+                    as *const c_char,
             ) == 0 as c_int
             {
                 print_denial_message();
@@ -361,7 +381,8 @@ unsafe extern "C" fn on_name_vanished(
     name: *const c_char,
     user_data: gpointer,
 ) {
-    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t =
+        user_data as *mut location_geoclue2_state_t;
     g_mutex_lock(&mut (*state).lock);
     (*state).available = 0 as c_int;
     g_mutex_unlock(&mut (*state).lock);
@@ -374,14 +395,16 @@ unsafe extern "C" fn on_pipe_closed(
     condition: GIOCondition,
     user_data: gpointer,
 ) -> gboolean {
-    let state: *mut location_geoclue2_state_t = user_data as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t =
+        user_data as *mut location_geoclue2_state_t;
     g_main_loop_quit((*state).loop_0);
     0 as c_int
 }
 
 // Run loop for location provider thread.
 unsafe extern "C" fn run_geoclue2_loop(state_: *mut c_void) -> *mut c_void {
-    let state: *mut location_geoclue2_state_t = state_ as *mut location_geoclue2_state_t;
+    let state: *mut location_geoclue2_state_t =
+        state_ as *mut location_geoclue2_state_t;
     let context: *mut GMainContext = g_main_context_new();
     g_main_context_push_thread_default(context);
     (*state).loop_0 = g_main_loop_new(context, 0 as c_int);
@@ -400,26 +423,42 @@ unsafe extern "C" fn run_geoclue2_loop(state_: *mut c_void) -> *mut c_void {
         ),
         Some(
             on_name_vanished
-                as unsafe extern "C" fn(*mut GDBusConnection, *const c_char, gpointer) -> (),
+                as unsafe extern "C" fn(
+                    *mut GDBusConnection,
+                    *const c_char,
+                    gpointer,
+                ) -> (),
         ),
         state as gpointer,
         None,
     );
 
     // Listen for closure of pipe
-    let pipe_channel: *mut GIOChannel = g_io_channel_unix_new((*state).pipe_fd_write);
+    let pipe_channel: *mut GIOChannel =
+        g_io_channel_unix_new((*state).pipe_fd_write);
     let pipe_source: *mut GSource = g_io_create_watch(
         pipe_channel,
-        (G_IO_IN as c_int | G_IO_HUP as c_int | G_IO_ERR as c_int) as GIOCondition,
+        (G_IO_IN as c_int | G_IO_HUP as c_int | G_IO_ERR as c_int)
+            as GIOCondition,
     );
     g_source_set_callback(
         pipe_source,
         ::core::mem::transmute::<
-            Option<unsafe extern "C" fn(*mut GIOChannel, GIOCondition, gpointer) -> gboolean>,
+            Option<
+                unsafe extern "C" fn(
+                    *mut GIOChannel,
+                    GIOCondition,
+                    gpointer,
+                ) -> gboolean,
+            >,
             GSourceFunc,
         >(Some(
             on_pipe_closed
-                as unsafe extern "C" fn(*mut GIOChannel, GIOCondition, gpointer) -> gboolean,
+                as unsafe extern "C" fn(
+                    *mut GIOChannel,
+                    GIOCondition,
+                    gpointer,
+                ) -> gboolean,
         )),
         state as gpointer,
         None,
@@ -434,7 +473,9 @@ unsafe extern "C" fn run_geoclue2_loop(state_: *mut c_void) -> *mut c_void {
     g_main_context_unref(context);
     std::ptr::null_mut::<c_void>()
 }
-unsafe extern "C" fn location_geoclue2_init(state: *mut *mut location_geoclue2_state_t) -> c_int {
+unsafe extern "C" fn location_geoclue2_init(
+    state: *mut *mut location_geoclue2_state_t,
+) -> c_int {
     *state = malloc(::core::mem::size_of::<location_geoclue2_state_t>())
         as *mut location_geoclue2_state_t;
     if (*state).is_null() {
@@ -442,7 +483,9 @@ unsafe extern "C" fn location_geoclue2_init(state: *mut *mut location_geoclue2_s
     }
     0 as c_int
 }
-unsafe extern "C" fn location_geoclue2_start(state: *mut location_geoclue2_state_t) -> c_int {
+unsafe extern "C" fn location_geoclue2_start(
+    state: *mut location_geoclue2_state_t,
+) -> c_int {
     (*state).pipe_fd_read = -(1 as c_int);
     (*state).pipe_fd_write = -(1 as c_int);
     (*state).available = 0 as c_int;
@@ -462,12 +505,17 @@ unsafe extern "C" fn location_geoclue2_start(state: *mut location_geoclue2_state
     g_mutex_init(&mut (*state).lock);
     (*state).thread = g_thread_new(
         b"geoclue2\0" as *const u8 as *const c_char,
-        Some(run_geoclue2_loop as unsafe extern "C" fn(*mut c_void) -> *mut c_void),
+        Some(
+            run_geoclue2_loop
+                as unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+        ),
         state as gpointer,
     );
     0 as c_int
 }
-unsafe extern "C" fn location_geoclue2_free(state: *mut location_geoclue2_state_t) {
+unsafe extern "C" fn location_geoclue2_free(
+    state: *mut location_geoclue2_state_t,
+) {
     if (*state).pipe_fd_read != -(1 as c_int) {
         close((*state).pipe_fd_read);
     }
@@ -480,7 +528,8 @@ unsafe extern "C" fn location_geoclue2_free(state: *mut location_geoclue2_state_
 unsafe extern "C" fn location_geoclue2_print_help(f: *mut FILE) {
     fputs(
         // gettext(
-        b"Use the location as discovered by a GeoClue2 provider.\n\0" as *const u8 as *const c_char,
+        b"Use the location as discovered by a GeoClue2 provider.\n\0"
+            as *const u8 as *const c_char,
         // ),
         f,
     );
@@ -498,7 +547,9 @@ unsafe extern "C" fn location_geoclue2_set_option(
     );
     -(1 as c_int)
 }
-unsafe extern "C" fn location_geoclue2_get_fd(state: *mut location_geoclue2_state_t) -> c_int {
+unsafe extern "C" fn location_geoclue2_get_fd(
+    state: *mut location_geoclue2_state_t,
+) -> c_int {
     (*state).pipe_fd_read
 }
 unsafe extern "C" fn location_geoclue2_handle(

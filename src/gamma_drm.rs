@@ -21,12 +21,12 @@
 
 use crate::{colorramp::colorramp_fill, options::ColorSetting};
 use drm::ffi::xf86drm_mode::{
-    drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc, drmModeFreeResources,
-    drmModeGetCrtc, drmModeGetResources, drmModeRes,
+    drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc,
+    drmModeFreeResources, drmModeGetCrtc, drmModeGetResources, drmModeRes,
 };
 use libc::{
-    atoi, calloc, close, fputs, free, malloc, open, perror, realloc, sprintf, strcasecmp, strlen,
-    FILE,
+    atoi, calloc, close, fputs, free, malloc, open, perror, realloc, sprintf,
+    strcasecmp, strlen, FILE,
 };
 use std::ffi::{c_char, c_double, c_int, c_long, c_void, CStr};
 
@@ -79,7 +79,8 @@ unsafe extern "C" fn drm_start(state: *mut drm_state_t) -> c_int {
         b"/dev/dri\0" as *const u8 as *const c_char,
         (*state).card_num,
     );
-    (*state).fd = open(pathname.as_mut_ptr(), 0o2 as c_int | 0o2000000 as c_int);
+    (*state).fd =
+        open(pathname.as_mut_ptr(), 0o2 as c_int | 0o2000000 as c_int);
     if (*state).fd < 0 as c_int {
         // TODO check if access permissions, normally root or
         //      membership of the video group is required.
@@ -117,9 +118,11 @@ unsafe extern "C" fn drm_start(state: *mut drm_state_t) -> c_int {
             (*state).res = std::ptr::null_mut::<drmModeRes>();
             return -(1 as c_int);
         }
-        (*state).crtcs = malloc(2_usize.wrapping_mul(::core::mem::size_of::<drm_crtc_state_t>()))
-            as *mut drm_crtc_state_t;
-        (*((*state).crtcs).offset(1 as c_int as isize)).crtc_num = -(1 as c_int);
+        (*state).crtcs = malloc(
+            2_usize.wrapping_mul(::core::mem::size_of::<drm_crtc_state_t>()),
+        ) as *mut drm_crtc_state_t;
+        (*((*state).crtcs).offset(1 as c_int as isize)).crtc_num =
+            -(1 as c_int);
         (*(*state).crtcs).crtc_num = (*state).crtc_num;
         (*(*state).crtcs).crtc_id = -(1 as c_int);
         (*(*state).crtcs).gamma_size = -(1 as c_int);
@@ -129,19 +132,26 @@ unsafe extern "C" fn drm_start(state: *mut drm_state_t) -> c_int {
     } else {
         let mut crtc_num: c_int = 0;
         (*state).crtcs = malloc(
-            ((crtc_count + 1) as usize).wrapping_mul(::core::mem::size_of::<drm_crtc_state_t>()),
+            ((crtc_count + 1) as usize)
+                .wrapping_mul(::core::mem::size_of::<drm_crtc_state_t>()),
         ) as *mut drm_crtc_state_t;
-        (*((*state).crtcs).offset(crtc_count as isize)).crtc_num = -(1 as c_int);
+        (*((*state).crtcs).offset(crtc_count as isize)).crtc_num =
+            -(1 as c_int);
         crtc_num = 0 as c_int;
         while crtc_num < crtc_count {
             (*((*state).crtcs).offset(crtc_num as isize)).crtc_num = crtc_num;
-            (*((*state).crtcs).offset(crtc_num as isize)).crtc_id = -(1 as c_int);
-            (*((*state).crtcs).offset(crtc_num as isize)).gamma_size = -(1 as c_int);
-            let fresh0 = &mut (*((*state).crtcs).offset(crtc_num as isize)).r_gamma;
+            (*((*state).crtcs).offset(crtc_num as isize)).crtc_id =
+                -(1 as c_int);
+            (*((*state).crtcs).offset(crtc_num as isize)).gamma_size =
+                -(1 as c_int);
+            let fresh0 =
+                &mut (*((*state).crtcs).offset(crtc_num as isize)).r_gamma;
             *fresh0 = std::ptr::null_mut::<u16>();
-            let fresh1 = &mut (*((*state).crtcs).offset(crtc_num as isize)).g_gamma;
+            let fresh1 =
+                &mut (*((*state).crtcs).offset(crtc_num as isize)).g_gamma;
             *fresh1 = std::ptr::null_mut::<u16>();
-            let fresh2 = &mut (*((*state).crtcs).offset(crtc_num as isize)).b_gamma;
+            let fresh2 =
+                &mut (*((*state).crtcs).offset(crtc_num as isize)).b_gamma;
             *fresh2 = std::ptr::null_mut::<u16>();
             crtc_num += 1;
             crtc_num;
@@ -150,8 +160,11 @@ unsafe extern "C" fn drm_start(state: *mut drm_state_t) -> c_int {
     // Load CRTC information and gamma ramps.
     let mut crtcs: *mut drm_crtc_state_t = (*state).crtcs;
     while (*crtcs).crtc_num >= 0 as c_int {
-        (*crtcs).crtc_id = *((*(*state).res).crtcs).offset((*crtcs).crtc_num as isize) as c_int;
-        let crtc_info: *mut drmModeCrtc = drmModeGetCrtc((*state).fd, (*crtcs).crtc_id as u32);
+        (*crtcs).crtc_id = *((*(*state).res).crtcs)
+            .offset((*crtcs).crtc_num as isize)
+            as c_int;
+        let crtc_info: *mut drmModeCrtc =
+            drmModeGetCrtc((*state).fd, (*crtcs).crtc_id as u32);
         if crtc_info.is_null() {
             // gettext(
             eprintln!("CRTC {} lost, skipping", (*crtcs).crtc_num)
@@ -171,8 +184,10 @@ unsafe extern "C" fn drm_start(state: *mut drm_state_t) -> c_int {
                     (3 * (*crtcs).gamma_size) as usize,
                     ::core::mem::size_of::<u16>(),
                 ) as *mut u16;
-                (*crtcs).g_gamma = ((*crtcs).r_gamma).offset((*crtcs).gamma_size as isize);
-                (*crtcs).b_gamma = ((*crtcs).g_gamma).offset((*crtcs).gamma_size as isize);
+                (*crtcs).g_gamma =
+                    ((*crtcs).r_gamma).offset((*crtcs).gamma_size as isize);
+                (*crtcs).b_gamma =
+                    ((*crtcs).g_gamma).offset((*crtcs).gamma_size as isize);
                 if !((*crtcs).r_gamma).is_null() {
                     let r: c_int = drmModeCrtcGetGamma(
                         (*state).fd,
@@ -261,7 +276,8 @@ unsafe extern "C" fn drm_free(state: *mut drm_state_t) {
 unsafe extern "C" fn drm_print_help(f: *mut FILE) {
     fputs(
         // gettext(
-        b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8 as *const c_char,
+        b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8
+            as *const c_char,
         // ),
         f,
     );
@@ -285,7 +301,9 @@ unsafe extern "C" fn drm_set_option(
 ) -> c_int {
     if strcasecmp(key, b"card\0" as *const u8 as *const c_char) == 0 as c_int {
         (*state).card_num = atoi(value);
-    } else if strcasecmp(key, b"crtc\0" as *const u8 as *const c_char) == 0 as c_int {
+    } else if strcasecmp(key, b"crtc\0" as *const u8 as *const c_char)
+        == 0 as c_int
+    {
         (*state).crtc_num = atoi(value);
         if (*state).crtc_num < 0 as c_int {
             // gettext(
@@ -352,9 +370,18 @@ unsafe extern "C" fn drm_set_temperature(
                 i;
             }
 
-            let r = std::slice::from_raw_parts_mut(r_gamma, (*crtcs).gamma_size as usize);
-            let g = std::slice::from_raw_parts_mut(g_gamma, (*crtcs).gamma_size as usize);
-            let b = std::slice::from_raw_parts_mut(b_gamma, (*crtcs).gamma_size as usize);
+            let r = std::slice::from_raw_parts_mut(
+                r_gamma,
+                (*crtcs).gamma_size as usize,
+            );
+            let g = std::slice::from_raw_parts_mut(
+                g_gamma,
+                (*crtcs).gamma_size as usize,
+            );
+            let b = std::slice::from_raw_parts_mut(
+                b_gamma,
+                (*crtcs).gamma_size as usize,
+            );
             colorramp_fill(r, g, b, &*setting);
             drmModeCrtcSetGamma(
                 (*state).fd,

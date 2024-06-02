@@ -24,7 +24,12 @@ use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de::Error as DeError, Deserialize, Deserializer};
 use std::{
-    env, fmt::Display, fs::File, io::Read, marker::PhantomData, path::PathBuf,
+    env,
+    fmt::Display,
+    fs::File,
+    io::Read,
+    marker::PhantomData,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -55,10 +60,6 @@ pub const DEFAULT_TIME_RANGE_DUSK: &str = "18:00-19:00";
 // TODO: find something generic
 pub const DEFAULT_LATITUDE: f32 = 48.1;
 pub const DEFAULT_LONGITUDE: f32 = 11.6;
-
-const TRANSITION_SCHEME_KINDS: &str = "time, elevation";
-const ADJUSTMENT_METHOD_KINDS: &str = "dummy, drm, randr";
-const LOCATION_PROVIDER_KINDS: &str = "manual, geoclue2";
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -178,7 +179,7 @@ Try `-l PROVIDER:help' for help.
 
 /// Merge of cli arguments and config files
 #[derive(Debug, Clone)]
-pub struct Options {
+pub struct Config {
     pub verbosity: Verbosity,
     pub dry_run: bool,
     pub mode: Mode,
@@ -308,7 +309,7 @@ pub enum Verbosity {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-struct Config {
+struct ConfigFile {
     temperature: Option<Either<u16, TemperatureRange>>,
     brightness: Option<Either<f32, BrightnessRange>>,
     gamma: Option<Either<f32, GammaRange>>,
@@ -365,21 +366,22 @@ struct ColorSettingArgs {
 
 #[derive(Subcommand)]
 enum ModeArgs {
-    Daemon(DaemonOneShotArgs),
-    OneShot(DaemonOneShotArgs),
+    Daemon(CmdArgs),
+    Oneshot(CmdArgs),
     Set {
         #[command(flatten)]
         cs: ColorSettingArgs,
         #[command(flatten)]
-        sa: SetResetArgs,
+        sa: CmdInnerArgs,
     },
-    Reset(SetResetArgs),
+    Reset(CmdInnerArgs),
 }
 
 #[derive(Debug, Clone, Args)]
-struct SetResetArgs {
+struct CmdInnerArgs {
     #[arg(
         long,
+        short,
         value_name = "BOOLEAN",
         hide_possible_values(true),
         display_order(99)
@@ -387,6 +389,7 @@ struct SetResetArgs {
     preserve_gamma: Option<bool>,
     #[arg(
         long,
+        short,
         value_name = "BOOLEAN",
         hide_possible_values(true),
         display_order(99)
@@ -396,15 +399,14 @@ struct SetResetArgs {
     #[arg(
         long,
         short,
-        value_name = "ADJUSTMENT_METHOD[:<SCREEN_NUMBER>]",
-        help(formatcp!("[{ADJUSTMENT_METHOD_KINDS}]")),
+        value_name = "ADJUSTMENT_METHOD[:SCREEN_NUMBER]",
         value_parser = AdjustmentMethod::from_str
     )]
     method: Option<AdjustmentMethod>,
 }
 
 #[derive(Debug, Clone, Args)]
-struct DaemonOneShotArgs {
+struct CmdArgs {
     #[arg(long, short, value_name = "TEMPERATURE_RANGE", value_parser = TemperatureRange::from_str)]
     temperature: Option<TemperatureRange>,
     #[arg(long, short, value_name = "BRIGHTNESS_RANGE", value_parser = BrightnessRange::from_str)]
@@ -413,13 +415,12 @@ struct DaemonOneShotArgs {
     gamma: Option<GammaRange>,
 
     #[command(flatten)]
-    set_reset_args: SetResetArgs,
+    inner: CmdInnerArgs,
 
     #[arg(
         long,
         short,
         value_name = "TIME | ELEVATION",
-        help(formatcp!("[{TRANSITION_SCHEME_KINDS}]")),
         value_parser = TransitionScheme::from_str
     )]
     scheme: Option<TransitionScheme>,
@@ -428,7 +429,6 @@ struct DaemonOneShotArgs {
         long,
         short,
         value_name = "LOCATION_PROVIDER | LOCATION",
-        help(formatcp!("[{LOCATION_PROVIDER_KINDS}]")),
         value_parser = LocationProvider::from_str
     )]
     location: Option<LocationProvider>,
@@ -442,23 +442,23 @@ struct DaemonOneShotArgs {
 // 4. default options
 //
 
-impl Options {
+impl Config {
     pub fn new() -> Result<Self> {
         let args = CliArgs::parse();
-        // let config = Config::new(args.config)?;
-        let mut options = Options::default();
-        // options.merge_with_config(&config);
-        options.merge_with_args(args)?;
-        Ok(options)
+        let config_file = ConfigFile::new(args.config.as_deref())?;
+        let mut config = Config::default();
+        config.merge_with_config_file(config_file);
+        config.merge_with_cli_args(args)?;
+        Ok(config)
     }
 
-    fn merge_with_args(&mut self, args: CliArgs) -> Result<()> {
+    fn merge_with_cli_args(&mut self, cli_args: CliArgs) -> Result<()> {
         let CliArgs {
             config: _,
             verbosity: VerbosityArgs { quite, verbose },
             dry_run,
             mode,
-        } = args;
+        } = cli_args;
 
         let verbosity = match (quite, verbose) {
             (true, false) => Verbosity::Quite,
@@ -471,20 +471,20 @@ impl Options {
         self.dry_run = dry_run;
         match mode {
             Some(ModeArgs::Daemon(c)) => {
-                self.merge_with_daemon_oneshot_args(c);
+                self.merge_with_cmd_args(c);
                 self.mode = Mode::Daemon;
             }
-            Some(ModeArgs::OneShot(c)) => {
-                self.merge_with_daemon_oneshot_args(c);
+            Some(ModeArgs::Oneshot(c)) => {
+                self.merge_with_cmd_args(c);
                 self.mode = Mode::Oneshot;
             }
             Some(ModeArgs::Set { cs, sa: ca }) => {
-                self.merge_with_set_reset_args(ca);
+                self.merge_with_inner_cmd_args(ca);
                 self.day = cs.into();
                 self.mode = Mode::Set;
             }
             Some(ModeArgs::Reset(ca)) => {
-                self.merge_with_set_reset_args(ca);
+                self.merge_with_inner_cmd_args(ca);
                 self.mode = Mode::Reset;
             }
             None => {}
@@ -493,12 +493,12 @@ impl Options {
         Ok(())
     }
 
-    fn merge_with_daemon_oneshot_args(&mut self, args: DaemonOneShotArgs) {
-        let DaemonOneShotArgs {
+    fn merge_with_cmd_args(&mut self, args: CmdArgs) {
+        let CmdArgs {
             temperature,
             brightness,
             gamma,
-            set_reset_args,
+            inner: set_reset_args,
             scheme,
             location,
         } = args;
@@ -522,11 +522,11 @@ impl Options {
         if let Some(t) = location {
             self.location = t;
         }
-        self.merge_with_set_reset_args(set_reset_args);
+        self.merge_with_inner_cmd_args(set_reset_args);
     }
 
-    fn merge_with_set_reset_args(&mut self, args: SetResetArgs) {
-        let SetResetArgs {
+    fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
+        let CmdInnerArgs {
             preserve_gamma,
             fade,
             method,
@@ -543,9 +543,9 @@ impl Options {
         }
     }
 
-    fn merge_with_config(&mut self, config: Config) {
+    fn merge_with_config_file(&mut self, config: ConfigFile) {
         // TODO: move conversions to ConfigFile filds definition with serde derives
-        let Config {
+        let ConfigFile {
             temperature,
             brightness,
             gamma,
@@ -588,15 +588,14 @@ impl Options {
     }
 }
 
-impl Config {
-    fn new(config_path: Option<PathBuf>) -> Result<Self> {
+impl ConfigFile {
+    fn new(config_path: Option<&Path>) -> Result<Self> {
         #[cfg(unix)]
-        let system_config =
-            PathBuf::from(formatcp!("/etc/{PKG_NAME}/config.toml"));
+        let system_config = Path::new(formatcp!("/etc/{PKG_NAME}/config.toml"));
+        let user_config =
+            dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"));
         let user_config = config_path
-            .or_else(|| {
-                dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"))
-            })
+            .or_else(|| user_config.as_deref())
             .ok_or(anyhow!("user_config"))?;
 
         let mut buf = String::new();
@@ -648,9 +647,9 @@ impl Config {
     }
 }
 
-impl Default for Options {
+impl Default for Config {
     fn default() -> Self {
-        Options {
+        Config {
             preserve_gamma: true,
             fade: true,
             mode: Default::default(),
@@ -675,23 +674,6 @@ fn gamma(n: f32) -> Result<f32> {
     } else {
         // b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
         Err(anyhow!("gamma"))
-    }
-}
-
-fn time_range(time: TimeRange) -> Result<TimeRange> {
-    if time.dawn.end < time.dusk.start {
-        Ok(time)
-    } else {
-        Err(anyhow!("time_range"))
-    }
-}
-
-fn elevation_range(elev: ElevationRange) -> Result<ElevationRange> {
-    if elev.high >= elev.low {
-        Ok(elev)
-    } else {
-        // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
-        Err(anyhow!("elevation"))
     }
 }
 
@@ -989,20 +971,22 @@ impl FromStr for TimeRange {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
-            [dawn, dusk] => {
-                let dawn: OffsetRange = dawn.parse()?;
-                let dusk: OffsetRange = dusk.parse()?;
-                time_range(Self { dawn, dusk })
-            }
-            [dawn_start, dawn_end, dusk_start, dusk_end] => {
-                let dawn: OffsetRange =
-                    [dawn_start, dawn_end].concat().parse()?;
-                let dusk: OffsetRange =
-                    [dusk_start, dusk_end].concat().parse()?;
-                time_range(Self { dawn, dusk })
-            }
-            _ => Err(anyhow!("time_range")),
+        let time = match *s.split("-").collect::<Vec<_>>().as_slice() {
+            [dawn, dusk] => Self {
+                dawn: dawn.parse()?,
+                dusk: dusk.parse()?,
+            },
+            [dawn_start, dawn_end, dusk_start, dusk_end] => Self {
+                dawn: (dawn_start.parse()?, dawn_end.parse()?).try_into()?,
+                dusk: (dusk_start.parse()?, dusk_end.parse()?).try_into()?,
+            },
+            _ => Err(anyhow!("time_range"))?,
+        };
+
+        if time.dawn.end < time.dusk.start {
+            Ok(time)
+        } else {
+            Err(anyhow!("time_range"))
         }
     }
 }
@@ -1013,9 +997,14 @@ impl FromStr for ElevationRange {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(":").collect::<Vec<_>>().as_slice() {
             [high, low] => {
-                let high: Elevation = high.parse()?;
-                let low: Elevation = low.parse()?;
-                elevation_range(Self { high, low })
+                let high = high.parse()?;
+                let low = low.parse()?;
+                if high >= low {
+                    Ok(Self { high, low })
+                } else {
+                    // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
+                    Err(anyhow!("elevation"))
+                }
             }
             _ => Err(anyhow!("elevation")),
         }
@@ -1027,14 +1016,8 @@ impl FromStr for TransitionScheme {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Err(())
-            .or_else(|_| {
-                Ok::<_, Self::Err>(Self::Time(TimeRange::from_str(s)?))
-            })
-            .or_else(|_| {
-                Ok::<_, Self::Err>(Self::Elevation(ElevationRange::from_str(
-                    s,
-                )?))
-            })
+            .or_else(|_| Ok::<_, Self::Err>(Self::Time(s.parse()?)))
+            .or_else(|_| Ok::<_, Self::Err>(Self::Elevation(s.parse()?)))
             .map_err(|_| anyhow!("asdf"))
     }
 }
@@ -1324,17 +1307,18 @@ impl Default for AdjustmentMethod {
 
 #[cfg(test)]
 mod test {
+    use std::cell::OnceCell;
+
     use super::*;
+
+    static CONFIG: OnceCell<ConfigFile> = OnceCell::new();
 
     #[test]
     fn test_config_template() -> Result<()> {
         const CONFIG_TEMPLATE: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        let cfg = toml::from_str::<Config>(CONFIG_TEMPLATE)?;
-
-        dbg!(cfg.location);
-        panic!()
-        // Ok(())
+        toml::from_str::<ConfigFile>(CONFIG_TEMPLATE)?;
+        Ok(())
     }
 
     // TODO: assert_eq default config with config.toml

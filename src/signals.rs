@@ -30,11 +30,17 @@ pub static mut exiting: SigAtomic = 0 as c_int;
 pub static mut disable: SigAtomic = 0 as c_int;
 // Signal handler for exit signals
 unsafe extern "C" fn sigexit(signo: c_int) {
-    ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut SigAtomic, 1 as c_int);
+    ::core::ptr::write_volatile(
+        addr_of_mut!(exiting) as *mut SigAtomic,
+        1 as c_int,
+    );
 }
 // Signal handler for disable signal
 unsafe extern "C" fn sigdisable(signo: c_int) {
-    ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut SigAtomic, 1 as c_int);
+    ::core::ptr::write_volatile(
+        addr_of_mut!(disable) as *mut SigAtomic,
+        1 as c_int,
+    );
 }
 // #else /* ! HAVE_SIGNAL_H || __WIN32__ */
 // int disable = 0;

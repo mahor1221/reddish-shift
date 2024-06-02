@@ -55,14 +55,22 @@ pub const SOLAR_TIME_NOON: C2RustUnnamed = 0;
 static mut time_angle: [c_double; 10] = [
     0.0f64 * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
     0.,
-    (-90.0f64 + -18.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (-90.0f64 + -12.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (-90.0f64 + -6.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (-90.0f64 + (0.0f64 - 0.833f64)) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (90.0f64 - (0.0f64 - 0.833f64)) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (90.0f64 - -6.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (90.0f64 - -12.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
-    (90.0f64 - -18.0f64) * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (-90.0f64 + -18.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (-90.0f64 + -12.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (-90.0f64 + -6.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (-90.0f64 + (0.0f64 - 0.833f64))
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (90.0f64 - (0.0f64 - 0.833f64))
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (90.0f64 - -6.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (90.0f64 - -12.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
+    (90.0f64 - -18.0f64)
+        * (3.141_592_653_589_793_f64 / 180 as c_int as c_double),
 ];
 
 // Unix epoch from Julian day
@@ -118,7 +126,8 @@ unsafe extern "C" fn earth_orbit_eccentricity(t: c_double) -> c_double {
 // Return: Center(?) in radians
 unsafe extern "C" fn sun_equation_of_center(t: c_double) -> c_double {
     let m: c_double = sun_geom_mean_anomaly(t);
-    let c: c_double = (m).sin() * (1.914602f64 - t * (0.004817f64 + 0.000014f64 * t))
+    let c: c_double = (m).sin()
+        * (1.914602f64 - t * (0.004817f64 + 0.000014f64 * t))
         + (2 as c_int as c_double * m).sin() * (0.019993f64 - 0.000101f64 * t)
         + (3 as c_int as c_double * m).sin() * 0.000289f64;
     c * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)
@@ -151,7 +160,8 @@ unsafe extern "C" fn sun_apparent_lon(t: c_double) -> c_double {
 // t: Julian centuries since J2000.0
 // Return: Mean obliquity in radians
 unsafe extern "C" fn mean_ecliptic_obliquity(t: c_double) -> c_double {
-    let sec: c_double = 21.448f64 - t * (46.815f64 + t * (0.00059f64 - t * 0.001813f64));
+    let sec: c_double =
+        21.448f64 - t * (46.815f64 + t * (0.00059f64 - t * 0.001813f64));
     (23.0f64 + (26.0f64 + sec / 60.0f64) / 60.0f64)
         * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)
 }
@@ -163,7 +173,9 @@ unsafe extern "C" fn obliquity_corr(t: c_double) -> c_double {
     let e_0: c_double = mean_ecliptic_obliquity(t);
     let omega: c_double = 125.04f64 - t * 1934.136f64;
     (e_0 * (180 as c_int as c_double / 3.141_592_653_589_793_f64)
-        + 0.00256f64 * (omega * (3.141_592_653_589_793_f64 / 180 as c_int as c_double).cos()))
+        + 0.00256f64
+            * (omega
+                * (3.141_592_653_589_793_f64 / 180 as c_int as c_double).cos()))
         * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)
 }
 
@@ -187,10 +199,15 @@ unsafe extern "C" fn equation_of_time(t: c_double) -> c_double {
     let y: c_double = (epsilon / 2.0f64).tan().powf(2.0f64);
     let eq_time: c_double = y * (2 as c_int as c_double * l_0).sin()
         - 2 as c_int as c_double * e * (m).sin()
-        + 4 as c_int as c_double * e * y * (m).sin() * (2 as c_int as c_double * l_0.cos())
+        + 4 as c_int as c_double
+            * e
+            * y
+            * (m).sin()
+            * (2 as c_int as c_double * l_0.cos())
         - 0.5f64 * y * y * (4 as c_int as c_double * l_0).sin()
         - 1.25f64 * e * e * (2 as c_int as c_double * m).sin();
-    4 as c_int as c_double * (eq_time * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
+    4 as c_int as c_double
+        * (eq_time * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
 }
 
 // Hour angle at the location for the given angular elevation.
@@ -204,9 +221,12 @@ unsafe extern "C" fn hour_angle_from_elevation(
     elev: c_double,
 ) -> c_double {
     let omega: c_double = (elev.abs().cos()
-        - (lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)).sin() * (decl).sin())
-        / ((lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double).cos()) * (decl.cos()))
-            .cos();
+        - (lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)).sin()
+            * (decl).sin())
+        / ((lat
+            * (3.141_592_653_589_793_f64 / 180 as c_int as c_double).cos())
+            * (decl.cos()))
+        .cos();
     omega.copysign(-elev)
 }
 
@@ -223,7 +243,8 @@ unsafe extern "C" fn elevation_from_hour_angle(
     ((ha.cos())
         * (lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double).cos())
         * (decl.cos())
-        + (lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)).sin() * (decl).sin())
+        + (lat * (3.141_592_653_589_793_f64 / 180 as c_int as c_double)).sin()
+            * (decl).sin())
     .sin()
 }
 
@@ -231,16 +252,21 @@ unsafe extern "C" fn elevation_from_hour_angle(
 // t: Julian centuries since J2000.0
 // lon: Longitude of location in degrees
 // Return: Time difference from mean solar midnigth in minutes
-unsafe extern "C" fn time_of_solar_noon(t: c_double, lon: c_double) -> c_double {
+unsafe extern "C" fn time_of_solar_noon(
+    t: c_double,
+    lon: c_double,
+) -> c_double {
     // First pass uses approximate solar noon to
     // calculate equation of time.
     let mut t_noon: c_double = jcent_from_jd(jd_from_jcent(t) - lon / 360.0f64);
     let mut eq_time: c_double = equation_of_time(t_noon);
-    let mut sol_noon: c_double = 720 as c_int as c_double - 4 as c_int as c_double * lon - eq_time;
+    let mut sol_noon: c_double =
+        720 as c_int as c_double - 4 as c_int as c_double * lon - eq_time;
     // Recalculate using new solar noon.
     t_noon = jcent_from_jd(jd_from_jcent(t) - 0.5f64 + sol_noon / 1440.0f64);
     eq_time = equation_of_time(t_noon);
-    sol_noon = 720 as c_int as c_double - 4 as c_int as c_double * lon - eq_time;
+    sol_noon =
+        720 as c_int as c_double - 4 as c_int as c_double * lon - eq_time;
     // No need to do more iterations
     sol_noon
 }
@@ -266,16 +292,19 @@ unsafe extern "C" fn time_of_solar_elevation(
     let mut ha: c_double = hour_angle_from_elevation(lat, sol_decl, elev);
     let mut sol_offset: c_double = 720 as c_int as c_double
         - 4 as c_int as c_double
-            * (lon + ha * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
+            * (lon
+                + ha * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
         - eq_time;
     // Recalculate using new sunrise.
-    let t_rise: c_double = jcent_from_jd(jd_from_jcent(t) + sol_offset / 1440.0f64);
+    let t_rise: c_double =
+        jcent_from_jd(jd_from_jcent(t) + sol_offset / 1440.0f64);
     eq_time = equation_of_time(t_rise);
     sol_decl = solar_declination(t_rise);
     ha = hour_angle_from_elevation(lat, sol_decl, elev);
     sol_offset = 720 as c_int as c_double
         - 4 as c_int as c_double
-            * (lon + ha * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
+            * (lon
+                + ha * (180 as c_int as c_double / 3.141_592_653_589_793_f64))
         - eq_time;
     // No need to do more iterations
     sol_offset
@@ -295,7 +324,8 @@ unsafe extern "C" fn solar_elevation_from_time(
     let jd: c_double = jd_from_jcent(t);
     let offset: c_double = (jd - jd.round() - 0.5f64) * 1440.0f64;
     let eq_time: c_double = equation_of_time(t);
-    let ha: c_double = ((720 as c_int as c_double - offset - eq_time) / 4 as c_int as c_double
+    let ha: c_double = ((720 as c_int as c_double - offset - eq_time)
+        / 4 as c_int as c_double
         - lon)
         * (3.141_592_653_589_793_f64 / 180 as c_int as c_double);
     let decl: c_double = solar_declination(t);
@@ -308,7 +338,11 @@ unsafe extern "C" fn solar_elevation_from_time(
 // lon: Longitude of location
 // Return: Solar angular elevation in degrees
 #[no_mangle]
-pub unsafe extern "C" fn solar_elevation(date: c_double, lat: c_double, lon: c_double) -> c_double {
+pub unsafe extern "C" fn solar_elevation(
+    date: c_double,
+    lat: c_double,
+    lon: c_double,
+) -> c_double {
     let jd: c_double = jd_from_epoch(date);
     solar_elevation_from_time(jcent_from_jd(jd), lat, lon)
         * (180 as c_int as c_double / 3.141_592_653_589_793_f64)
@@ -332,13 +366,16 @@ pub unsafe extern "C" fn solar_table_fill(
     let t_noon: c_double = jcent_from_jd(j_noon);
     *table.offset(SOLAR_TIME_NOON as c_int as isize) = epoch_from_jd(j_noon);
     // Calculate solar midnight
-    *table.offset(SOLAR_TIME_MIDNIGHT as c_int as isize) = epoch_from_jd(j_noon + 0.5f64);
+    *table.offset(SOLAR_TIME_MIDNIGHT as c_int as isize) =
+        epoch_from_jd(j_noon + 0.5f64);
     /* Calculate absolute time of other phenomena */
     let mut i: c_int = 2 as c_int;
     while i < SOLAR_TIME_MAX as c_int {
         let angle: c_double = time_angle[i as usize];
-        let offset: c_double = time_of_solar_elevation(t, t_noon, lat, lon, angle);
-        *table.offset(i as isize) = epoch_from_jd(jdn - 0.5f64 + offset / 1440.0f64);
+        let offset: c_double =
+            time_of_solar_elevation(t, t_noon, lat, lon, angle);
+        *table.offset(i as isize) =
+            epoch_from_jd(jdn - 0.5f64 + offset / 1440.0f64);
         i += 1;
         i;
     }

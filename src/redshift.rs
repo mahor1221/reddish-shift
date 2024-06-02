@@ -19,6 +19,7 @@
 */
 
 pub mod colorramp;
+pub mod config;
 pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
@@ -26,24 +27,23 @@ pub mod gamma_vidmode;
 pub mod hooks;
 pub mod location_geoclue2;
 pub mod location_manual;
-pub mod options;
 pub mod pipeutils;
 pub mod signals;
 pub mod solar;
 pub mod systemtime;
 
 use anyhow::Result;
+use config::{
+    Brightness, ColorSetting, Config, Elevation, ElevationRange, Gamma,
+    Location, Mode, Offset, Temperature, TimeRange, TransitionScheme,
+};
 use gamma_dummy::{Dummy, GammaAdjuster};
 use hooks::hooks_signal_period_change;
 use libc::{
-    __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd, printf, setlocale,
-    setvbuf, strcmp,
+    __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd,
+    printf, setlocale, setvbuf, strcmp,
 };
 use location_manual::{LocationProvider, Manual};
-use options::{
-    Brightness, ColorSetting, Elevation, ElevationRange, Gamma, Location, Mode, Options,
-    Temperature, Offset, TimeRange, TransitionScheme,
-};
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
 use std::{
@@ -124,7 +124,10 @@ impl Period {
     }
 
     // Determine which period we are currently in based on solar elevation.
-    fn from_elevation(elevation_range: ElevationRange, elevation: Elevation) -> Self {
+    fn from_elevation(
+        elevation_range: ElevationRange,
+        elevation: Elevation,
+    ) -> Self {
         let ElevationRange { high, low } = elevation_range;
         if elevation < low {
             Self::Night
@@ -154,7 +157,10 @@ impl TransitionProgress {
     }
 
     // Determine how far through the transition we are based on elevation.
-    fn from_elevation(elevation_range: ElevationRange, elevation: Elevation) -> Self {
+    fn from_elevation(
+        elevation_range: ElevationRange,
+        elevation: Elevation,
+    ) -> Self {
         let ElevationRange { high, low } = elevation_range;
         let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref()) as f32;
 
@@ -250,10 +256,11 @@ fn interpolate_color_settings(
     let alpha: Alpha = alpha.into();
     let alpha = alpha.as_ref();
 
-    let temperature: Temperature = (((1.0 - alpha) * *lhs.temperature.as_ref() as f32
-        + alpha * *rhs.temperature.as_ref() as f32) as u16)
-        .try_into()
-        .unwrap_or_else(|_| unreachable!());
+    let temperature: Temperature =
+        (((1.0 - alpha) * *lhs.temperature.as_ref() as f32
+            + alpha * *rhs.temperature.as_ref() as f32) as u16)
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
 
     let brightness: Brightness = ((1.0 - alpha) * *lhs.brightness.as_ref()
         + alpha * *rhs.brightness.as_ref())
@@ -261,7 +268,10 @@ fn interpolate_color_settings(
     .unwrap_or_else(|_| unreachable!());
 
     let gamma: Gamma = (0..3)
-        .map(|i| (1.0 - alpha) * lhs.gamma.as_ref()[i] + alpha * rhs.gamma.as_ref()[i])
+        .map(|i| {
+            (1.0 - alpha) * lhs.gamma.as_ref()[i]
+                + alpha * rhs.gamma.as_ref()[i]
+        })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|_| unreachable!());
@@ -278,8 +288,11 @@ fn interpolate_color_settings(
 
 impl ColorSetting {
     fn is_very_diff_from(&self, other: &Self) -> bool {
-        (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16).abs() > 25
-            || (self.brightness.as_ref() - other.brightness.as_ref()).abs() > 0.1
+        (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16)
+            .abs()
+            > 25
+            || (self.brightness.as_ref() - other.brightness.as_ref()).abs()
+                > 0.1
             || (self.gamma.as_ref()[0] - other.gamma.as_ref()[0]).abs() > 0.1
             || (self.gamma.as_ref()[1] - other.gamma.as_ref()[1]).abs() > 0.1
             || (self.gamma.as_ref()[2] - other.gamma.as_ref()[2]).abs() > 0.1
@@ -294,7 +307,8 @@ fn ease_fade(t: f32) -> f32 {
     } else if t >= 1.0 {
         1.0
     } else {
-        1.0042954579734844 * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+        1.0042954579734844
+            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
     }
 }
 
@@ -603,7 +617,7 @@ unsafe fn main_0() -> Result<()> {
     // try all providers until one that works is found.
     // let mut location_state: *mut location_state_t = std::ptr::null_mut::<location_state_t>();
 
-    let options = Options::new()?;
+    let options = Config::new()?;
 
     let need_location = match (&options.mode, &options.scheme) {
         (Mode::Daemon | Mode::Oneshot, TransitionScheme::Elevation(_)) => true,
@@ -727,8 +741,11 @@ unsafe fn main_0() -> Result<()> {
                 };
 
             // Use transition progress to set color temperature
-            let interp: ColorSetting =
-                interpolate_color_settings(&options.night, &options.day, transition_prog);
+            let interp: ColorSetting = interpolate_color_settings(
+                &options.night,
+                &options.day,
+                transition_prog,
+            );
 
             // if options.verbosity {
             //     // print_period(period, transition_prog);

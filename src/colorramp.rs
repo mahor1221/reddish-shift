@@ -321,7 +321,9 @@ pub fn colorramp_fill_float(
 ) {
     let white_point = approximate_white_point(setting);
     let f = |y: f32, c: usize| -> f32 {
-        let r = y as f64 * *setting.brightness.as_ref() as f64 * white_point[c] as f64;
+        let r = y as f64
+            * *setting.brightness.as_ref() as f64
+            * white_point[c] as f64;
         let r = r.powf(1.0 / setting.gamma.as_ref()[c] as f64);
         r as f32
     };
