@@ -18,7 +18,7 @@
 
 // TODO: use snafu for error handling
 
-use crate::solar::SOLAR_CIVIL_TWILIGHT_ELEV;
+use crate::{solar::SOLAR_CIVIL_TWILIGHT_ELEV, IsDefault};
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
@@ -386,14 +386,6 @@ struct CmdInnerArgs {
         display_order(99)
     )]
     preserve_gamma: Option<bool>,
-    #[arg(
-        long,
-        short,
-        value_name = "BOOLEAN",
-        hide_possible_values(true),
-        display_order(99)
-    )]
-    fade: Option<bool>,
 
     #[arg(
         long,
@@ -412,6 +404,15 @@ struct CmdArgs {
     brightness: Option<BrightnessRange>,
     #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = GammaRange::from_str)]
     gamma: Option<GammaRange>,
+
+    #[arg(
+        long,
+        short,
+        value_name = "BOOLEAN",
+        hide_possible_values(true),
+        display_order(99)
+    )]
+    fade: Option<bool>,
 
     #[command(flatten)]
     inner: CmdInnerArgs,
@@ -443,20 +444,27 @@ struct CmdArgs {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        let args = CliArgs::parse();
-        let cfg = ConfigFile::new(args.config.as_deref())?;
+        let cli_args = CliArgs::parse();
+        let config_file = ConfigFile::new(cli_args.config.as_deref())?;
 
-        let mut config = Config::default();
-        config.merge_with_config_file(cfg);
-        config.merge_with_cli_args(args);
+        let mut cfg = Config::default();
+        cfg.merge_with_config_file(config_file);
+        cfg.merge_with_cli_args(cli_args);
 
         use TransitionScheme::*;
-        config.need_location = match (&config.mode, &config.scheme) {
+        cfg.need_location = match (&cfg.mode, &cfg.scheme) {
             (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
             (Mode::Set | Mode::Reset, _) | (_, Time(_)) => false,
         };
 
-        Ok(config)
+        match (cfg.need_location, &cfg.location) {
+            (true, LocationProvider::Manual(loc)) if loc.is_default() => {
+                eprintln!("using default location");
+            }
+            _ => {}
+        }
+
+        Ok(cfg)
     }
 
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
@@ -503,6 +511,7 @@ impl Config {
             temperature,
             brightness,
             gamma,
+            fade,
             inner: set_reset_args,
             scheme,
             location,
@@ -521,6 +530,9 @@ impl Config {
             self.night.gamma = t.night;
         }
 
+        if let Some(t) = fade {
+            self.fade = t;
+        }
         if let Some(t) = scheme {
             self.scheme = t;
         }
@@ -533,15 +545,11 @@ impl Config {
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
         let CmdInnerArgs {
             preserve_gamma,
-            fade,
             method,
         } = args;
 
         if let Some(t) = preserve_gamma {
             self.preserve_gamma = t;
-        }
-        if let Some(t) = fade {
-            self.fade = t;
         }
         if let Some(t) = method {
             self.method = t;
@@ -597,22 +605,33 @@ impl ConfigFile {
     fn new(config_path: Option<&Path>) -> Result<Self> {
         #[cfg(unix)]
         let system_config = Path::new(formatcp!("/etc/{PKG_NAME}/config.toml"));
-        let user_config =
+        let local_config =
             dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"));
         let user_config = config_path
-            .or_else(|| user_config.as_deref())
+            .and_then(|p| match p.is_file() {
+                true => Some(Ok(p)),
+                false => Some(Err(anyhow!("e"))),
+            })
+            .transpose()?
+            .or_else(|| local_config.as_deref())
             .ok_or(anyhow!("user_config"))?;
 
+        let mut config = Self::default();
         let mut buf = String::new();
-        let mut read = |path| -> Result<Self> {
-            File::open(path)?.read_to_string(&mut buf)?;
-            Ok(toml::from_str(&buf)?)
+        let mut read = |path: &Path| -> Result<()> {
+            if path.is_file() {
+                File::open(path)?.read_to_string(&mut buf)?;
+                let cfg = toml::from_str(&buf)?;
+                config.merge(cfg);
+                Ok(())
+            } else {
+                Ok(())
+            }
         };
 
-        let mut config = Self::default();
         #[cfg(unix)]
-        config.merge(read(system_config)?);
-        config.merge(read(user_config)?);
+        read(system_config)?;
+        read(user_config)?;
         Ok(config)
     }
 
@@ -1210,13 +1229,24 @@ impl Default for Gamma {
     }
 }
 
-impl Default for ColorSetting {
+impl Default for ElevationRange {
     fn default() -> Self {
         Self {
-            temperature: Temperature::default(),
-            gamma: Gamma::default(),
-            brightness: Brightness::default(),
+            high: Elevation(DEFAULT_ELEVATION_HIGH),
+            low: Elevation(DEFAULT_ELEVATION_LOW),
         }
+    }
+}
+
+impl Default for Latitude {
+    fn default() -> Self {
+        Self(DEFAULT_LATITUDE)
+    }
+}
+
+impl Default for Longitude {
+    fn default() -> Self {
+        Self(DEFAULT_LONGITUDE)
     }
 }
 
@@ -1236,11 +1266,12 @@ impl ColorSetting {
     }
 }
 
-impl Default for ElevationRange {
+impl Default for ColorSetting {
     fn default() -> Self {
         Self {
-            high: Elevation(DEFAULT_ELEVATION_HIGH),
-            low: Elevation(DEFAULT_ELEVATION_LOW),
+            temperature: Temperature::default(),
+            gamma: Gamma::default(),
+            brightness: Brightness::default(),
         }
     }
 }
@@ -1250,19 +1281,6 @@ impl Default for TransitionScheme {
         Self::Elevation(Default::default())
     }
 }
-
-impl Default for Latitude {
-    fn default() -> Self {
-        Self(DEFAULT_LATITUDE)
-    }
-}
-
-impl Default for Longitude {
-    fn default() -> Self {
-        Self(DEFAULT_LONGITUDE)
-    }
-}
-
 impl Default for LocationProvider {
     fn default() -> Self {
         Self::Manual(Default::default())

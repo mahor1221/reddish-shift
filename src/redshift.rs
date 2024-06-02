@@ -807,6 +807,16 @@ unsafe fn main_0() -> Result<()> {
     Ok(())
 }
 
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        *self == T::default()
+    }
+}
+
 fn main() {
     unsafe { main_0().unwrap() }
 }
