@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Adjuster};
 use libc::{
     atoi, fputs, free, malloc, memcpy, perror, size_t, strcasecmp, FILE,
 };
@@ -33,7 +33,7 @@ use x11_dl::{
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Vidmode;
-impl Method for Vidmode {}
+impl Adjuster for Vidmode {}
 
 #[derive(Copy, Clone)]
 #[repr(C)]

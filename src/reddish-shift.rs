@@ -35,8 +35,8 @@ pub mod systemtime;
 use anyhow::{anyhow, Result};
 use config::{
     AdjustmentMethod, Brightness, ColorSettings, Config, Elevation,
-    ElevationRange, Gamma, Location, Mode, Offset, Temperature, TimeRange,
-    TransitionScheme,
+    ElevationRange, Gamma, Location, LocationProvider, Mode, Offset,
+    Temperature, TimeRanges, TransitionScheme,
 };
 
 use gamma_dummy::Dummy;
@@ -45,7 +45,7 @@ use libc::{
     __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd,
     printf, setlocale, setvbuf, strcmp,
 };
-use location_manual::{LocationProvider, Manual};
+use location_manual::Manual;
 use signals::{disable, exiting, signals_install_handlers};
 use solar::solar_elevation;
 use std::{
@@ -113,19 +113,19 @@ impl From<TransitionProgress> for Alpha {
 }
 
 impl Period {
-    // Determine which period we are currently in based on time offset.
-    fn from_time(time_range: &TimeRange, time: Offset) -> Self {
-        let TimeRange { dawn, dusk } = time_range;
-        if time < dawn.start || time >= dusk.end {
+    /// Determine which period we are currently in based on time offset
+    fn from_time(time_ranges: &TimeRanges, offset: Offset) -> Self {
+        let TimeRanges { dawn, dusk } = time_ranges;
+        if offset < dawn.start || offset >= dusk.end {
             Self::Night
-        } else if time >= dawn.end && time < dusk.start {
+        } else if offset >= dawn.end && offset < dusk.start {
             Self::Daytime
         } else {
             Self::Transition
         }
     }
 
-    // Determine which period we are currently in based on solar elevation.
+    /// Determine which period we are currently in based on solar elevation
     fn from_elevation(
         elevation_range: ElevationRange,
         elevation: Elevation,
@@ -142,23 +142,23 @@ impl Period {
 }
 
 impl TransitionProgress {
-    // Determine how far through the transition we are based on time offset.
-    fn from_time(time_ranges: &TimeRange, time: Offset) -> Self {
-        let TimeRange { dawn, dusk } = time_ranges;
+    /// Determine how far through the transition we are based on time offset
+    fn from_time(time_range: &TimeRanges, offset: Offset) -> Self {
+        let TimeRanges { dawn, dusk } = time_range;
         let sub = |a: Offset, b: Offset| (a.as_ref() - b.as_ref()) as f64;
 
-        if time < dawn.start || time >= dusk.end {
+        if offset < dawn.start || offset >= dusk.end {
             Self(0.0)
-        } else if time < dawn.end {
-            Self(sub(dawn.start, time) / sub(dawn.start, dawn.end))
-        } else if time > dusk.start {
-            Self(sub(dusk.end, time) / sub(dusk.end, dusk.start))
+        } else if offset < dawn.end {
+            Self(sub(dawn.start, offset) / sub(dawn.start, dawn.end))
+        } else if offset > dusk.start {
+            Self(sub(dusk.end, offset) / sub(dusk.end, dusk.start))
         } else {
             Self(1.0)
         }
     }
 
-    // Determine how far through the transition we are based on elevation.
+    /// Determine how far through the transition we are based on elevation
     fn from_elevation(
         elevation_range: ElevationRange,
         elevation: Elevation,
@@ -608,26 +608,58 @@ impl<T: Default + PartialEq> IsDefault for T {
     }
 }
 
-// TODO: remove default impls
-pub trait Method {
-    fn start() {}
-    fn restore() {}
-    fn free() {}
-    fn print_help() {}
-    fn set_color(
-        &self,
-        _cs: &ColorSettings,
-        _preserve_gamma: bool,
-    ) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed."))
+pub trait Provider {
+    // Allocate storage and make connections that depend on options
+    fn start() {
+        todo!()
+    }
+
+    // Listen and handle location updates.
+    // pub get_fd(&self) -> c_int;
+    fn fd() -> Result<()> {
+        todo!()
+    }
+    fn get_location(&self) -> Result<(Location, bool)> {
+        Err(anyhow!("Unable to get location from provider"))
     }
 }
 
-impl Method for AdjustmentMethod {
+pub trait Adjuster {
+    // If true, this method will be tried if none is explicitly chosen
+    // int autostart;
+
+    // Allocate storage and make connections that depend on options
+    fn start() {
+        todo!()
+    }
+
+    // Restore the adjustment to the state before start was called
+    fn restore() {
+        todo!()
+    }
+
+    // Set a specific color temperature
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        Err(anyhow!("Temperature adjustment failed"))
+    }
+}
+
+impl Provider for LocationProvider {
+    fn get_location(&self) -> Result<(Location, bool)> {
+        match self {
+            LocationProvider::Manual(t) => t.get_location(),
+            LocationProvider::Geoclue2(t) => t.get_location(),
+        }
+    }
+}
+
+impl Adjuster for AdjustmentMethod {
     fn start() {}
     fn restore() {}
-    fn free() {}
-    fn print_help() {}
     fn set_color(
         &self,
         cs: &ColorSettings,
@@ -651,7 +683,7 @@ impl Method for AdjustmentMethod {
     }
 }
 
-impl Method for Option<AdjustmentMethod> {
+impl Adjuster for Option<AdjustmentMethod> {
     fn set_color(
         &self,
         cs: &ColorSettings,

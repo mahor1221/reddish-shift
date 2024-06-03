@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Adjuster};
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror,
     strcasecmp, strtol, FILE,
@@ -45,7 +45,7 @@ impl Randr {
     }
 }
 
-impl Method for Randr {}
+impl Adjuster for Randr {}
 
 // #[derive(Copy, Clone)]
 #[repr(C)]

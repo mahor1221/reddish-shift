@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSettings, Method};
+use crate::{colorramp::colorramp_fill, config::ColorSettings, Adjuster};
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc,
     drmModeFreeResources, drmModeGetCrtc, drmModeGetResources, drmModeRes,
@@ -32,7 +32,7 @@ use std::ffi::{c_char, c_double, c_int, c_long, c_void, CStr};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Drm;
-impl Method for Drm {}
+impl Adjuster for Drm {}
 
 #[derive(Copy, Clone)]
 #[repr(C)]

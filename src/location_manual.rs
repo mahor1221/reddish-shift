@@ -18,63 +18,26 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// TODO: map country names to geo location
+use crate::{config::Location, Provider};
+use anyhow::Result;
 
-// #[repr(C)]
-// pub struct location_provider_t {
-//     pub name: *mut c_char,
-
-//     // Initialize state. Options can be set between init and start.
-//     pub init: Option<location_provider_init_func>,
-//     // Allocate storage and make connections that depend on options.
-//     pub start: Option<location_provider_start_func>,
-//     // Free all allocated storage and close connections.
-//     pub free: Option<location_provider_free_func>,
-
-//     // Print help on options for this location provider.
-//     pub print_help: Option<location_provider_print_help_func>,
-//     // Set an option key, value-pair.
-//     pub set_option: Option<location_provider_set_option_func>,
-
-//     // Listen and handle location updates.
-//     pub get_fd: Option<location_provider_get_fd_func>,
-//     pub handle: Option<location_provider_handle_func>,
-
-use crate::config::Location;
-use anyhow::{anyhow, Result};
-
-pub trait LocationProvider {
-    fn start();
-    fn help() -> &'static str;
-    fn fd() -> Result<()>;
-    fn handle(&self) -> Result<(&Location, bool)>;
-}
-
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Manual {
-    pub location: Location,
+    location: Location,
 }
 
-impl LocationProvider for Manual {
-    fn start() {}
-
-    fn help() -> &'static str {
-        // TRANSLATORS: Manual location help output
-        // left column must not be translated
-        "Specify location manually.
-
-  lat=N\t\tLatitude
-  lon=N\t\tLongitude
-  
-  Both values are expected to be floating point numbers,
-  negative values representing west / south, respectively."
+impl Manual {
+    pub fn new(location: Location) -> Self {
+        Self { location }
     }
+}
 
-    fn fd() -> Result<()> {
-        Err(anyhow!("-1"))
-    }
-
-    fn handle(&self) -> Result<(&Location, bool)> {
+impl Provider for Manual {
+    fn get_location(&self) -> Result<(Location, bool)> {
         let available = true;
-        Ok((&self.location, available))
+        Ok((self.location, available))
     }
+    // fn fd() -> Result<()> {
+    //     Err(anyhow!("-1"))
+    // }
 }

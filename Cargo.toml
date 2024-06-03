@@ -7,8 +7,8 @@ license = "GPL-3.0-or-later"
 build = "build.rs"
 
 [[bin]]
-path = "src/redshift.rs"
-name = "redshift"
+path = "src/reddish-shift.rs"
+name = "reddish-shift"
 
 [dependencies]
 libc = "0.2"

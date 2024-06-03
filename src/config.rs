@@ -20,7 +20,8 @@
 
 use crate::{
     gamma_drm::Drm, gamma_dummy::Dummy, gamma_randr::Randr,
-    gamma_vidmode::Vidmode, solar::SOLAR_CIVIL_TWILIGHT_ELEV,
+    gamma_vidmode::Vidmode, location_geoclue2::Geoclue2,
+    location_manual::Manual, solar::SOLAR_CIVIL_TWILIGHT_ELEV,
 };
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -174,6 +175,20 @@ Try `-l PROVIDER:help' for help.
     );
 }
 
+fn print_manual_help() {
+    // TRANSLATORS: Manual location help output
+    // left column must not be translated
+    println!(
+        "Specify location manually.
+
+  lat=N\t\tLatitude
+  lon=N\t\tLongitude
+
+  Both values are expected to be floating point numbers,
+  negative values representing west / south, respectively."
+    );
+}
+
 //
 // Parsed types
 //
@@ -237,15 +252,15 @@ pub struct Time {
 pub struct Offset(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OffsetRange {
+pub struct TimeRange {
     pub start: Offset,
     pub end: Offset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TimeRange {
-    pub dawn: OffsetRange,
-    pub dusk: OffsetRange,
+pub struct TimeRanges {
+    pub dawn: TimeRange,
+    pub dusk: TimeRange,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -270,14 +285,14 @@ pub struct Location {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransitionScheme {
-    Time(TimeRange),
+    Time(TimeRanges),
     Elevation(ElevationRange),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocationProvider {
-    Manual(Location),
-    Geoclue2,
+    Manual(Manual),
+    Geoclue2(Geoclue2),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,8 +468,17 @@ impl Config {
         cfg.merge_with_config_file(config_file);
         cfg.merge_with_cli_args(cli_args);
 
-        if let None = cfg.method {
-            todo!()
+        // try all methods until one that works is found.
+        // Gamma adjustment not needed for print mode
+        //     // Try all methods, use the first that works.
+        //     // b"Trying next method...\n\0" as *const u8 as *const c_char,
+        //     // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
+        //     // Failure if no methods were successful at this point.
+        //     // b"No more methods to try.\n\0" as *const u8 as *const c_char,
+        match (&cfg.method, cfg.dry_run) {
+            (None, true) => todo!(),
+            (None, false) => todo!(),
+            (Some(_), _) => {}
         }
 
         Ok(cfg)
@@ -793,7 +817,7 @@ impl From<Time> for Offset {
     }
 }
 
-impl TryFrom<(Offset, Offset)> for OffsetRange {
+impl TryFrom<(Offset, Offset)> for TimeRange {
     type Error = anyhow::Error;
 
     fn try_from((start, end): (Offset, Offset)) -> Result<Self, Self::Error> {
@@ -950,7 +974,7 @@ impl FromStr for Elevation {
     }
 }
 
-impl FromStr for OffsetRange {
+impl FromStr for TimeRange {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -967,7 +991,7 @@ impl FromStr for OffsetRange {
     }
 }
 
-impl FromStr for TimeRange {
+impl FromStr for TimeRanges {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -980,13 +1004,13 @@ impl FromStr for TimeRange {
                 dawn: (dawn_start.parse()?, dawn_end.parse()?).try_into()?,
                 dusk: (dusk_start.parse()?, dusk_end.parse()?).try_into()?,
             },
-            _ => Err(anyhow!("time_range"))?,
+            _ => Err(anyhow!("time_ranges"))?,
         };
 
         if time.dawn.end < time.dusk.start {
             Ok(time)
         } else {
-            Err(anyhow!("time_range"))
+            Err(anyhow!("time_ranges"))
         }
     }
 }
@@ -1028,8 +1052,8 @@ impl FromStr for LocationProvider {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // TODO: map cities or countries to locations
         match s {
-            "geoclue2" => Ok(Self::Geoclue2),
-            _ => s.parse().map(Self::Manual),
+            "geoclue2" => Ok(Self::Geoclue2(Default::default())),
+            _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
         }
         .map_err(|_| anyhow!("asdf"))
     }
