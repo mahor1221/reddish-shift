@@ -130,9 +130,8 @@ impl Period {
         if elev < low {
             Self::Night
         } else if elev < high {
-            Self::Transition {
-                progress: sub(low, elev) / sub(low, high),
-            }
+            let progress = sub(low, elev) / sub(low, high);
+            Self::Transition { progress }
         } else {
             Self::Daytime
         }
@@ -153,20 +152,13 @@ impl Display for Period {
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let Self {
-            latitude: lat,
-            longitude: lon,
-        } = self;
-
+        let lat = self.latitude;
+        let lon = self.longitude;
         let ns = if *lat.as_ref() >= 0.0 { "N" } else { "S" };
         let ew = if *lon.as_ref() >= 0.0 { "E" } else { "W" };
         let lat = lat.as_ref().abs();
         let lon = lon.as_ref().abs();
-
-        // TRANSLATORS: Append degree symbols after %f if possible
-        // The string following each number is an abbreviation for
-        // north, source, east or west (N, S, E, W)
-        write!(f, "Location: {lat:.2} {ns}, {lon:.2} {ew}")
+        write!(f, "Location: {lat:.2}° {ns}, {lon:.2}° {ew}")
     }
 }
 
@@ -222,8 +214,8 @@ impl ColorSettings {
     }
 }
 
-// Easing function for fade
-// See https://github.com/mietek/ease-tween
+/// Easing function for fade
+/// See https://github.com/mietek/ease-tween
 fn ease_fade(t: f64) -> f64 {
     if t <= 0.0 {
         0.0
@@ -247,15 +239,11 @@ impl<T: Default + PartialEq> IsDefault for T {
 
 pub trait Provider {
     // Allocate storage and make connections that depend on options
-    fn start() {
-        todo!()
-    }
+    // fn start() -> c_int;
 
     // Listen and handle location updates
-    // pub get_fd(&self) -> c_int;
-    fn fd() -> Result<()> {
-        todo!()
-    }
+    // fn fd() -> c_int;
+
     fn get(&self) -> Result<(Location, bool)> {
         Err(anyhow!("Unable to get location from provider"))
     }
@@ -266,14 +254,10 @@ pub trait Adjuster {
     // int autostart;
 
     // Allocate storage and make connections that depend on options
-    fn start() {
-        todo!()
-    }
+    // fn start();
 
     // Restore the adjustment to the state before start was called
-    fn restore() {
-        todo!()
-    }
+    // fn restore();
 
     // Set a specific color temperature
     #[allow(unused_variables)]
@@ -296,8 +280,6 @@ impl Provider for LocationProvider {
 }
 
 impl Adjuster for AdjustmentMethod {
-    fn start() {}
-    fn restore() {}
     fn set_color(
         &self,
         cs: &ColorSettings,
@@ -350,8 +332,6 @@ fn main() -> Result<()> {
     // setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
     // setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
 
-    let cfg = Config::new()?;
-
     // use TransitionScheme::*;
     // cfg.need_location = match (&cfg.mode, &cfg.scheme) {
     //     (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
@@ -382,11 +362,11 @@ fn main() -> Result<()> {
     // }
     // }
 
-    if let Mode::Daemon | Mode::Oneshot = cfg.mode {
-        // if options.verbosity {
-        //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
-        // }
-    }
+    // if let Mode::Daemon | Mode::Oneshot = cfg.mode {
+    // if options.verbosity {
+    //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
+    // }
+    // }
 
     // if options.verbosity {
     //     // b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
@@ -415,19 +395,7 @@ fn main() -> Result<()> {
     //     // );
     // }
 
-    // try all methods until one that works is found
-    // Gamma adjustment not needed for print mode
-    if !cfg.dry_run {
-        // if !(options.method).is_null() {
-        //     // Use method specified on command line
-        // } else {
-        //     // Try all methods, use the first that works
-        //     // b"Trying next method...\n\0" as *const u8 as *const c_char,
-        //     // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
-        //     // Failure if no methods were successful at this point
-        //     // b"No more methods to try.\n\0" as *const u8 as *const c_char,
-        // }
-    }
+    let cfg = Config::new()?;
 
     match cfg.mode {
         Mode::Daemon => {
@@ -479,44 +447,23 @@ fn main() -> Result<()> {
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());
 
-            println!("{period:?}");
-            println!("{:?}", cfg.scheme);
-
             // if options.verbosity {
             //     // print_period(period, transition_prog);
-            //     // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-            //     // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+            //     // b"Color settings: %uK\n\0"
             // }
-
-            if !cfg.dry_run {
-                cfg.method.set_color(&interp, cfg.preserve_gamma)?;
-            }
+            cfg.method.set_color(&interp, cfg.preserve_gamma)?;
         }
 
         Mode::Set => {
             // if cfg.verbosity {
-            //     // "Color temperature: %uK\n"
+            //     // b"Color settings: %uK\n\0"
             // }
             cfg.method.set_color(&cfg.day, cfg.preserve_gamma)?;
         }
 
         Mode::Reset => {
-            // // Reset screen
-            // let mut reset = ColorSetting::default();
-            // ((*options.method).set_temperature).expect("non-null function pointer")(
-            //     method_state,
-            //     &mut reset,
-            //     0 as c_int,
-            // );
-            // // b"Temperature adjustment failed.\n\0" as *const u8 as *const c_char,
-
-            // // In Quartz (OSX) the gamma adjustments will automatically
-            // // revert when the process exits. Therefore, we have to loop
-            // // until CTRL-C is received
-            // if strcmp(options.method.name, "quartz") == 0 as c_int {
-            //     // b"Press ctrl-c to stop...\n\0" as *const u8 as *const c_char,
-            //     pause();
-            // }
+            let cs = ColorSettings::default();
+            cfg.method.set_color(&cs, cfg.preserve_gamma)?;
         }
     }
 

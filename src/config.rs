@@ -19,9 +19,13 @@
 // TODO: use snafu for error handling
 
 use crate::{
-    gamma_drm::Drm, gamma_dummy::Dummy, gamma_randr::Randr,
-    gamma_vidmode::Vidmode, location_geoclue2::Geoclue2,
-    location_manual::Manual, solar::SOLAR_CIVIL_TWILIGHT_ELEV,
+    gamma_drm::Drm,
+    gamma_dummy::Dummy,
+    gamma_randr::Randr,
+    gamma_vidmode::Vidmode,
+    location_geoclue2::Geoclue2,
+    location_manual::Manual,
+    solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
 };
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -62,6 +66,8 @@ const MIN_LATITUDE: f64 = -90.0;
 const MAX_LATITUDE: f64 = 90.0;
 const MIN_LONGITUDE: f64 = -180.0;
 const MAX_LONGITUDE: f64 = 180.0;
+const MIN_ELEVATION: f64 = -90.0;
+const MAX_ELEVATION: f64 = 90.0;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -187,6 +193,14 @@ fn print_manual_help() {
   Both values are expected to be floating point numbers,
   negative values representing west / south, respectively."
     );
+}
+
+fn print_dummy_help() {
+    println!("Does not affect the display but prints the color temperature to the terminal.")
+}
+
+fn start_dummy() {
+    eprintln!("WARNING: Using dummy gamma method! Display will not be affected by this gamma method.");
 }
 
 //
@@ -827,8 +841,11 @@ impl TryFrom<f64> for Elevation {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        // TODO: any bound? probably lower than a certain degree
-        Ok(Self(n))
+        if n >= MIN_ELEVATION && n <= MAX_ELEVATION {
+            Ok(Self(n))
+        } else {
+            Err(anyhow!("elevation"))
+        }
     }
 }
 
@@ -1286,13 +1303,11 @@ impl Default for Config {
 
 impl Elevation {
     pub fn new(secs_from_epoch: f64, loc: Location) -> Self {
-        let n = crate::solar::solar_elevation(
+        Self(solar_elevation(
             secs_from_epoch,
             *loc.latitude.as_ref(),
             *loc.longitude.as_ref(),
-        );
-
-        Self(n)
+        ))
     }
 }
 
