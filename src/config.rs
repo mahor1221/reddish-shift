@@ -771,6 +771,17 @@ impl TryFrom<f64> for Longitude {
     }
 }
 
+impl TryFrom<(f64, f64)> for Location {
+    type Error = anyhow::Error;
+
+    fn try_from((lat, lon): (f64, f64)) -> Result<Self, Self::Error> {
+        Ok(Self {
+            latitude: lat.try_into()?,
+            longitude: lon.try_into()?,
+        })
+    }
+}
+
 impl TryFrom<(u8, u8)> for Time {
     type Error = anyhow::Error;
 

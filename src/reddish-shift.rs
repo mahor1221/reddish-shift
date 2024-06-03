@@ -59,7 +59,7 @@ const SLEEP_DURATION_SHORT: u32 = 100;
 // Length of fade in numbers of short sleep durations
 const FADE_LENGTH: u32 = 40;
 
-// Periods of day
+/// Periods of day
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Period {
     Daytime,
@@ -68,9 +68,11 @@ enum Period {
 }
 
 // Between 0 and 1
+#[derive(Debug, Clone, Copy)]
 struct TransitionProgress(f64);
 
 // Between 0 and 1
+#[derive(Debug, Clone, Copy)]
 struct Alpha(f64);
 
 impl AsRef<f64> for TransitionProgress {
@@ -163,7 +165,6 @@ impl TransitionProgress {
     }
 }
 
-// Print verbose description of the given period
 struct PeriodDisplay(Period, TransitionProgress);
 impl Display for PeriodDisplay {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -196,9 +197,8 @@ impl Display for Location {
     }
 }
 
-// Interpolate color setting structs given alpha
-
 impl ColorSettings {
+    /// Interpolate color setting structs given alpha
     fn interpolate_with(
         &self,
         other: &ColorSettings,
@@ -235,8 +235,8 @@ impl ColorSettings {
         }
     }
 
-    // Return true if color settings have major differences, otherwise 0
-    // Used to determine if a fade should be applied in continual mode
+    /// Return true if color settings have major differences
+    /// Used to determine if a fade should be applied in continual mode
     fn is_very_diff_from(&self, other: &Self) -> bool {
         (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16)
             .abs()
@@ -248,8 +248,6 @@ impl ColorSettings {
             || (self.gamma.as_ref()[2] - other.gamma.as_ref()[2]).abs() > 0.1
     }
 }
-
-impl ColorSettings {}
 
 // Easing function for fade
 // See https://github.com/mietek/ease-tween
@@ -504,6 +502,8 @@ fn main() -> Result<()> {
                     //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
                     //     todo!()
                     // }
+
+                    println!("{elev:?}");
                     let period = Period::from_elevation(elev, elev_range);
                     let prog =
                         TransitionProgress::from_elevation(elev, elev_range);
@@ -513,6 +513,9 @@ fn main() -> Result<()> {
 
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, prog.into());
+
+            println!("{period:?}, {prog:?}");
+            println!("{:?}", cfg.scheme);
 
             // if options.verbosity {
             //     // print_period(period, transition_prog);

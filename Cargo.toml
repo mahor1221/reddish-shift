@@ -32,6 +32,9 @@ time = { version = "0.3.36", features = ["local-offset"] }
 anyhow = "1.0"
 vergen = { version = "8.3", features = ["cargo", "git", "gitcl", "rustc"] }
 
+[dev-dependencies]
+insta = "1.39.0"
+
 [profile.release]
 lto = true
 strip = true

@@ -18,13 +18,15 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* Redshift: Ported from javascript code by U.S. Department of Commerce,
-   National Oceanic & Atmospheric Administration:
-   http://www.srrb.noaa.gov/highlights/sunrise/calcdetails.html
-   It is based on equations from "Astronomical Algorithms" by
-   Jean Meeus.
+/*  From Redshift:
+    > Ported from javascript code by U.S. Department of Commerce,
+    > National Oceanic & Atmospheric Administration:
+    > http://www.srrb.noaa.gov/highlights/sunrise/calcdetails.html
+    > It is based on equations from "Astronomical Algorithms" by
+    > Jean Meeus.
 */
 
+#![allow(dead_code)]
 use std::f64::consts::PI;
 
 macro_rules! rad {
@@ -259,11 +261,11 @@ fn solar_elevation_from_time(t: f64, lat: f64, lon: f64) -> f64 {
     elevation_from_hour_angle(lat, decl, ha)
 }
 
-// Solar angular elevation at the given location and time
-// date: Seconds since unix epoch
-// lat: Latitude of location
-// lon: Longitude of location
-// Return: Solar angular elevation in degrees
+/// Solar angular elevation at the given location and time
+/// date: Seconds since unix epoch
+/// lat: Latitude of location
+/// lon: Longitude of location
+/// Return: Solar angular elevation in degrees
 pub fn solar_elevation(date: f64, lat: f64, lon: f64) -> f64 {
     let jd = jd_from_epoch(date);
     let jcent = jcent_from_jd(jd);
@@ -297,5 +299,56 @@ fn solar_table_fill(
         let angle = TIME_ANGLE[i as usize];
         let offset = time_of_solar_elevation(t, t_noon, lat, lon, angle);
         table[i] = epoch_from_jd(jdn - 0.5 + offset / 1440.0);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::solar_elevation;
+    use anyhow::Result;
+    use insta::assert_snapshot;
+    use std::fmt::Write;
+    use time::{Date, Duration, OffsetDateTime, Time};
+
+    #[test]
+    fn test_solar_elevation() -> Result<()> {
+        let now = OffsetDateTime::new_utc(
+            Date::from_calendar_date(2024, time::Month::June, 01)?,
+            Time::from_hms(0, 0, 0)?,
+        ) - OffsetDateTime::UNIX_EPOCH;
+
+        let res = (0..24).try_fold(String::new(), |mut buff, i| {
+            let s = (now + Duration::hours(i)).as_seconds_f64();
+            let e = solar_elevation(s, 51.47, 0.0);
+            write!(&mut buff, "{i:02}:00, {e:>3.0}°\n")?;
+            Ok::<_, anyhow::Error>(buff)
+        })?;
+
+        Ok(assert_snapshot!(res, @r###"
+        00:00, -27°
+        01:00, -26°
+        02:00, -23°
+        03:00, -18°
+        04:00, -11°
+        05:00,  -2°
+        06:00,   7°
+        07:00,  16°
+        08:00,  24°
+        09:00,  30°
+        10:00,  35°
+        11:00,  37°
+        12:00,  38°
+        13:00,  37°
+        14:00,  34°
+        15:00,  30°
+        16:00,  23°
+        17:00,  15°
+        18:00,   6°
+        19:00,  -3°
+        20:00, -11°
+        21:00, -18°
+        22:00, -24°
+        23:00, -27°
+        "###))
     }
 }
