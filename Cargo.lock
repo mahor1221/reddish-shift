@@ -425,6 +425,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "serde",
+ "time",
  "toml",
  "vergen",
  "x11-dl",

@@ -236,25 +236,19 @@ pub struct ColorSettings {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Hour(u8);
-
-#[derive(Debug, Clone, Copy)]
-pub struct Minute(u8);
-
-#[derive(Debug, Clone, Copy)]
 pub struct Time {
-    pub hour: Hour,
-    pub minute: Minute,
+    pub hour: u8,
+    pub minute: u8,
 }
 
 /// Offset from midnight in seconds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Offset(u32);
+pub struct TimeOffset(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeRange {
-    pub start: Offset,
-    pub end: Offset,
+    pub start: TimeOffset,
+    pub end: TimeOffset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -743,16 +737,6 @@ impl TryFrom<[f64; 3]> for Gamma {
     }
 }
 
-impl TryFrom<Vec<f64>> for Gamma {
-    type Error = anyhow::Error;
-
-    fn try_from(vec: Vec<f64>) -> Result<Self, Self::Error> {
-        TryInto::<[f64; 3]>::try_into(vec)
-            .map_err(|_| anyhow!("wrong size"))?
-            .try_into()
-    }
-}
-
 impl TryFrom<f64> for Latitude {
     type Error = anyhow::Error;
 
@@ -787,40 +771,39 @@ impl TryFrom<f64> for Longitude {
     }
 }
 
-impl TryFrom<u8> for Hour {
+impl TryFrom<(u8, u8)> for Time {
     type Error = anyhow::Error;
 
-    fn try_from(n: u8) -> Result<Self, Self::Error> {
-        if n < 24 {
-            Ok(Self(n))
-        } else {
-            Err(anyhow!("hour"))
-        }
-    }
-}
-
-impl TryFrom<u8> for Minute {
-    type Error = anyhow::Error;
-
-    fn try_from(n: u8) -> Result<Self, Self::Error> {
-        if n < 60 {
-            Ok(Self(n))
-        } else {
+    fn try_from((hour, minute): (u8, u8)) -> Result<Self, Self::Error> {
+        if hour < 24 {
             Err(anyhow!("minute"))
+        } else if minute < 60 {
+            Err(anyhow!("hour"))
+        } else {
+            Ok(Self { hour, minute })
         }
     }
 }
 
-impl From<Time> for Offset {
+impl From<Time> for TimeOffset {
     fn from(Time { hour, minute }: Time) -> Self {
-        Self((*hour.as_ref() as u32 * 60 * 60) + (*minute.as_ref() as u32 * 60))
+        Self(hour as u32 * 60 * 60 + minute as u32 * 60)
     }
 }
 
-impl TryFrom<(Offset, Offset)> for TimeRange {
+impl From<time::Time> for TimeOffset {
+    fn from(time: time::Time) -> Self {
+        let (h, m, s) = time.as_hms();
+        Self(h as u32 * 60 * 60 + m as u32 * 60 + s as u32)
+    }
+}
+
+impl TryFrom<(TimeOffset, TimeOffset)> for TimeRange {
     type Error = anyhow::Error;
 
-    fn try_from((start, end): (Offset, Offset)) -> Result<Self, Self::Error> {
+    fn try_from(
+        (start, end): (TimeOffset, TimeOffset),
+    ) -> Result<Self, Self::Error> {
         if start <= end {
             Ok(Self { start, end })
         } else {
@@ -928,37 +911,18 @@ impl FromStr for Location {
     }
 }
 
-impl FromStr for Hour {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u8>()?.try_into()
-    }
-}
-
-impl FromStr for Minute {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u8>()?.try_into()
-    }
-}
-
 impl FromStr for Time {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").collect::<Vec<_>>().as_slice() {
-            [hour, minute] => Ok(Self {
-                hour: hour.parse()?,
-                minute: minute.parse()?,
-            }),
+        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+            [h, m] => (h.parse()?, m.parse()?).try_into(),
             _ => Err(anyhow!("time")),
         }
     }
 }
 
-impl FromStr for Offset {
+impl FromStr for TimeOffset {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -980,10 +944,11 @@ impl FromStr for TimeRange {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split("-").collect::<Vec<_>>().as_slice() {
             [start, end] => {
-                (start.parse::<Offset>()?, end.parse::<Offset>()?).try_into()
+                (start.parse::<TimeOffset>()?, end.parse::<TimeOffset>()?)
+                    .try_into()
             }
             [time] => {
-                let t = time.parse::<Offset>()?;
+                let t = time.parse::<TimeOffset>()?;
                 Ok(Self { start: t, end: t })
             }
             _ => Err(anyhow!("time_range")),
@@ -1187,19 +1152,7 @@ impl AsRef<[f64; 3]> for Gamma {
     }
 }
 
-impl AsRef<u8> for Hour {
-    fn as_ref(&self) -> &u8 {
-        &self.0
-    }
-}
-
-impl AsRef<u8> for Minute {
-    fn as_ref(&self) -> &u8 {
-        &self.0
-    }
-}
-
-impl AsRef<u32> for Offset {
+impl AsRef<u32> for TimeOffset {
     fn as_ref(&self) -> &u32 {
         &self.0
     }
@@ -1315,6 +1268,20 @@ impl Default for Config {
             scheme: Default::default(),
             location: Default::default(),
         }
+    }
+}
+
+//
+
+impl Elevation {
+    pub fn new(secs_from_epoch: f64, loc: Location) -> Self {
+        let n = crate::solar::solar_elevation(
+            secs_from_epoch,
+            *loc.latitude.as_ref(),
+            *loc.longitude.as_ref(),
+        );
+
+        Self(n)
     }
 }
 

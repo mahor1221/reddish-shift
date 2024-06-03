@@ -33,7 +33,7 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get_location(&self) -> Result<(Location, bool)> {
+    fn get(&self) -> Result<(Location, bool)> {
         let available = true;
         Ok((self.location, available))
     }

@@ -24,7 +24,16 @@ use libc::{
 };
 use std::ffi::{c_char, c_int, c_void};
 
-use crate::{period_names, Period};
+use crate::Period;
+
+// Names of periods supplied to scripts.
+pub static mut period_names: [*const c_char; 4] = [
+    // TRANSLATORS: Name printed when period of day is unknown
+    b"None\0" as *const u8 as *const c_char,
+    b"Daytime\0" as *const u8 as *const c_char,
+    b"Night\0" as *const u8 as *const c_char,
+    b"Transition\0" as *const u8 as *const c_char,
+];
 
 // Try to open the directory containing hooks. HP is a string
 // of MAX_HOOK_PATH length that will be filled with the path
