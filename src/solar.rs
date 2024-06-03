@@ -307,48 +307,42 @@ mod test {
     use super::solar_elevation;
     use anyhow::Result;
     use insta::assert_snapshot;
-    use std::fmt::Write;
-    use time::{Date, Duration, OffsetDateTime, Time};
+    use std::{fmt::Write, time::Duration};
 
     #[test]
     fn test_solar_elevation() -> Result<()> {
-        let now = OffsetDateTime::new_utc(
-            Date::from_calendar_date(2024, time::Month::June, 01)?,
-            Time::from_hms(0, 0, 0)?,
-        ) - OffsetDateTime::UNIX_EPOCH;
-
         let res = (0..24).try_fold(String::new(), |mut buff, i| {
-            let s = (now + Duration::hours(i)).as_seconds_f64();
-            let e = solar_elevation(s, 51.47, 0.0);
+            let s = Duration::from_secs(i * 3600).as_secs_f64();
+            let e = solar_elevation(s, 0.0, 0.0);
             write!(&mut buff, "{i:02}:00, {e:>3.0}°\n")?;
             Ok::<_, anyhow::Error>(buff)
         })?;
 
         Ok(assert_snapshot!(res, @r###"
-        00:00, -27°
-        01:00, -26°
-        02:00, -23°
-        03:00, -18°
-        04:00, -11°
-        05:00,  -2°
-        06:00,   7°
-        07:00,  16°
-        08:00,  24°
-        09:00,  30°
-        10:00,  35°
-        11:00,  37°
-        12:00,  38°
-        13:00,  37°
-        14:00,  34°
-        15:00,  30°
-        16:00,  23°
-        17:00,  15°
-        18:00,   6°
-        19:00,  -3°
-        20:00, -11°
-        21:00, -18°
-        22:00, -24°
-        23:00, -27°
+        00:00, -32°
+        01:00, -31°
+        02:00, -29°
+        03:00, -24°
+        04:00, -17°
+        05:00,  -9°
+        06:00,  -1°
+        07:00,  12°
+        08:00,  23°
+        09:00,  32°
+        10:00,  39°
+        11:00,  42°
+        12:00,  44°
+        13:00,  43°
+        14:00,  39°
+        15:00,  33°
+        16:00,  25°
+        17:00,  13°
+        18:00,   1°
+        19:00, -12°
+        20:00, -23°
+        21:00, -33°
+        22:00, -39°
+        23:00, -42°
         "###))
     }
 }

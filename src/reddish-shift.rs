@@ -60,36 +60,22 @@ const SLEEP_DURATION_SHORT: u32 = 100;
 const FADE_LENGTH: u32 = 40;
 
 /// Periods of day
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Period {
     Daytime,
-    Transition,
     Night,
+    Transition {
+        progress: f64, // Between 0 and 1
+    },
 }
-
-// Between 0 and 1
-#[derive(Debug, Clone, Copy)]
-struct TransitionProgress(f64);
 
 // Between 0 and 1
 #[derive(Debug, Clone, Copy)]
 struct Alpha(f64);
 
-impl AsRef<f64> for TransitionProgress {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
 impl AsRef<f64> for Alpha {
     fn as_ref(&self) -> &f64 {
         &self.0
-    }
-}
-
-impl From<TransitionProgress> for Alpha {
-    fn from(n: TransitionProgress) -> Self {
-        Alpha(n.0)
     }
 }
 
@@ -106,74 +92,61 @@ impl Alpha {
     }
 }
 
-impl Period {
-    /// Determine which period we are currently in based on time offset
-    fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
-        let TimeRanges { dawn, dusk } = time_ranges;
-        if time < dawn.start || time >= dusk.end {
-            Self::Night
-        } else if time >= dawn.end && time < dusk.start {
-            Self::Daytime
-        } else {
-            Self::Transition
-        }
-    }
-
-    /// Determine which period we are currently in based on solar elevation
-    fn from_elevation(elev: Elevation, elev_range: ElevationRange) -> Self {
-        let ElevationRange { high, low } = elev_range;
-        if elev < low {
-            Self::Night
-        } else if elev < high {
-            Self::Daytime
-        } else {
-            Self::Transition
+impl From<Period> for Alpha {
+    fn from(period: Period) -> Self {
+        match period {
+            Period::Daytime => Self(1.0),
+            Period::Night => Self(0.0),
+            Period::Transition { progress } => Self(progress),
         }
     }
 }
 
-impl TransitionProgress {
-    /// Determine how far through the transition we are based on time offset
+impl Period {
+    /// Determine which period we are currently in based on time offset
     fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
         let TimeRanges { dawn, dusk } = time_ranges;
         let sub =
             |a: TimeOffset, b: TimeOffset| (a.as_ref() - b.as_ref()) as f64;
 
         if time < dawn.start || time >= dusk.end {
-            Self(0.0)
+            Self::Night
         } else if time < dawn.end {
-            Self(sub(dawn.start, time) / sub(dawn.start, dawn.end))
+            let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
+            Self::Transition { progress }
         } else if time > dusk.start {
-            Self(sub(dusk.end, time) / sub(dusk.end, dusk.start))
+            let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
+            Self::Transition { progress }
         } else {
-            Self(1.0)
+            Self::Daytime
         }
     }
 
-    /// Determine how far through the transition we are based on elevation
+    /// Determine which period we are currently in based on solar elevation
     fn from_elevation(elev: Elevation, elev_range: ElevationRange) -> Self {
         let ElevationRange { high, low } = elev_range;
         let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref());
 
         if elev < low {
-            Self(0.0)
+            Self::Night
         } else if elev < high {
-            Self(sub(low, elev) / sub(low, high))
+            Self::Transition {
+                progress: sub(low, elev) / sub(low, high),
+            }
         } else {
-            Self(1.0)
+            Self::Daytime
         }
     }
 }
 
-struct PeriodDisplay(Period, TransitionProgress);
-impl Display for PeriodDisplay {
+impl Display for Period {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let PeriodDisplay(period, transition_profress) = self;
-        let n = *transition_profress.as_ref();
-        match period {
+        match self {
             Period::Daytime => f.write_str("Period: Daytime"),
             Period::Night => f.write_str("Period: Night"),
-            Period::Transition => write!(f, "Period: Transition ({n:.2}% day)"),
+            Period::Transition { progress } => {
+                write!(f, "Period: Transition ({progress:.2}% day)")
+            }
         }
     }
 }
@@ -486,35 +459,27 @@ fn main() -> Result<()> {
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
             let now = DateTime::now_local()?;
 
-            let (period, prog) = match cfg.scheme {
+            let period = match cfg.scheme {
                 TransitionScheme::Time(time_ranges) => {
-                    let now = now.time().into();
-                    let period = Period::from_time(now, time_ranges);
-                    let prog = TransitionProgress::from_time(now, time_ranges);
-                    (period, prog)
+                    Period::from_time(now.time().into(), time_ranges)
                 }
                 TransitionScheme::Elevation(elev_range) => {
                     let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
                     let (loc, available) = cfg.location.get()?;
                     let elev = Elevation::new(now, loc);
+                    Period::from_elevation(elev, elev_range)
                     // if config.verbose {
                     //     // TRANSLATORS: Append degree symbol if possible
                     //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
                     //     todo!()
                     // }
-
-                    println!("{elev:?}");
-                    let period = Period::from_elevation(elev, elev_range);
-                    let prog =
-                        TransitionProgress::from_elevation(elev, elev_range);
-                    (period, prog)
                 }
             };
 
             // Use transition progress to set color temperature
-            let interp = cfg.night.interpolate_with(&cfg.day, prog.into());
+            let interp = cfg.night.interpolate_with(&cfg.day, period.into());
 
-            println!("{period:?}, {prog:?}");
+            println!("{period:?}");
             println!("{:?}", cfg.scheme);
 
             // if options.verbosity {

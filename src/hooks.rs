@@ -24,7 +24,12 @@ use libc::{
 };
 use std::ffi::{c_char, c_int, c_void};
 
-use crate::Period;
+enum Period {
+    None,
+    Daytime,
+    Night,
+    Transition,
+}
 
 // Names of periods supplied to scripts.
 pub static mut period_names: [*const c_char; 4] = [
