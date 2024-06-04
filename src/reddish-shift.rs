@@ -152,13 +152,15 @@ impl Display for Period {
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let lat = self.latitude;
-        let lon = self.longitude;
-        let ns = if *lat.as_ref() >= 0.0 { "N" } else { "S" };
-        let ew = if *lon.as_ref() >= 0.0 { "E" } else { "W" };
-        let lat = lat.as_ref().abs();
-        let lon = lon.as_ref().abs();
-        write!(f, "Location: {lat:.2}° {ns}, {lon:.2}° {ew}")
+        let a = *self.latitude.as_ref();
+        let b = *self.longitude.as_ref();
+        let ns = if a >= 0.0 { "N" } else { "S" };
+        let ew = if b >= 0.0 { "E" } else { "W" };
+        let a = a.abs();
+        let aa = a.fract() * 100.0;
+        let b = b.abs();
+        let bb = b.fract() * 100.0;
+        write!(f, "Location: {a:.0}°{aa:.0}′{ns} {b:.0}°{bb:.0}′{ew}")
     }
 }
 
@@ -443,6 +445,8 @@ fn main() -> Result<()> {
                     // }
                 }
             };
+
+            println!("{period}");
 
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());

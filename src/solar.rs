@@ -83,7 +83,7 @@ fn jd_from_jcent(t: f64) -> f64 {
 ///   Return: Geometric mean longitude in radians
 fn sun_geom_mean_lon(t: f64) -> f64 {
     // FIXME returned value should always be positive
-    (280.46646 + t * (36000.76983 + t * 0.0003032) % 360.0).to_radians()
+    ((280.46646 + t * (36000.76983 + t * 0.0003032)) % 360.0).to_radians()
 }
 
 /// Geometric mean anomaly of the sun
@@ -154,7 +154,7 @@ fn obliquity_corr(t: f64) -> f64 {
 fn solar_declination(t: f64) -> f64 {
     let e = obliquity_corr(t);
     let lambda = sun_apparent_lon(t);
-    ((e).sin() * (lambda)).sin()
+    ((e).sin() * (lambda)).asin()
 }
 
 /// Difference between true solar time and mean solar time
@@ -182,7 +182,7 @@ fn equation_of_time(t: f64) -> f64 {
 fn hour_angle_from_elevation(lat: f64, decl: f64, elev: f64) -> f64 {
     let omega = elev.abs().cos() - lat.to_radians().sin() * decl.sin();
     let omega = omega / lat.to_radians().cos() * decl.cos();
-    omega.cos().copysign(-elev)
+    omega.acos().copysign(-elev)
 }
 
 /// Angular elevation at the location for the given hour angle
@@ -193,7 +193,7 @@ fn hour_angle_from_elevation(lat: f64, decl: f64, elev: f64) -> f64 {
 fn elevation_from_hour_angle(lat: f64, decl: f64, ha: f64) -> f64 {
     (ha.cos() * lat.to_radians().cos() * decl.cos()
         + lat.to_radians().sin() * decl.sin())
-    .sin()
+    .asin()
 }
 
 /// Time of apparent solar noon of location on earth
@@ -269,7 +269,7 @@ fn solar_elevation_from_time(t: f64, lat: f64, lon: f64) -> f64 {
 pub fn solar_elevation(date: f64, lat: f64, lon: f64) -> f64 {
     let jd = jd_from_epoch(date);
     let jcent = jcent_from_jd(jd);
-    solar_elevation_from_time(jcent, lat, lon) * (180.0 / PI)
+    solar_elevation_from_time(jcent, lat, lon).to_degrees()
 }
 
 fn solar_table_fill(
@@ -319,30 +319,30 @@ mod test {
         })?;
 
         Ok(assert_snapshot!(res, @r###"
-        00:00, -32.22°
-        01:00, -31.36°
-        02:00, -28.55°
-        03:00, -23.81°
-        04:00, -17.28°
-        05:00,  -9.31°
-        06:00,  -0.73°
-        07:00,  12.03°
-        08:00,  23.44°
-        09:00,  32.49°
-        10:00,  38.77°
-        11:00,  42.39°
-        12:00,  43.64°
-        13:00,  42.67°
-        14:00,  39.34°
-        15:00,  33.39°
-        16:00,  24.66°
-        17:00,  13.48°
-        18:00,   0.79°
-        19:00, -12.00°
-        20:00, -23.44°
-        21:00, -32.51°
-        22:00, -38.80°
-        23:00, -42.44°
+        00:00, -56.32°
+        01:00, -53.81°
+        02:00, -46.63°
+        03:00, -36.68°
+        04:00, -25.28°
+        05:00, -13.15°
+        06:00,  -0.71°
+        07:00,  11.76°
+        08:00,  23.96°
+        09:00,  35.51°
+        10:00,  45.73°
+        11:00,  53.37°
+        12:00,  56.56°
+        13:00,  54.05°
+        14:00,  46.84°
+        15:00,  36.84°
+        16:00,  25.40°
+        17:00,  13.23°
+        18:00,   0.76°
+        19:00, -11.74°
+        20:00, -23.98°
+        21:00, -35.58°
+        22:00, -45.86°
+        23:00, -53.57°
         "###))
     }
 }
