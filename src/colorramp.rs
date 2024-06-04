@@ -281,8 +281,8 @@ fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
 
 #[inline]
 fn approximate_white_point(setting: &ColorSettings) -> [f64; 3] {
-    let alpha = (setting.temperature.as_ref() % 100) as f64 / 100.0;
-    let temp_index = (setting.temperature.as_ref() - 1000) as usize / 100;
+    let alpha = (*setting.temp % 100) as f64 / 100.0;
+    let temp_index = (*setting.temp - 1000) as usize / 100;
     interpolate_color(
         alpha,
         &BLACKBODY_COLOR[temp_index],
@@ -299,8 +299,8 @@ pub fn colorramp_fill(
     let white_point = approximate_white_point(setting);
     let f = |y: u16, c: usize| -> u16 {
         let r = y as f64 / (u16::MAX as u32 + 1) as f64;
-        let r = r * setting.brightness.as_ref() * white_point[c];
-        let r = r.powf(1.0 / setting.gamma.as_ref()[c]);
+        let r = r * *setting.brght * white_point[c];
+        let r = r.powf(1.0 / setting.gamma[c]);
         let r = r * (u16::MAX as u32 + 1) as f64;
         r as u16
     };
@@ -320,8 +320,8 @@ pub fn colorramp_fill_float(
 ) {
     let white_point = approximate_white_point(setting);
     let f = |y: f64, c: usize| -> f64 {
-        let r = y * setting.brightness.as_ref() * white_point[c];
-        let r = r.powf(1.0 / setting.gamma.as_ref()[c]);
+        let r = y * *setting.brght * white_point[c];
+        let r = r.powf(1.0 / setting.gamma[c]);
         r
     };
 

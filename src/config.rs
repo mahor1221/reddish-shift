@@ -26,6 +26,7 @@ use crate::{
     location_geoclue2::Geoclue2,
     location_manual::Manual,
     solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
+    Alpha,
 };
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -37,6 +38,7 @@ use std::{
     fs::File,
     io::Read,
     marker::PhantomData,
+    ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -244,9 +246,9 @@ pub type GammaRange = DayNight<Gamma>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorSettings {
-    pub temperature: Temperature,
+    pub temp: Temperature,
     pub gamma: Gamma,
-    pub brightness: Brightness,
+    pub brght: Brightness,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -287,8 +289,8 @@ pub struct Latitude(f64);
 pub struct Longitude(f64);
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Location {
-    pub latitude: Latitude,
-    pub longitude: Longitude,
+    pub lat: Latitude,
+    pub lon: Longitude,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -537,18 +539,18 @@ impl Config {
             brightness,
             gamma,
             fade,
-            inner: set_reset_args,
+            inner,
             scheme,
             location,
         } = args;
 
         if let Some(t) = temperature {
-            self.day.temperature = t.day;
-            self.night.temperature = t.night;
+            self.day.temp = t.day;
+            self.night.temp = t.night;
         }
         if let Some(t) = brightness {
-            self.day.brightness = t.day;
-            self.night.brightness = t.night;
+            self.day.brght = t.day;
+            self.night.brght = t.night;
         }
         if let Some(t) = gamma {
             self.day.gamma = t.day;
@@ -564,7 +566,7 @@ impl Config {
         if let Some(t) = location {
             self.location = t;
         }
-        self.merge_with_inner_cmd_args(set_reset_args);
+        self.merge_with_inner_cmd_args(inner);
     }
 
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
@@ -595,12 +597,12 @@ impl Config {
         } = config;
 
         if let Some(t) = temperature {
-            self.day.temperature = t.t.day;
-            self.night.temperature = t.t.night;
+            self.day.temp = t.t.day;
+            self.night.temp = t.t.night;
         }
         if let Some(t) = brightness {
-            self.day.brightness = t.t.day;
-            self.night.brightness = t.t.night;
+            self.day.brght = t.t.day;
+            self.night.brght = t.t.night;
         }
         if let Some(t) = gamma {
             self.day.gamma = t.t.day;
@@ -692,6 +694,101 @@ impl ConfigFile {
         }
         if let Some(t) = method {
             self.method = Some(t);
+        }
+    }
+}
+
+//
+
+impl Default for Temperature {
+    fn default() -> Self {
+        Self(DEFAULT_TEMPERATURE)
+    }
+}
+
+impl Default for Brightness {
+    fn default() -> Self {
+        Brightness(DEFAULT_BRIGHTNESS)
+    }
+}
+
+impl Default for Gamma {
+    fn default() -> Self {
+        Gamma([DEFAULT_GAMMA; 3])
+    }
+}
+
+impl Default for ElevationRange {
+    fn default() -> Self {
+        Self {
+            high: Elevation(DEFAULT_ELEVATION_HIGH),
+            low: Elevation(DEFAULT_ELEVATION_LOW),
+        }
+    }
+}
+
+impl Default for Latitude {
+    fn default() -> Self {
+        Self(DEFAULT_LATITUDE)
+    }
+}
+
+impl Default for Longitude {
+    fn default() -> Self {
+        Self(DEFAULT_LONGITUDE)
+    }
+}
+
+impl ColorSettings {
+    pub fn default_day() -> Self {
+        Self {
+            temp: Temperature(DEFAULT_TEMPERATURE_DAY),
+            ..Default::default()
+        }
+    }
+
+    pub fn default_night() -> Self {
+        Self {
+            temp: Temperature(DEFAULT_TEMPERATURE_NIGHT),
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for ColorSettings {
+    fn default() -> Self {
+        Self {
+            temp: Temperature::default(),
+            gamma: Gamma::default(),
+            brght: Brightness::default(),
+        }
+    }
+}
+
+impl Default for TransitionScheme {
+    fn default() -> Self {
+        Self::Elevation(Default::default())
+    }
+}
+impl Default for LocationProvider {
+    fn default() -> Self {
+        Self::Manual(Default::default())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            preserve_gamma: true,
+            fade: true,
+            mode: Default::default(),
+            verbosity: Default::default(),
+            dry_run: Default::default(),
+            day: ColorSettings::default_day(),
+            night: ColorSettings::default_night(),
+            method: Default::default(),
+            scheme: Default::default(),
+            location: Default::default(),
         }
     }
 }
@@ -790,8 +887,8 @@ impl TryFrom<(f64, f64)> for Location {
 
     fn try_from((lat, lon): (f64, f64)) -> Result<Self, Self::Error> {
         Ok(Self {
-            latitude: lat.try_into()?,
-            longitude: lon.try_into()?,
+            lat: lat.try_into()?,
+            lon: lon.try_into()?,
         })
     }
 }
@@ -931,8 +1028,8 @@ impl FromStr for Location {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(":").collect::<Vec<_>>().as_slice() {
             [lat, lon] => Ok(Self {
-                latitude: lat.parse()?,
-                longitude: lon.parse()?,
+                lat: lat.parse()?,
+                lon: lon.parse()?,
             }),
             _ => Err(anyhow!("location")),
         }
@@ -1076,10 +1173,10 @@ impl From<ColorSettingsArgs> for ColorSettings {
             brightness,
         } = t;
         if let Some(t) = temperature {
-            color_settings.temperature = t;
+            color_settings.temp = t;
         }
         if let Some(t) = brightness {
-            color_settings.brightness = t;
+            color_settings.brght = t;
         }
         if let Some(t) = gamma {
             color_settings.gamma = t;
@@ -1109,8 +1206,61 @@ impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
     }
 }
 
-//
-// boilerplates
+// NOTE: Using Deref is not an anti pattern here. These newtypes are plain
+// wrappers that only enforce restrictions and boundaries on the inner type.
+// I want these wrappers act exactly like their inner type. Obviously DerefMut
+// should not be implemented for these types. See this discussion:
+// https://users.rust-lang.org/t/understanding-the-perils-of-deref/47958/18
+
+impl Deref for Temperature {
+    type Target = u16;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for Brightness {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for Gamma {
+    type Target = [f64; 3];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for TimeOffset {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for Elevation {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for Latitude {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for Longitude {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 //
 
 impl<'de, T, U> Deserialize<'de> for Either<U, T>
@@ -1162,158 +1312,42 @@ impl<'de> Deserialize<'de> for AdjustmentMethod {
 
 //
 
-impl AsRef<u16> for Temperature {
-    fn as_ref(&self) -> &u16 {
-        &self.0
-    }
-}
-
-impl AsRef<f64> for Brightness {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
-impl AsRef<[f64; 3]> for Gamma {
-    fn as_ref(&self) -> &[f64; 3] {
-        &self.0
-    }
-}
-
-impl AsRef<u32> for TimeOffset {
-    fn as_ref(&self) -> &u32 {
-        &self.0
-    }
-}
-
-impl AsRef<f64> for Elevation {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
-impl AsRef<f64> for Latitude {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
-impl AsRef<f64> for Longitude {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
-//
-
-impl Default for Temperature {
-    fn default() -> Self {
-        Self(DEFAULT_TEMPERATURE)
-    }
-}
-
-impl Default for Brightness {
-    fn default() -> Self {
-        Brightness(DEFAULT_BRIGHTNESS)
-    }
-}
-
-impl Default for Gamma {
-    fn default() -> Self {
-        Gamma([DEFAULT_GAMMA; 3])
-    }
-}
-
-impl Default for ElevationRange {
-    fn default() -> Self {
-        Self {
-            high: Elevation(DEFAULT_ELEVATION_HIGH),
-            low: Elevation(DEFAULT_ELEVATION_LOW),
-        }
-    }
-}
-
-impl Default for Latitude {
-    fn default() -> Self {
-        Self(DEFAULT_LATITUDE)
-    }
-}
-
-impl Default for Longitude {
-    fn default() -> Self {
-        Self(DEFAULT_LONGITUDE)
+impl Elevation {
+    pub fn new(secs_from_epoch: f64, loc: Location) -> Self {
+        Self(solar_elevation(secs_from_epoch, *loc.lat, *loc.lon))
     }
 }
 
 impl ColorSettings {
-    pub fn default_day() -> Self {
-        Self {
-            temperature: Temperature(DEFAULT_TEMPERATURE_DAY),
-            ..Default::default()
-        }
+    /// Interpolate color setting structs given alpha
+    pub fn interpolate_with(
+        &self,
+        other: &ColorSettings,
+        alpha: Alpha,
+    ) -> ColorSettings {
+        let a = *alpha;
+
+        let temp = Temperature(
+            ((1.0 - a) * *self.temp as f64 + a * *other.temp as f64) as u16,
+        );
+        let gamma = Gamma(
+            [0, 1, 2].map(|i| (1.0 - a) * self.gamma[i] + a * other.gamma[i]),
+        );
+        let brght = Brightness((1.0 - a) * *self.brght + a * *other.brght);
+
+        ColorSettings { temp, gamma, brght }
     }
 
-    pub fn default_night() -> Self {
-        Self {
-            temperature: Temperature(DEFAULT_TEMPERATURE_NIGHT),
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for ColorSettings {
-    fn default() -> Self {
-        Self {
-            temperature: Temperature::default(),
-            gamma: Gamma::default(),
-            brightness: Brightness::default(),
-        }
-    }
-}
-
-impl Default for TransitionScheme {
-    fn default() -> Self {
-        Self::Elevation(Default::default())
-    }
-}
-impl Default for LocationProvider {
-    fn default() -> Self {
-        Self::Manual(Default::default())
+    /// Return true if color settings have major differences
+    /// Used to determine if a fade should be applied in continual mode
+    pub fn is_very_diff_from(&self, other: &Self) -> bool {
+        (*self.temp as i16 - *other.temp as i16).abs() > 25
+            || (*self.brght - *other.brght).abs() > 0.1
+            || (self.gamma[0] - other.gamma[0]).abs() > 0.1
+            || (self.gamma[1] - other.gamma[1]).abs() > 0.1
+            || (self.gamma[2] - other.gamma[2]).abs() > 0.1
     }
 }
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            preserve_gamma: true,
-            fade: true,
-            mode: Default::default(),
-            verbosity: Default::default(),
-            dry_run: Default::default(),
-            day: ColorSettings::default_day(),
-            night: ColorSettings::default_night(),
-            method: Default::default(),
-            scheme: Default::default(),
-            location: Default::default(),
-        }
-    }
-}
-
-//
-
-impl Elevation {
-    pub fn new(secs_from_epoch: f64, loc: Location) -> Self {
-        Self(solar_elevation(
-            secs_from_epoch,
-            *loc.latitude.as_ref(),
-            *loc.longitude.as_ref(),
-        ))
-    }
-}
-
-//
-// Tests
-//
 
 #[cfg(test)]
 mod test {

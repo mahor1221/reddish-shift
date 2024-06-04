@@ -42,7 +42,10 @@ use config::{
     Location, LocationProvider, Mode, TimeOffset, TimeRanges, TransitionScheme,
 };
 // use hooks::hooks_signal_period_change;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::{
+    fmt::{Display, Formatter, Result as FmtResult},
+    ops::Deref,
+};
 use time::OffsetDateTime as DateTime;
 
 pub type Nfds = u64;
@@ -58,263 +61,6 @@ const SLEEP_DURATION: u32 = 5000;
 const SLEEP_DURATION_SHORT: u32 = 100;
 // Length of fade in numbers of short sleep durations
 const FADE_LENGTH: u32 = 40;
-
-/// Periods of day
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Period {
-    Daytime,
-    Night,
-    Transition {
-        progress: f64, // Between 0 and 1
-    },
-}
-
-// Between 0 and 1
-#[derive(Debug, Clone, Copy)]
-struct Alpha(f64);
-
-impl AsRef<f64> for Alpha {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-
-impl Alpha {
-    // TODO: why?
-    pub fn clamp(n: f64) -> Self {
-        if n < 0.0 {
-            Self(0.0)
-        } else if n < 1.0 {
-            Self(n)
-        } else {
-            Self(1.0)
-        }
-    }
-}
-
-impl From<Period> for Alpha {
-    fn from(period: Period) -> Self {
-        match period {
-            Period::Daytime => Self(1.0),
-            Period::Night => Self(0.0),
-            Period::Transition { progress } => Self(progress),
-        }
-    }
-}
-
-impl Period {
-    /// Determine which period we are currently in based on time offset
-    fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
-        let TimeRanges { dawn, dusk } = time_ranges;
-        let sub =
-            |a: TimeOffset, b: TimeOffset| (a.as_ref() - b.as_ref()) as f64;
-
-        if time < dawn.start || time >= dusk.end {
-            Self::Night
-        } else if time < dawn.end {
-            let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
-            Self::Transition { progress }
-        } else if time > dusk.start {
-            let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
-            Self::Transition { progress }
-        } else {
-            Self::Daytime
-        }
-    }
-
-    /// Determine which period we are currently in based on solar elevation
-    fn from_elevation(elev: Elevation, elev_range: ElevationRange) -> Self {
-        let ElevationRange { high, low } = elev_range;
-        let sub = |a: Elevation, b: Elevation| (a.as_ref() - b.as_ref());
-
-        if elev < low {
-            Self::Night
-        } else if elev < high {
-            let progress = sub(low, elev) / sub(low, high);
-            Self::Transition { progress }
-        } else {
-            Self::Daytime
-        }
-    }
-}
-
-impl Display for Period {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match self {
-            Period::Daytime => f.write_str("Period: Daytime"),
-            Period::Night => f.write_str("Period: Night"),
-            Period::Transition { progress } => {
-                write!(f, "Period: Transition ({progress:.2}% day)")
-            }
-        }
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let a = *self.latitude.as_ref();
-        let b = *self.longitude.as_ref();
-        let ns = if a >= 0.0 { "N" } else { "S" };
-        let ew = if b >= 0.0 { "E" } else { "W" };
-        let a = a.abs();
-        let aa = a.fract() * 100.0;
-        let b = b.abs();
-        let bb = b.fract() * 100.0;
-        write!(f, "Location: {a:.0}°{aa:.0}′{ns} {b:.0}°{bb:.0}′{ew}")
-    }
-}
-
-impl ColorSettings {
-    /// Interpolate color setting structs given alpha
-    fn interpolate_with(
-        &self,
-        other: &ColorSettings,
-        alpha: Alpha,
-    ) -> ColorSettings {
-        let alpha = *alpha.as_ref();
-
-        let temperature = {
-            let t = ((1.0 - alpha) * *self.temperature.as_ref() as f64
-                + alpha * *other.temperature.as_ref() as f64)
-                as u16;
-            t.try_into().unwrap_or_else(|_| unreachable!())
-        };
-
-        let brightness = {
-            let b = (1.0 - alpha) * self.brightness.as_ref()
-                + alpha * other.brightness.as_ref();
-            b.try_into().unwrap_or_else(|_| unreachable!())
-        };
-
-        let gamma = {
-            let mut g = [0.0; 3];
-            for i in 0..3 {
-                g[i] = (1.0 - alpha) * self.gamma.as_ref()[i]
-                    + alpha * other.gamma.as_ref()[i];
-            }
-            g.try_into().unwrap_or_else(|_| unreachable!())
-        };
-
-        ColorSettings {
-            temperature,
-            gamma,
-            brightness,
-        }
-    }
-
-    /// Return true if color settings have major differences
-    /// Used to determine if a fade should be applied in continual mode
-    fn is_very_diff_from(&self, other: &Self) -> bool {
-        (*self.temperature.as_ref() as i16 - *other.temperature.as_ref() as i16)
-            .abs()
-            > 25
-            || (self.brightness.as_ref() - other.brightness.as_ref()).abs()
-                > 0.1
-            || (self.gamma.as_ref()[0] - other.gamma.as_ref()[0]).abs() > 0.1
-            || (self.gamma.as_ref()[1] - other.gamma.as_ref()[1]).abs() > 0.1
-            || (self.gamma.as_ref()[2] - other.gamma.as_ref()[2]).abs() > 0.1
-    }
-}
-
-/// Easing function for fade
-/// See https://github.com/mietek/ease-tween
-fn ease_fade(t: f64) -> f64 {
-    if t <= 0.0 {
-        0.0
-    } else if t >= 1.0 {
-        1.0
-    } else {
-        1.0042954579734844
-            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
-    }
-}
-
-pub trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T: Default + PartialEq> IsDefault for T {
-    fn is_default(&self) -> bool {
-        *self == T::default()
-    }
-}
-
-pub trait Provider {
-    // Allocate storage and make connections that depend on options
-    // fn start() -> c_int;
-
-    // Listen and handle location updates
-    // fn fd() -> c_int;
-
-    fn get(&self) -> Result<(Location, bool)> {
-        Err(anyhow!("Unable to get location from provider"))
-    }
-}
-
-pub trait Adjuster {
-    // If true, this method will be tried if none is explicitly chosen
-    // int autostart;
-
-    // Allocate storage and make connections that depend on options
-    // fn start();
-
-    // Restore the adjustment to the state before start was called
-    // fn restore();
-
-    // Set a specific color temperature
-    #[allow(unused_variables)]
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed"))
-    }
-}
-
-impl Provider for LocationProvider {
-    fn get(&self) -> Result<(Location, bool)> {
-        match self {
-            LocationProvider::Manual(t) => t.get(),
-            LocationProvider::Geoclue2(t) => t.get(),
-        }
-    }
-}
-
-impl Adjuster for AdjustmentMethod {
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
-        match self {
-            AdjustmentMethod::Dummy(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Randr(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Drm(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Vidmode(t) => t.set_color(cs, preserve_gamma),
-        }
-
-        // // In Quartz (macOS) the gamma adjustments will
-        // // automatically revert when the process exits
-        // // Therefore, we have to loop until CTRL-C is received
-        // if strcmp(options.method.name, "quartz") == 0 {
-        //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
-        //     pause();
-        // }
-    }
-}
-
-impl Adjuster for Option<AdjustmentMethod> {
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
-        self.as_ref()
-            .unwrap_or_else(|| unreachable!())
-            .set_color(cs, preserve_gamma)
-    }
-}
 
 fn main() -> Result<()> {
     // // Init locale
@@ -399,6 +145,7 @@ fn main() -> Result<()> {
 
     let cfg = Config::new()?;
 
+    // TODO: add a command for calculating solar elevation for the next 24h
     match cfg.mode {
         Mode::Daemon => {
             // r = run_continual_mode(
@@ -417,14 +164,6 @@ fn main() -> Result<()> {
         }
 
         Mode::Oneshot => {
-            // if cfg.need_location {
-            // b"Waiting for current location to become available...\n\0" as *const u8
-
-            // Wait for location provider
-            // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-            // print_location(&mut loc);
-            // }
-
             // TODO: add time-zone to config, or convert location to timezone
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
             let now = DateTime::now_local()?;
@@ -445,8 +184,6 @@ fn main() -> Result<()> {
                     // }
                 }
             };
-
-            println!("{period}");
 
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());
@@ -472,6 +209,231 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Periods of day
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Period {
+    Daytime,
+    Night,
+    Transition {
+        progress: f64, // Between 0 and 1
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Alpha(f64);
+
+// Read NOTE in src/config.rs
+impl Deref for Alpha {
+    type Target = f64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<f64> for Alpha {
+    type Error = anyhow::Error;
+
+    fn try_from(n: f64) -> Result<Self, Self::Error> {
+        if n >= 0.0 && n <= 1.0 {
+            Ok(Self(n))
+        } else {
+            Err(anyhow!("alpha"))
+        }
+    }
+}
+
+impl Alpha {
+    // TODO: why?
+    pub fn clamp(n: f64) -> Self {
+        if n < 0.0 {
+            Self(0.0)
+        } else if n < 1.0 {
+            Self(n)
+        } else {
+            Self(1.0)
+        }
+    }
+}
+
+impl From<Period> for Alpha {
+    fn from(period: Period) -> Self {
+        match period {
+            Period::Daytime => Self(1.0),
+            Period::Night => Self(0.0),
+            Period::Transition { progress } => Self(progress),
+        }
+    }
+}
+
+impl Period {
+    /// Determine which period we are currently in based on time offset
+    fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
+        let TimeRanges { dawn, dusk } = time_ranges;
+        let sub = |a: TimeOffset, b: TimeOffset| (*a - *b) as f64;
+
+        if time < dawn.start || time >= dusk.end {
+            Self::Night
+        } else if time < dawn.end {
+            let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
+            Self::Transition { progress }
+        } else if time > dusk.start {
+            let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
+            Self::Transition { progress }
+        } else {
+            Self::Daytime
+        }
+    }
+
+    /// Determine which period we are currently in based on solar elevation
+    fn from_elevation(elev: Elevation, elev_range: ElevationRange) -> Self {
+        let ElevationRange { high, low } = elev_range;
+        let sub = |a: Elevation, b: Elevation| (*a - *b);
+
+        if elev < low {
+            Self::Night
+        } else if elev < high {
+            let progress = sub(low, elev) / sub(low, high);
+            Self::Transition { progress }
+        } else {
+            Self::Daytime
+        }
+    }
+}
+
+impl Display for Period {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Period::Daytime => f.write_str("Period: Daytime"),
+            Period::Night => f.write_str("Period: Night"),
+            Period::Transition { progress } => {
+                write!(f, "Period: Transition ({progress:.2}% day)")
+            }
+        }
+    }
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let a = *self.lat;
+        let b = *self.lon;
+        let ns = if a >= 0.0 { "N" } else { "S" };
+        let ew = if b >= 0.0 { "E" } else { "W" };
+        let a = a.abs();
+        let aa = a.fract() * 100.0;
+        let b = b.abs();
+        let bb = b.fract() * 100.0;
+        write!(f, "Location: {a:.0}°{aa:.0}′{ns} {b:.0}°{bb:.0}′{ew}")
+    }
+}
+
+/// Easing function for fade
+/// See https://github.com/mietek/ease-tween
+fn ease_fade(t: f64) -> f64 {
+    if t <= 0.0 {
+        0.0
+    } else if t >= 1.0 {
+        1.0
+    } else {
+        1.0042954579734844
+            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+    }
+}
+
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        *self == T::default()
+    }
+}
+
+pub trait Provider {
+    // Allocate storage and make connections that depend on options
+    // fn start() -> c_int;
+
+    // Listen and handle location updates
+    // fn fd() -> c_int;
+
+    fn get(&self) -> Result<(Location, bool)> {
+        Err(anyhow!("Unable to get location from provider"))
+    }
+}
+
+pub trait Adjuster {
+    // If true, this method will be tried if none is explicitly chosen
+    // int autostart;
+
+    // Allocate storage and make connections that depend on options
+    // fn start();
+
+    // Restore the adjustment to the state before start was called
+    // fn restore();
+
+    // Set a specific color temperature
+    #[allow(unused_variables)]
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        Err(anyhow!("Temperature adjustment failed"))
+    }
+}
+
+impl Provider for LocationProvider {
+    fn get(&self) -> Result<(Location, bool)> {
+        // if cfg.need_location {
+        // b"Waiting for current location to become available...\n\0" as *const u8
+
+        // Wait for location provider
+        // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
+        // print_location(&mut loc);
+        // }
+
+        match self {
+            LocationProvider::Manual(t) => t.get(),
+            LocationProvider::Geoclue2(t) => t.get(),
+        }
+    }
+}
+
+impl Adjuster for AdjustmentMethod {
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        match self {
+            AdjustmentMethod::Dummy(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Randr(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Drm(t) => t.set_color(cs, preserve_gamma),
+            AdjustmentMethod::Vidmode(t) => t.set_color(cs, preserve_gamma),
+        }
+
+        // // In Quartz (macOS) the gamma adjustments will
+        // // automatically revert when the process exits
+        // // Therefore, we have to loop until CTRL-C is received
+        // if strcmp(options.method.name, "quartz") == 0 {
+        //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
+        //     pause();
+        // }
+    }
+}
+
+impl Adjuster for Option<AdjustmentMethod> {
+    fn set_color(
+        &self,
+        cs: &ColorSettings,
+        preserve_gamma: bool,
+    ) -> Result<()> {
+        self.as_ref()
+            .unwrap_or_else(|| unreachable!())
+            .set_color(cs, preserve_gamma)
+    }
 }
 
 // Run continual mode loop

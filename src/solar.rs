@@ -18,12 +18,10 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/*  From Redshift:
-    > Ported from javascript code by U.S. Department of Commerce,
-    > National Oceanic & Atmospheric Administration:
-    > http://www.srrb.noaa.gov/highlights/sunrise/calcdetails.html
-    > It is based on equations from "Astronomical Algorithms" by
-    > Jean Meeus.
+/*  From Redshift: Ported from javascript code by U.S. Department of Commerce,
+    National Oceanic & Atmospheric Administration:
+    http://www.srrb.noaa.gov/highlights/sunrise/calcdetails.html
+    It is based on equations from "Astronomical Algorithms" by Jean Meeus.
 */
 
 #![allow(dead_code)]
@@ -310,39 +308,66 @@ mod test {
     use std::{fmt::Write, time::Duration};
 
     #[test]
-    fn test_solar_elevation() -> Result<()> {
+    fn test_calculating_solar_elevation_degrees_for_null_island() -> Result<()>
+    {
         let res = (0..24).try_fold(String::new(), |mut buff, i| {
             let s = Duration::from_secs(i * 3600).as_secs_f64();
             let e = solar_elevation(s, 0.0, 0.0);
-            write!(&mut buff, "{i:02}:00, {e:6.2}°\n")?;
+            write!(&mut buff, "1970-01-01 {i:02}:00    {e:6.2}°\n")?;
             Ok::<_, anyhow::Error>(buff)
         })?;
 
+        // Results from: https://gml.noaa.gov/grad/antuv/SolarCalc.jsp
+        // 1970-01-01 00:00    -66.93°
+        // 1970-01-01 01:00    -63.14°
+        // 1970-01-01 02:00    -53.46°
+        // 1970-01-01 03:00    -41.30°
+        // 1970-01-01 04:00    -28.14°
+        // 1970-01-01 05:00    -14.54°
+        // 1970-01-01 06:00     -0.77°
+        // 1970-01-01 07:00     13.00°
+        // 1970-01-01 08:00     26.62°
+        // 1970-01-01 09:00     39.86°
+        // 1970-01-01 10:00     52.18°
+        // 1970-01-01 11:00     62.28°
+        // 1970-01-01 12:00     66.96°
+        // 1970-01-01 13:00     63.20°
+        // 1970-01-01 14:00     53.52°
+        // 1970-01-01 15:00     41.36°
+        // 1970-01-01 16:00     28.20°
+        // 1970-01-01 17:00     14.60°
+        // 1970-01-01 18:00      0.83°
+        // 1970-01-01 19:00    -12.95°
+        // 1970-01-01 20:00    -26.58°
+        // 1970-01-01 21:00    -39.82°
+        // 1970-01-01 22:00    -52.16°
+        // 1970-01-01 23:00    -62.28°
+
         Ok(assert_snapshot!(res, @r###"
-        00:00, -56.32°
-        01:00, -53.81°
-        02:00, -46.63°
-        03:00, -36.68°
-        04:00, -25.28°
-        05:00, -13.15°
-        06:00,  -0.71°
-        07:00,  11.76°
-        08:00,  23.96°
-        09:00,  35.51°
-        10:00,  45.73°
-        11:00,  53.37°
-        12:00,  56.56°
-        13:00,  54.05°
-        14:00,  46.84°
-        15:00,  36.84°
-        16:00,  25.40°
-        17:00,  13.23°
-        18:00,   0.76°
-        19:00, -11.74°
-        20:00, -23.98°
-        21:00, -35.58°
-        22:00, -45.86°
-        23:00, -53.57°
-        "###))
+           1970-01-01 00:00    -56.32°
+           1970-01-01 01:00    -53.81°
+           1970-01-01 02:00    -46.63°
+           1970-01-01 03:00    -36.68°
+           1970-01-01 04:00    -25.28°
+           1970-01-01 05:00    -13.15°
+           1970-01-01 06:00     -0.71°
+           1970-01-01 07:00     11.76°
+           1970-01-01 08:00     23.96°
+           1970-01-01 09:00     35.51°
+           1970-01-01 10:00     45.73°
+           1970-01-01 11:00     53.37°
+           1970-01-01 12:00     56.56°
+           1970-01-01 13:00     54.05°
+           1970-01-01 14:00     46.84°
+           1970-01-01 15:00     36.84°
+           1970-01-01 16:00     25.40°
+           1970-01-01 17:00     13.23°
+           1970-01-01 18:00      0.76°
+           1970-01-01 19:00    -11.74°
+           1970-01-01 20:00    -23.98°
+           1970-01-01 21:00    -35.58°
+           1970-01-01 22:00    -45.86°
+           1970-01-01 23:00    -53.57°
+           "###))
     }
 }
