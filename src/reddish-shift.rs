@@ -38,7 +38,7 @@ pub mod solar;
 // use signals::{disable, exiting, signals_install_handlers};
 use anyhow::{anyhow, Result};
 use config::{
-    AdjustmentMethod, ColorSettings, Config, Elevation, ElevationRange,
+    AdjustmentMethod, ColorSettings, ConfigBuilder, Elevation, ElevationRange,
     Location, LocationProvider, Mode, TimeOffset, TimeRanges, TransitionScheme,
 };
 // use hooks::hooks_signal_period_change;
@@ -143,7 +143,7 @@ fn main() -> Result<()> {
     //     // );
     // }
 
-    let cfg = Config::new()?;
+    let cfg = ConfigBuilder::new()?.build()?;
 
     // TODO: add a command for calculating solar elevation for the next 24h
     match cfg.mode {
@@ -196,10 +196,11 @@ fn main() -> Result<()> {
         }
 
         Mode::Set => {
+            // for the set command, color settings are stored in the day field
+            cfg.method.set_color(&cfg.day, cfg.preserve_gamma)?;
             // if cfg.verbosity {
             //     // b"Color settings: %uK\n\0"
             // }
-            cfg.method.set_color(&cfg.day, cfg.preserve_gamma)?;
         }
 
         Mode::Reset => {
@@ -222,7 +223,7 @@ enum Period {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Alpha(f64);
+pub struct Alpha(f64);
 
 // Read NOTE in src/config.rs
 impl Deref for Alpha {
@@ -364,16 +365,15 @@ pub trait Provider {
 }
 
 pub trait Adjuster {
-    // If true, this method will be tried if none is explicitly chosen
+    // TODO: If true, this method will be tried if none is explicitly chosen
     // int autostart;
 
-    // Allocate storage and make connections that depend on options
-    // fn start();
+    /// Restore the adjustment to the state before the Adjuster object was created
+    fn restore(&self) -> Result<()> {
+        Err(anyhow!("Temperature adjustment failed"))
+    }
 
-    // Restore the adjustment to the state before start was called
-    // fn restore();
-
-    // Set a specific color temperature
+    /// Set a specific color temperature
     #[allow(unused_variables)]
     fn set_color(
         &self,
@@ -395,23 +395,32 @@ impl Provider for LocationProvider {
         // }
 
         match self {
-            LocationProvider::Manual(t) => t.get(),
-            LocationProvider::Geoclue2(t) => t.get(),
+            Self::Manual(t) => t.get(),
+            Self::Geoclue2(t) => t.get(),
         }
     }
 }
 
 impl Adjuster for AdjustmentMethod {
+    fn restore(&self) -> Result<()> {
+        match self {
+            Self::Dummy(t) => t.restore(),
+            Self::Randr(t) => t.restore(),
+            Self::Drm(t) => t.restore(),
+            Self::Vidmode(t) => t.restore(),
+        }
+    }
+
     fn set_color(
         &self,
         cs: &ColorSettings,
         preserve_gamma: bool,
     ) -> Result<()> {
         match self {
-            AdjustmentMethod::Dummy(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Randr(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Drm(t) => t.set_color(cs, preserve_gamma),
-            AdjustmentMethod::Vidmode(t) => t.set_color(cs, preserve_gamma),
+            Self::Dummy(t) => t.set_color(cs, preserve_gamma),
+            Self::Randr(t) => t.set_color(cs, preserve_gamma),
+            Self::Drm(t) => t.set_color(cs, preserve_gamma),
+            Self::Vidmode(t) => t.set_color(cs, preserve_gamma),
         }
 
         // // In Quartz (macOS) the gamma adjustments will
@@ -421,18 +430,6 @@ impl Adjuster for AdjustmentMethod {
         //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
         //     pause();
         // }
-    }
-}
-
-impl Adjuster for Option<AdjustmentMethod> {
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
-        self.as_ref()
-            .unwrap_or_else(|| unreachable!())
-            .set_color(cs, preserve_gamma)
     }
 }
 

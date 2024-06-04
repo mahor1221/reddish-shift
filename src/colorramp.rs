@@ -21,6 +21,61 @@
 
 use crate::ColorSettings;
 
+pub type GammaRamps = [Vec<u16>; 3];
+pub type GammaRampsFloat = [Vec<f64>; 3];
+
+pub fn colorramp_fill(setting: &ColorSettings, ramps: &mut GammaRamps) {
+    let white_point = approximate_white_point(setting);
+    let a = (u16::MAX as u32 + 1) as f64;
+    let f = |y: u16, c: usize| -> u16 {
+        let r = y as f64 / a * *setting.brght * white_point[c];
+        let r = r.powf(1.0 / setting.gamma[c]) * a;
+        r as u16
+    };
+
+    for i in 0..ramps[0].len() {
+        ramps[0][i] = f(ramps[0][i], 0);
+        ramps[1][i] = f(ramps[1][i], 1);
+        ramps[2][i] = f(ramps[2][i], 2);
+    }
+}
+
+pub fn colorramp_fill_float(
+    setting: &ColorSettings,
+    ramps: &mut GammaRampsFloat,
+) {
+    let white_point = approximate_white_point(setting);
+    let f = |y: f64, c: usize| -> f64 {
+        let r = y * *setting.brght * white_point[c];
+        let r = r.powf(1.0 / setting.gamma[c]);
+        r
+    };
+
+    for i in 0..ramps[0].len() {
+        ramps[0][i] = f(ramps[0][i], 0);
+        ramps[1][i] = f(ramps[1][i], 1);
+        ramps[2][i] = f(ramps[2][i], 2);
+    }
+}
+
+fn approximate_white_point(setting: &ColorSettings) -> [f64; 3] {
+    let alpha = (*setting.temp % 100) as f64 / 100.0;
+    let temp_index = (*setting.temp - 1000) as usize / 100;
+    interpolate_color(
+        alpha,
+        &BLACKBODY_COLOR[temp_index],
+        &BLACKBODY_COLOR[temp_index + 3],
+    )
+}
+
+fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
+    [
+        (1.0 - alpha) * c1[0] + alpha * c2[0],
+        (1.0 - alpha) * c1[1] + alpha * c2[1],
+        (1.0 - alpha) * c1[2] + alpha * c2[2],
+    ]
+}
+
 // Whitepoint values for temperatures at 100K intervals.
 // These will be interpolated for the actual temperature.
 // This table was provided by Ingo Thies, 2013. See
@@ -269,65 +324,3 @@ const BLACKBODY_COLOR: [[f64; 3]; 242] = [
     [0.62774186, 0.75306977, 1.00000000], // 25000K
     [0.62740336, 0.75282962, 1.00000000], // 25100K
 ];
-
-#[inline]
-fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
-    [
-        (1.0 - alpha) * c1[0] + alpha * c2[0],
-        (1.0 - alpha) * c1[1] + alpha * c2[1],
-        (1.0 - alpha) * c1[2] + alpha * c2[2],
-    ]
-}
-
-#[inline]
-fn approximate_white_point(setting: &ColorSettings) -> [f64; 3] {
-    let alpha = (*setting.temp % 100) as f64 / 100.0;
-    let temp_index = (*setting.temp - 1000) as usize / 100;
-    interpolate_color(
-        alpha,
-        &BLACKBODY_COLOR[temp_index],
-        &BLACKBODY_COLOR[temp_index + 3],
-    )
-}
-
-pub fn colorramp_fill(
-    gamma_r: &mut [u16],
-    gamma_g: &mut [u16],
-    gamma_b: &mut [u16],
-    setting: &ColorSettings,
-) {
-    let white_point = approximate_white_point(setting);
-    let f = |y: u16, c: usize| -> u16 {
-        let r = y as f64 / (u16::MAX as u32 + 1) as f64;
-        let r = r * *setting.brght * white_point[c];
-        let r = r.powf(1.0 / setting.gamma[c]);
-        let r = r * (u16::MAX as u32 + 1) as f64;
-        r as u16
-    };
-
-    for i in 0..gamma_r.len() {
-        gamma_r[i] = f(gamma_r[i], 0);
-        gamma_g[i] = f(gamma_g[i], 1);
-        gamma_b[i] = f(gamma_b[i], 2);
-    }
-}
-
-pub fn colorramp_fill_float(
-    gamma_r: &mut [f64],
-    gamma_g: &mut [f64],
-    gamma_b: &mut [f64],
-    setting: &ColorSettings,
-) {
-    let white_point = approximate_white_point(setting);
-    let f = |y: f64, c: usize| -> f64 {
-        let r = y * *setting.brght * white_point[c];
-        let r = r.powf(1.0 / setting.gamma[c]);
-        r
-    };
-
-    for i in 0..gamma_r.len() {
-        gamma_r[i] = f(gamma_r[i], 0);
-        gamma_g[i] = f(gamma_g[i], 1);
-        gamma_b[i] = f(gamma_b[i], 2);
-    }
-}

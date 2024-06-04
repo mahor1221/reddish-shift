@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSettings, Adjuster};
+use crate::{config::ColorSettings, Adjuster};
 use drm::ffi::xf86drm_mode::{
     drmModeCrtc, drmModeCrtcGetGamma, drmModeCrtcSetGamma, drmModeFreeCrtc,
     drmModeFreeResources, drmModeGetCrtc, drmModeGetResources, drmModeRes,
@@ -386,7 +386,7 @@ unsafe extern "C" fn drm_set_temperature(
                 b_gamma,
                 (*crtcs).gamma_size as usize,
             );
-            colorramp_fill(r, g, b, &*setting);
+            // TODO: colorramp_fill_org(&*setting, r, g, b);
             drmModeCrtcSetGamma(
                 (*state).fd,
                 (*crtcs).crtc_id as u32,

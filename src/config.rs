@@ -205,13 +205,23 @@ fn start_dummy() {
     eprintln!("WARNING: Using dummy gamma method! Display will not be affected by this gamma method.");
 }
 
+fn print_vidmode_help() {
+    // b"Adjust gamma ramps with the X VidMode extension.\n\0" as *const u8
+    // b"  screen=N\t\tX screen to apply adjustments to\n\0" as *const u8
+}
+
 //
 // Parsed types
 //
 
 /// Merge of cli arguments and config files
+pub type Config = ConfigT<LocationProvider, AdjustmentMethod>;
+
+pub type ConfigBuilder =
+    ConfigT<LocationProviderType, Option<AdjustmentMethodType>>;
+
 #[derive(Debug, Clone, PartialEq)]
-pub struct Config {
+pub struct ConfigT<L, M> {
     pub verbosity: Verbosity,
     pub dry_run: bool,
     pub mode: Mode,
@@ -221,8 +231,9 @@ pub struct Config {
     pub preserve_gamma: bool,
     pub fade: bool,
     pub scheme: TransitionScheme,
-    pub location: LocationProvider,
-    pub method: Option<AdjustmentMethod>,
+
+    pub location: L,
+    pub method: M,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,12 +311,26 @@ pub enum TransitionScheme {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum LocationProviderType {
+    Manual(Manual),
+    Geoclue2,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum LocationProvider {
     Manual(Manual),
     Geoclue2(Geoclue2),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdjustmentMethodType {
+    Dummy,
+    Drm,
+    Randr { screen_num: Option<usize> },
+    Vidmode { screen_num: Option<usize> },
+}
+
+#[derive(Debug)]
 pub enum AdjustmentMethod {
     Dummy(Dummy),
     Randr(Randr),
@@ -334,7 +359,7 @@ pub enum Verbosity {
 // Config file
 //
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct ConfigFile {
     temperature: Option<Either<u16, TemperatureRange>>,
@@ -343,8 +368,8 @@ struct ConfigFile {
     preserve_gamma: Option<bool>,
     fade: Option<bool>,
     scheme: Option<TransitionScheme>,
-    location: Option<LocationProvider>,
-    method: Option<AdjustmentMethod>,
+    location: Option<LocationProviderType>,
+    method: Option<AdjustmentMethodType>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -357,7 +382,7 @@ struct Either<U: TryInto<T>, T> {
 // CLI Arguments
 //
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(version, about)]
 #[command(propagate_version = true)]
 struct CliArgs {
@@ -371,7 +396,7 @@ struct CliArgs {
     verbosity: VerbosityArgs,
 }
 
-#[derive(Args)]
+#[derive(Debug, Args)]
 #[group(multiple = false)]
 struct VerbosityArgs {
     #[arg(long, short, global = true, display_order(100))]
@@ -380,7 +405,7 @@ struct VerbosityArgs {
     verbose: bool,
 }
 
-#[derive(Args)]
+#[derive(Debug, Args)]
 #[group(required = true, multiple = true)]
 struct ColorSettingsArgs {
     #[arg(long, short, value_parser = Temperature::from_str)]
@@ -391,7 +416,7 @@ struct ColorSettingsArgs {
     brightness: Option<Brightness>,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum ModeArgs {
     Daemon(CmdArgs),
     Oneshot(CmdArgs),
@@ -404,7 +429,7 @@ enum ModeArgs {
     Reset(CmdInnerArgs),
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Args)]
 struct CmdInnerArgs {
     #[arg(
         long,
@@ -419,12 +444,12 @@ struct CmdInnerArgs {
         long,
         short,
         value_name = "ADJUSTMENT_METHOD[:SCREEN_NUMBER]",
-        value_parser = AdjustmentMethod::from_str
+        value_parser = AdjustmentMethodType::from_str
     )]
-    method: Option<AdjustmentMethod>,
+    method: Option<AdjustmentMethodType>,
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Args)]
 struct CmdArgs {
     #[arg(long, short, value_name = "TEMPERATURE_RANGE", value_parser = TemperatureRange::from_str)]
     temperature: Option<TemperatureRange>,
@@ -457,9 +482,9 @@ struct CmdArgs {
         long,
         short,
         value_name = "LOCATION_PROVIDER | LOCATION",
-        value_parser = LocationProvider::from_str
+        value_parser = LocationProviderType::from_str
     )]
-    location: Option<LocationProvider>,
+    location: Option<LocationProviderType>,
 }
 
 //
@@ -470,13 +495,30 @@ struct CmdArgs {
 // 4. default options
 //
 
-impl Config {
+impl ConfigBuilder {
     pub fn new() -> Result<Self> {
         let cli_args = CliArgs::parse();
         let config_file = ConfigFile::new(cli_args.config.as_deref())?;
-        let mut cfg = Config::default();
+        let mut cfg = Self::default();
         cfg.merge_with_config_file(config_file);
         cfg.merge_with_cli_args(cli_args);
+
+        Ok(cfg)
+    }
+
+    pub fn build(self) -> Result<Config> {
+        let Self {
+            verbosity,
+            dry_run,
+            mode,
+            day,
+            night,
+            preserve_gamma,
+            fade,
+            scheme,
+            location,
+            method,
+        } = self;
 
         // try all methods until one that works is found.
         // Gamma adjustment not needed for print mode
@@ -485,13 +527,40 @@ impl Config {
         //     // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
         //     // Failure if no methods were successful at this point.
         //     // b"No more methods to try.\n\0" as *const u8 as *const c_char,
-        match (&cfg.method, cfg.dry_run) {
-            (None, true) => todo!(),
-            (None, false) => todo!(),
-            (Some(_), _) => {}
-        }
+        let method = match method.unwrap() {
+            AdjustmentMethodType::Dummy => {
+                AdjustmentMethod::Dummy(Default::default())
+            }
+            AdjustmentMethodType::Drm => {
+                AdjustmentMethod::Drm(Default::default())
+            }
+            AdjustmentMethodType::Randr { screen_num } => {
+                AdjustmentMethod::Randr(Randr::new(screen_num))
+            }
+            AdjustmentMethodType::Vidmode { screen_num } => {
+                AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?.into())
+            }
+        };
 
-        Ok(cfg)
+        let location = match location {
+            LocationProviderType::Manual(m) => LocationProvider::Manual(m),
+            LocationProviderType::Geoclue2 => {
+                LocationProvider::Geoclue2(Default::default())
+            }
+        };
+
+        Ok(Config {
+            verbosity,
+            dry_run,
+            mode,
+            day,
+            night,
+            preserve_gamma,
+            fade,
+            scheme,
+            location,
+            method,
+        })
     }
 
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
@@ -770,15 +839,15 @@ impl Default for TransitionScheme {
         Self::Elevation(Default::default())
     }
 }
-impl Default for LocationProvider {
+impl Default for LocationProviderType {
     fn default() -> Self {
         Self::Manual(Default::default())
     }
 }
 
-impl Default for Config {
+impl Default for ConfigBuilder {
     fn default() -> Self {
-        Config {
+        Self {
             preserve_gamma: true,
             fade: true,
             mode: Default::default(),
@@ -1136,29 +1205,34 @@ impl FromStr for TransitionScheme {
     }
 }
 
-impl FromStr for LocationProvider {
+impl FromStr for LocationProviderType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // TODO: map cities or countries to locations
         match s {
-            "geoclue2" => Ok(Self::Geoclue2(Default::default())),
+            "geoclue2" => Ok(Self::Geoclue2),
             _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
         }
         .map_err(|_| anyhow!("asdf"))
     }
 }
 
-impl FromStr for AdjustmentMethod {
+impl FromStr for AdjustmentMethodType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
-            ["dummy"] => Ok(Self::Dummy(Default::default())),
-            ["randr"] => Ok(Self::Randr(Default::default())),
-            ["randr", n] => Ok(Self::Randr(Randr::new(n.parse()?))),
-            ["drm"] => Ok(Self::Drm(Default::default())),
-            ["vidmode"] => Ok(Self::Vidmode(Default::default())),
+            ["dummy"] => Ok(Self::Dummy),
+            ["drm"] => Ok(Self::Drm),
+            ["vidmode"] => Ok(Self::Vidmode { screen_num: None }),
+            ["vidmode", n] => Ok(Self::Vidmode {
+                screen_num: Some(n.parse()?),
+            }),
+            ["randr"] => Ok(Self::Randr { screen_num: None }),
+            ["randr", n] => Ok(Self::Randr {
+                screen_num: Some(n.parse()?),
+            }),
             _ => Err(anyhow!("method")),
         }
     }
@@ -1298,13 +1372,13 @@ impl<'de> Deserialize<'de> for TransitionScheme {
     }
 }
 
-impl<'de> Deserialize<'de> for LocationProvider {
+impl<'de> Deserialize<'de> for LocationProviderType {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
 
-impl<'de> Deserialize<'de> for AdjustmentMethod {
+impl<'de> Deserialize<'de> for AdjustmentMethodType {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
@@ -1354,18 +1428,13 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_creating_default_config() {
-        Config::default();
-    }
-
-    #[test]
     fn test_config_toml_has_default_values() -> Result<()> {
         const CONFIG_TOML: &str =
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
         let cfg = toml::from_str(CONFIG_TOML)?;
-        let mut config = Config::default();
+        let mut config = ConfigBuilder::default();
         config.merge_with_config_file(cfg);
-        assert_eq!(config, Config::default());
+        assert_eq!(config, ConfigBuilder::default());
         Ok(())
     }
 

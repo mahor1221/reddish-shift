@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::colorramp_fill, config::ColorSettings, Adjuster};
+use crate::{config::ColorSettings, Adjuster};
 use libc::{
     __errno_location, atoi, calloc, fputs, free, malloc, memcpy, perror,
     strcasecmp, strtol, FILE,
@@ -36,12 +36,12 @@ use xcb::{
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Randr {
-    screen: usize,
+    screen_num: usize,
 }
 
 impl Randr {
-    pub fn new(screen: usize) -> Self {
-        Self { screen }
+    pub fn new(screen_num: Option<usize>) -> Self {
+        todo!()
     }
 }
 
@@ -565,7 +565,8 @@ unsafe extern "C" fn randr_set_temperature_for_crtc(
     let r = std::slice::from_raw_parts_mut(gamma_r, ramp_size as usize);
     let g = std::slice::from_raw_parts_mut(gamma_g, ramp_size as usize);
     let b = std::slice::from_raw_parts_mut(gamma_b, ramp_size as usize);
-    colorramp_fill(r, g, b, &*setting);
+    // TODO: colorramp_fill_org(&*setting, r, g, b);
+
     // colorramp_fill(gamma_r, gamma_g, gamma_b, ramp_size as c_int, setting);
 
     // TODO: Error handling
