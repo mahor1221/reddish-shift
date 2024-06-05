@@ -101,9 +101,9 @@ impl Adjuster for Vidmode {
             self.saved_ramps.clone()
         } else {
             // Initialize gamma ramps to pure state
-            let a = self.ramp_size as f64 * (u16::MAX as u32 + 1) as f64;
+            let a = (u16::MAX as u32 + 1) as f64;
             let v = (0..self.ramp_size)
-                .map(|i| (i as f64 / a) as u16)
+                .map(|i| (i as f64 / self.ramp_size as f64 * a) as u16)
                 .collect::<Vec<_>>();
             [v.clone(), v.clone(), v]
         };

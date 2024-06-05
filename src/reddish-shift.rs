@@ -205,7 +205,7 @@ fn main() -> Result<()> {
 
         Mode::Reset => {
             let cs = ColorSettings::default();
-            cfg.method.set_color(&cs, cfg.preserve_gamma)?;
+            cfg.method.set_color(&cs, false)?;
         }
     }
 
