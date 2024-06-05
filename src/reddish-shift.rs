@@ -192,12 +192,12 @@ fn main() -> Result<()> {
             //     // print_period(period, transition_prog);
             //     // b"Color settings: %uK\n\0"
             // }
-            cfg.method.set_color(&interp, cfg.preserve_gamma)?;
+            cfg.method.set_color(&interp, cfg.reset_ramps)?;
         }
 
         Mode::Set => {
             // for the set command, color settings are stored in the day field
-            cfg.method.set_color(&cfg.day, cfg.preserve_gamma)?;
+            cfg.method.set_color(&cfg.day, cfg.reset_ramps)?;
             // if cfg.verbosity {
             //     // b"Color settings: %uK\n\0"
             // }
@@ -205,7 +205,7 @@ fn main() -> Result<()> {
 
         Mode::Reset => {
             let cs = ColorSettings::default();
-            cfg.method.set_color(&cs, false)?;
+            cfg.method.set_color(&cs, true)?;
         }
     }
 
@@ -375,11 +375,7 @@ pub trait Adjuster {
 
     /// Set a specific color temperature
     #[allow(unused_variables)]
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
+    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         Err(anyhow!("Temperature adjustment failed"))
     }
 }
@@ -411,16 +407,12 @@ impl Adjuster for AdjustmentMethod {
         }
     }
 
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
+    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         match self {
-            Self::Dummy(t) => t.set_color(cs, preserve_gamma),
-            Self::Randr(t) => t.set_color(cs, preserve_gamma),
-            Self::Drm(t) => t.set_color(cs, preserve_gamma),
-            Self::Vidmode(t) => t.set_color(cs, preserve_gamma),
+            Self::Dummy(t) => t.set_color(cs, reset_ramps),
+            Self::Randr(t) => t.set_color(cs, reset_ramps),
+            Self::Drm(t) => t.set_color(cs, reset_ramps),
+            Self::Vidmode(t) => t.set_color(cs, reset_ramps),
         }
 
         // // In Quartz (macOS) the gamma adjustments will

@@ -19,10 +19,14 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::ops::{Deref, DerefMut};
+
 use crate::ColorSettings;
 
-pub type GammaRamps = [Vec<u16>; 3];
-pub type GammaRampsFloat = [Vec<f64>; 3];
+#[derive(Debug, Clone)]
+pub struct GammaRamps(pub [Vec<u16>; 3]);
+#[derive(Debug, Clone)]
+pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
 pub fn colorramp_fill(setting: &ColorSettings, ramps: &mut GammaRamps) {
     let white_point = approximate_white_point(setting);
@@ -74,6 +78,31 @@ fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
         (1.0 - alpha) * c1[1] + alpha * c2[1],
         (1.0 - alpha) * c1[2] + alpha * c2[2],
     ]
+}
+
+// Read NOTE in src/config.rs
+impl Deref for GammaRamps {
+    type Target = [Vec<u16>; 3];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl Deref for GammaRampsFloat {
+    type Target = [Vec<f64>; 3];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for GammaRamps {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl DerefMut for GammaRampsFloat {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 // Whitepoint values for temperatures at 100K intervals.

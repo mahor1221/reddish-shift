@@ -210,16 +210,12 @@ fn print_vidmode_help() {
     // b"  screen=N\t\tX screen to apply adjustments to\n\0" as *const u8
 }
 
-//
-// Parsed types
-//
-
-/// Merge of cli arguments and config files
 pub type Config = ConfigT<LocationProvider, AdjustmentMethod>;
 
 pub type ConfigBuilder =
     ConfigT<LocationProviderType, Option<AdjustmentMethodType>>;
 
+/// Merge of cli arguments and config files
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigT<L, M> {
     pub verbosity: Verbosity,
@@ -228,8 +224,8 @@ pub struct ConfigT<L, M> {
 
     pub day: ColorSettings,
     pub night: ColorSettings,
-    pub preserve_gamma: bool,
-    pub fade: bool,
+    pub reset_ramps: bool,
+    pub disable_fade: bool,
     pub scheme: TransitionScheme,
 
     pub location: L,
@@ -365,8 +361,8 @@ struct ConfigFile {
     temperature: Option<Either<u16, TemperatureRange>>,
     brightness: Option<Either<f64, BrightnessRange>>,
     gamma: Option<Either<f64, GammaRange>>,
-    preserve_gamma: Option<bool>,
-    fade: Option<bool>,
+    reset_ramps: Option<bool>,
+    disable_fade: Option<bool>,
     scheme: Option<TransitionScheme>,
     location: Option<LocationProviderType>,
     method: Option<AdjustmentMethodType>,
@@ -390,7 +386,7 @@ struct CliArgs {
     mode: Option<ModeArgs>,
     #[arg(long, short, global = true, display_order(100), value_name = "FILE")]
     config: Option<PathBuf>,
-    #[arg(long, short, global = true, display_order(100))]
+    #[arg(long, global = true, display_order(100))]
     dry_run: bool,
     #[command(flatten)]
     verbosity: VerbosityArgs,
@@ -431,14 +427,8 @@ enum ModeArgs {
 
 #[derive(Debug, Args)]
 struct CmdInnerArgs {
-    #[arg(
-        long,
-        short,
-        value_name = "BOOLEAN",
-        hide_possible_values(true),
-        display_order(99)
-    )]
-    preserve_gamma: Option<bool>,
+    #[arg(long, display_order(99))]
+    reset_ramps: bool,
 
     #[arg(
         long,
@@ -458,14 +448,9 @@ struct CmdArgs {
     #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = GammaRange::from_str)]
     gamma: Option<GammaRange>,
 
-    #[arg(
-        long,
-        short,
-        value_name = "BOOLEAN",
-        hide_possible_values(true),
-        display_order(99)
-    )]
-    fade: Option<bool>,
+    // redshift uses -r for disabling fade
+    #[arg(long, display_order(99))]
+    disable_fade: bool,
 
     #[command(flatten)]
     inner: CmdInnerArgs,
@@ -513,8 +498,8 @@ impl ConfigBuilder {
             mode,
             day,
             night,
-            preserve_gamma,
-            fade,
+            reset_ramps,
+            disable_fade,
             scheme,
             location,
             method,
@@ -555,8 +540,8 @@ impl ConfigBuilder {
             mode,
             day,
             night,
-            preserve_gamma,
-            fade,
+            reset_ramps,
+            disable_fade,
             scheme,
             location,
             method,
@@ -607,7 +592,7 @@ impl ConfigBuilder {
             temperature,
             brightness,
             gamma,
-            fade,
+            disable_fade,
             inner,
             scheme,
             location,
@@ -626,9 +611,7 @@ impl ConfigBuilder {
             self.night.gamma = t.night;
         }
 
-        if let Some(t) = fade {
-            self.fade = t;
-        }
+        self.disable_fade = disable_fade;
         if let Some(t) = scheme {
             self.scheme = t;
         }
@@ -640,13 +623,11 @@ impl ConfigBuilder {
 
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
         let CmdInnerArgs {
-            preserve_gamma,
+            reset_ramps,
             method,
         } = args;
 
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = t;
-        }
+        self.reset_ramps = reset_ramps;
         if let Some(t) = method {
             self.method = Some(t);
         }
@@ -658,8 +639,8 @@ impl ConfigBuilder {
             temperature,
             brightness,
             gamma,
-            preserve_gamma,
-            fade,
+            reset_ramps,
+            disable_fade,
             method,
             scheme,
             location,
@@ -678,11 +659,11 @@ impl ConfigBuilder {
             self.night.gamma = t.t.night;
         }
 
-        if let Some(t) = preserve_gamma {
-            self.preserve_gamma = t;
+        if let Some(t) = reset_ramps {
+            self.reset_ramps = t;
         }
-        if let Some(t) = fade {
-            self.fade = t;
+        if let Some(t) = disable_fade {
+            self.disable_fade = t;
         }
 
         if let Some(t) = scheme {
@@ -736,8 +717,8 @@ impl ConfigFile {
             temperature,
             brightness,
             gamma,
-            preserve_gamma,
-            fade,
+            reset_ramps,
+            disable_fade,
             method,
             scheme,
             location,
@@ -752,8 +733,8 @@ impl ConfigFile {
         if let Some(t) = gamma {
             self.gamma = Some(t);
         }
-        self.preserve_gamma = preserve_gamma;
-        self.fade = fade;
+        self.reset_ramps = reset_ramps;
+        self.disable_fade = disable_fade;
 
         if let Some(t) = scheme {
             self.scheme = Some(t);
@@ -848,13 +829,13 @@ impl Default for LocationProviderType {
 impl Default for ConfigBuilder {
     fn default() -> Self {
         Self {
-            preserve_gamma: true,
-            fade: true,
+            day: ColorSettings::default_day(),
+            night: ColorSettings::default_night(),
             mode: Default::default(),
             verbosity: Default::default(),
             dry_run: Default::default(),
-            day: ColorSettings::default_day(),
-            night: ColorSettings::default_night(),
+            reset_ramps: Default::default(),
+            disable_fade: Default::default(),
             method: Default::default(),
             scheme: Default::default(),
             location: Default::default(),

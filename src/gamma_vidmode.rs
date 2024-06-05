@@ -61,7 +61,7 @@ impl Vidmode {
             .xf86vidmode_get_gamma_ramp(screen_num, ramp_size)?
             .reply()?;
         // eprintln!("X request failed: XF86VidModeGetGammaRamp");
-        let saved_ramps = [ramp.red, ramp.green, ramp.blue];
+        let saved_ramps = GammaRamps([ramp.red, ramp.green, ramp.blue]);
 
         Ok(Self {
             conn,
@@ -91,24 +91,25 @@ impl Adjuster for Vidmode {
         self.set_gamma_ramp(&self.saved_ramps)
     }
 
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
-        let mut ramps = if preserve_gamma {
-            // Initialize gamma ramps from saved state
-            self.saved_ramps.clone()
+    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+        let mut ramps = if reset_ramps {
+            GammaRamps::default_vidmode(self.ramp_size)
         } else {
-            // Initialize gamma ramps to pure state
-            let a = (u16::MAX as u32 + 1) as f64;
-            let v = (0..self.ramp_size)
-                .map(|i| (i as f64 / self.ramp_size as f64 * a) as u16)
-                .collect::<Vec<_>>();
-            [v.clone(), v.clone(), v]
+            self.saved_ramps.clone()
         };
 
         colorramp_fill(cs, &mut ramps);
         self.set_gamma_ramp(&ramps)
+    }
+}
+
+impl GammaRamps {
+    fn default_vidmode(ramp_size: u16) -> Self {
+        // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
+        let a = (u16::MAX as u32 + 1) as f64;
+        let v = (0..ramp_size)
+            .map(|i| (i as f64 / ramp_size as f64 * a) as u16)
+            .collect::<Vec<_>>();
+        Self([v.clone(), v.clone(), v])
     }
 }

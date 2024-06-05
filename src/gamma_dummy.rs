@@ -24,13 +24,9 @@ use anyhow::Result;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dummy;
 impl Adjuster for Dummy {
-    fn set_color(
-        &self,
-        cs: &ColorSettings,
-        preserve_gamma: bool,
-    ) -> Result<()> {
+    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         // println!("Temperature: {temp}"); // (*setting).temperature);
-        println!("{cs:?}, PreserveGamma({preserve_gamma})");
+        println!("{cs:?}, PreserveGamma({reset_ramps})");
         Ok(())
     }
 }
