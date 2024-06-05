@@ -46,7 +46,10 @@ struct Crtc {
 }
 
 impl Randr {
-    pub fn new(screen_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
+    pub fn new(
+        screen_num: Option<usize>,
+        mut crtc_ids: Vec<u32>,
+    ) -> Result<Self> {
         // uses the DISPLAY environment variable if screen_num is None
         let screen_num = screen_num.map(|n| ":".to_string() + &n.to_string());
         let (conn, screen_num) = x11rb::connect(screen_num.as_deref())?;
@@ -64,6 +67,8 @@ impl Randr {
         let crtcs = if crtc_ids.is_empty() {
             conn.randr_get_screen_resources_current(win)?.reply()?.crtcs
         } else {
+            crtc_ids.sort();
+            crtc_ids.dedup();
             crtc_ids
         };
 

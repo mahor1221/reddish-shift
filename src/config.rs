@@ -96,7 +96,8 @@ cargo target triple: {CARGO_TARGET_TRIPLE}"
     )
 };
 
-const PKG_BUGREPORT: &str = "https://github.com/mahor1221/reddish-shift/issues";
+const PKG_BUGREPORT: &str =
+    "https://github.com/mahor1221/reddish-shift/issues";
 
 // TRANSLATORS: help output
 // LAT is latitude, LON is longitude,
@@ -411,7 +412,13 @@ struct Either<U: TryInto<T>, T> {
 struct CliArgs {
     #[command(subcommand)]
     mode: Option<ModeArgs>,
-    #[arg(long, short, global = true, display_order(100), value_name = "FILE")]
+    #[arg(
+        long,
+        short,
+        global = true,
+        display_order(100),
+        value_name = "FILE"
+    )]
     config: Option<PathBuf>,
     #[arg(long, global = true, display_order(100))]
     dry_run: bool,
@@ -708,7 +715,8 @@ impl ConfigBuilder {
 impl ConfigFile {
     fn new(config_path: Option<&Path>) -> Result<Self> {
         #[cfg(unix)]
-        let system_config = Path::new(formatcp!("/etc/{PKG_NAME}/config.toml"));
+        let system_config =
+            Path::new(formatcp!("/etc/{PKG_NAME}/config.toml"));
         let local_config =
             dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"));
         let user_config = config_path

@@ -26,17 +26,18 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use drm::{
-    control::{crtc::Handle as CrtcHandle, Device as ControlDevice},
+    control::{
+        crtc::Handle as CrtcHandle, from_u32 as handle_from_u32,
+        Device as ControlDevice,
+    },
     Device,
 };
 use std::{
     fs::{File, OpenOptions},
-    io::{ErrorKind as IoErrorKind, Result as IoResult},
+    io::Result as IoResult,
     os::fd::{AsFd, BorrowedFd},
     path::Path,
 };
-
-const DRM_DIR: &str = "/dev/dri";
 
 #[derive(Debug)]
 struct Card(File);
@@ -77,67 +78,59 @@ impl Card {
 }
 
 impl Drm {
-    pub fn new(card_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
-        let card_num = card_num.unwrap_or_default();
-        let path = DRM_DIR.to_string() + "/card" + &card_num.to_string();
+    pub fn new(
+        card_num: Option<usize>,
+        mut crtc_ids: Vec<u32>,
+    ) -> Result<Self> {
+        let path = format!("/dev/dri/card{}", card_num.unwrap_or_default());
         let card = Card::open(path)?;
 
-        let crtcs = if crtc_ids.is_empty() {
-            card.resource_handles()?.crtcs
-        } else {
-            crtc_ids
-                .into_iter()
-                .map(drm::control::from_u32)
-                .collect::<Option<Vec<_>>>()
-                .ok_or(anyhow!("must be non zero positive"))?
-        };
-
-        // let res = card
-        //     .resource_handles()
-        //     .expect("Could not load normal resource ids.");
-        // let coninfo: Vec<_> = res
-        //     .connectors()
-        //     .iter()
-        //     .flat_map(|con| card.get_connector(*con, true))
-        //     .collect();
-        // let crtcinfo: Vec<_> = res
-        //     .crtcs()
-        //     .iter()
-        //     .flat_map(|crtc| card.get_crtc(*crtc))
-        //     .collect();
-
-        // let con = coninfo
-        //     .iter()
-        //     .find(|&i| i.state() == drm::control::connector::State::Connected)
-        //     .expect("No connected connectors");
-
-        // let &mode = con.modes().first().expect("No modes found on connector");
-
-        // dbg!(mode);
+        // See https://docs.kernel.org/gpu/drm-kms.html
+        let supported_crtcs = card
+            .resource_handles()?
+            .connectors
+            .into_iter()
+            .map(|h| card.get_connector(h, false))
+            .collect::<IoResult<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|conn| conn.current_encoder())
+            .map(|h| card.get_encoder(h))
+            .collect::<IoResult<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|enc| enc.crtc())
+            .collect::<Vec<_>>();
 
         // TODO: accumulate errors
+        let crtcs = if crtc_ids.is_empty() {
+            supported_crtcs
+        } else {
+            crtc_ids.sort();
+            crtc_ids.dedup();
+            let crtcs = crtc_ids
+                .into_iter()
+                .map(handle_from_u32)
+                .collect::<Option<Vec<CrtcHandle>>>()
+                .ok_or(anyhow!("must be non zero positive"))?;
+
+            for &h in &crtcs {
+                if !supported_crtcs.iter().any(|&s| s == h) {
+                    let crtcs = supported_crtcs
+                        .iter()
+                        .map(|&h| h.into())
+                        .collect::<Vec<u32>>();
+                    Err(anyhow!("Valid CRTCs are {crtcs:?}",))?
+                }
+            }
+            crtcs
+        };
+
         let crtcs = crtcs
             .into_iter()
             .map(|handle| {
-                let info = match card.get_crtc(handle) {
-                    Ok(i) => Ok(i),
-                    Err(e) if e.kind() == IoErrorKind::NotFound => {
-                        let crtcs = card
-                            .resource_handles()?
-                            .crtcs
-                            .into_iter()
-                            .map(u32::from)
-                            .collect::<Vec<_>>();
-                        Err(anyhow!("Valid CRTCs are {crtcs:?}"))
-                    }
-                    Err(e) => Err(anyhow::Error::new(e)),
-                }?;
-
-                // fprintf(stderr, _("CRTC %i lost, skipping\n"), crtcs->crtc_num);
+                let info = card.get_crtc(handle)?;
                 let ramp_size = info.gamma_length();
                 if ramp_size <= 1 {
                     Err(anyhow!("gamma_length"))?
-                    // "Could not get gamma ramp size for CRTC %i\non graphics card %i, ignoring device.\n"
                 }
 
                 let saved_ramps = {
@@ -160,7 +153,10 @@ impl Drm {
         Ok(Self { card, crtcs })
     }
 
-    fn set_gamma_ramps(&self, f: impl Fn(&Crtc) -> IoResult<()>) -> Result<()> {
+    fn set_gamma_ramps(
+        &self,
+        f: impl Fn(&Crtc) -> IoResult<()>,
+    ) -> Result<()> {
         // TODO: accumulate errors
         self.crtcs.iter().map(f).collect::<IoResult<Vec<_>>>()?;
         Ok(())

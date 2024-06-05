@@ -39,7 +39,8 @@ pub mod solar;
 use anyhow::{anyhow, Result};
 use config::{
     AdjustmentMethod, ColorSettings, ConfigBuilder, Elevation, ElevationRange,
-    Location, LocationProvider, Mode, TimeOffset, TimeRanges, TransitionScheme,
+    Location, LocationProvider, Mode, TimeOffset, TimeRanges,
+    TransitionScheme,
 };
 // use hooks::hooks_signal_period_change;
 use std::{

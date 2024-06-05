@@ -22,6 +22,18 @@ reset-ramps = false
 # will gradually apply the new screen temperature over a couple of seconds.
 disable-fade = false
 
+# Set the location-provider: 'geoclue2', 'manual'
+# type 'reddish-shift -l list' to see possible values.
+
+# Configuration of the location-provider:
+# type 'reddish-shift -l PROVIDER:help' to see the settings.
+# ex: 'reddish-shift -l manual:help'
+# Keep in mind that longitudes west of Greenwich (e.g. the Americas)
+# are negative numbers.
+location = "0.0:0.0"
+#manual = "geoclue2"
+#manual = "Newyork"
+
 # Set transition scheme: 'time', 'elevation'
 # Setting it to `elevation` requires using a location provider
 
@@ -43,18 +55,6 @@ disable-fade = false
 scheme = "3:-6"
 #scheme = "dawn:dusk"
 
-
-# Set the location-provider: 'geoclue2', 'manual'
-# type 'reddish-shift -l list' to see possible values.
-
-# Configuration of the location-provider:
-# type 'reddish-shift -l PROVIDER:help' to see the settings.
-# ex: 'reddish-shift -l manual:help'
-# Keep in mind that longitudes west of Greenwich (e.g. the Americas)
-# are negative numbers.
-location = "0.0:0.0"
-#manual = "geoclue2"
-#manual = "Newyork"
 
 # Set the adjustment-method: 'randr', 'vidmode', 'drm'
 # type 'reddish-shift -m list' to see all possible values.
