@@ -13,7 +13,6 @@ name = "reddish-shift"
 [dependencies]
 libc = "0.2"
 x11-dl = "2.21"
-xcb = { version = "1.4", features = ["randr"] }
 drm-rs = "0.1"
 gio-sys = "0.18.1"
 glib-sys = "0.18.1"

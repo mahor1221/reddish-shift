@@ -197,6 +197,8 @@ fn print_manual_help() {
     );
 }
 
+// "Parameter `{}` is now always on;  Use the `-P` command-line option to disable.",
+
 fn print_dummy_help() {
     println!("Does not affect the display but prints the color temperature to the terminal.")
 }
@@ -208,6 +210,19 @@ fn start_dummy() {
 fn print_vidmode_help() {
     // b"Adjust gamma ramps with the X VidMode extension.\n\0" as *const u8
     // b"  screen=N\t\tX screen to apply adjustments to\n\0" as *const u8
+}
+
+fn print_randr_help() {
+    // fputs(_("Adjust gamma ramps with the X RANDR extension.\n"), f);
+    // fputs("\n", f);
+
+    // /* TRANSLATORS: RANDR help output
+    //    left column must not be translated */
+    // fputs(_("  screen=N\t\tX screen to apply adjustments to\n"
+    //         "  crtc=N\tList of comma separated CRTCs to apply"
+    //         " adjustments to\n"),
+    //       f);
+    // fputs("\n", f);
 }
 
 pub type Config = ConfigT<LocationProvider, AdjustmentMethod>;
@@ -322,8 +337,13 @@ pub enum LocationProvider {
 pub enum AdjustmentMethodType {
     Dummy,
     Drm,
-    Randr { screen_num: Option<usize> },
-    Vidmode { screen_num: Option<usize> },
+    Randr {
+        screen_num: Option<usize>,
+        crtcs: Vec<u32>,
+    },
+    Vidmode {
+        screen_num: Option<usize>,
+    },
 }
 
 #[derive(Debug)]
@@ -433,7 +453,7 @@ struct CmdInnerArgs {
     #[arg(
         long,
         short,
-        value_name = "ADJUSTMENT_METHOD[:SCREEN_NUMBER]",
+        value_name = "ADJUSTMENT_METHOD[:DISPLAY[:CRTC1,CRTC2,...]]",
         value_parser = AdjustmentMethodType::from_str
     )]
     method: Option<AdjustmentMethodType>,
@@ -519,11 +539,11 @@ impl ConfigBuilder {
             AdjustmentMethodType::Drm => {
                 AdjustmentMethod::Drm(Default::default())
             }
-            AdjustmentMethodType::Randr { screen_num } => {
-                AdjustmentMethod::Randr(Randr::new(screen_num))
+            AdjustmentMethodType::Randr { screen_num, crtcs } => {
+                AdjustmentMethod::Randr(Randr::new(screen_num, crtcs)?)
             }
             AdjustmentMethodType::Vidmode { screen_num } => {
-                AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?.into())
+                AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?)
             }
         };
 
@@ -1203,6 +1223,22 @@ impl FromStr for AdjustmentMethodType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let randr = |n: Option<&str>, c: Option<&str>| {
+            Ok(Self::Randr {
+                screen_num: match n {
+                    None => None,
+                    Some(s) => Some(s.parse()?),
+                },
+                crtcs: match c {
+                    None => Vec::new(),
+                    Some(s) => s
+                        .split(',')
+                        .map(|s| Ok(s.trim().parse()?))
+                        .collect::<Result<Vec<_>>>()?,
+                },
+            })
+        };
+
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             ["dummy"] => Ok(Self::Dummy),
             ["drm"] => Ok(Self::Drm),
@@ -1210,10 +1246,9 @@ impl FromStr for AdjustmentMethodType {
             ["vidmode", n] => Ok(Self::Vidmode {
                 screen_num: Some(n.parse()?),
             }),
-            ["randr"] => Ok(Self::Randr { screen_num: None }),
-            ["randr", n] => Ok(Self::Randr {
-                screen_num: Some(n.parse()?),
-            }),
+            ["randr"] => randr(None, None),
+            ["randr", n] => randr(Some(n), None),
+            ["randr", n, c] => randr(Some(n), Some(c)),
             _ => Err(anyhow!("method")),
         }
     }

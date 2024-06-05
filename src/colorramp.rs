@@ -28,6 +28,19 @@ pub struct GammaRamps(pub [Vec<u16>; 3]);
 #[derive(Debug, Clone)]
 pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
+impl GammaRamps {
+    // used in vidmode and randr
+    pub fn new(ramp_size: u16) -> Self {
+        // Initialize gamma ramps to pure state
+        // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
+        let a = (u16::MAX as u32 + 1) as f64;
+        let v = (0..ramp_size)
+            .map(|i| (i as f64 / ramp_size as f64 * a) as u16)
+            .collect::<Vec<_>>();
+        Self([v.clone(), v.clone(), v])
+    }
+}
+
 pub fn colorramp_fill(setting: &ColorSettings, ramps: &mut GammaRamps) {
     let white_point = approximate_white_point(setting);
     let a = (u16::MAX as u32 + 1) as f64;

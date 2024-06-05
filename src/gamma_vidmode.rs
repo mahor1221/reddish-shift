@@ -93,23 +93,12 @@ impl Adjuster for Vidmode {
 
     fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         let mut ramps = if reset_ramps {
-            GammaRamps::default_vidmode(self.ramp_size)
+            GammaRamps::new(self.ramp_size)
         } else {
             self.saved_ramps.clone()
         };
 
         colorramp_fill(cs, &mut ramps);
         self.set_gamma_ramp(&ramps)
-    }
-}
-
-impl GammaRamps {
-    fn default_vidmode(ramp_size: u16) -> Self {
-        // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
-        let a = (u16::MAX as u32 + 1) as f64;
-        let v = (0..ramp_size)
-            .map(|i| (i as f64 / ramp_size as f64 * a) as u16)
-            .collect::<Vec<_>>();
-        Self([v.clone(), v.clone(), v])
     }
 }
