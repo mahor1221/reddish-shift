@@ -25,7 +25,7 @@ pub mod gamma_dummy;
 pub mod gamma_randr;
 pub mod gamma_vidmode;
 pub mod hooks;
-pub mod location_geoclue2;
+// pub mod location_geoclue2;
 pub mod location_manual;
 pub mod pipeutils;
 pub mod signals;
@@ -353,9 +353,6 @@ impl<T: Default + PartialEq> IsDefault for T {
 }
 
 pub trait Provider {
-    // Allocate storage and make connections that depend on options
-    // fn start() -> c_int;
-
     // Listen and handle location updates
     // fn fd() -> c_int;
 
@@ -365,9 +362,6 @@ pub trait Provider {
 }
 
 pub trait Adjuster {
-    // TODO: If true, this method will be tried if none is explicitly chosen
-    // int autostart;
-
     /// Restore the adjustment to the state before the Adjuster object was created
     fn restore(&self) -> Result<()> {
         Err(anyhow!("Temperature adjustment failed"))
@@ -392,7 +386,7 @@ impl Provider for LocationProvider {
 
         match self {
             Self::Manual(t) => t.get(),
-            Self::Geoclue2(t) => t.get(),
+            // Self::Geoclue2(t) => t.get(),
         }
     }
 }

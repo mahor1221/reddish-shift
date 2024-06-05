@@ -11,13 +11,6 @@ path = "src/reddish-shift.rs"
 name = "reddish-shift"
 
 [dependencies]
-libc = "0.2"
-x11-dl = "2.21"
-drm-rs = "0.1"
-gio-sys = "0.18.1"
-glib-sys = "0.18.1"
-gobject-sys = "0.18.0"
-
 anyhow = "1.0"
 const_format = "0.2"
 
@@ -25,8 +18,16 @@ dirs = "5.0"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
-time = { version = "0.3.36", features = ["local-offset"] }
-x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
+
+time = { version = "0.3", features = ["local-offset"] }
+x11rb = { version = "0.13", features = ["xf86vidmode", "randr"] }
+drm = "0.12.0"
+
+# location_geoclue2.rs
+libc = "0.2"
+#gio-sys = "0.18.1"
+#glib-sys = "0.18.1"
+#gobject-sys = "0.18.0"
 
 [build-dependencies]
 anyhow = "1.0"

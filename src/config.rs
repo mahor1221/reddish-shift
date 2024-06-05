@@ -23,7 +23,6 @@ use crate::{
     gamma_dummy::Dummy,
     gamma_randr::Randr,
     gamma_vidmode::Vidmode,
-    location_geoclue2::Geoclue2,
     location_manual::Manual,
     solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
     Alpha,
@@ -225,6 +224,11 @@ fn print_randr_help() {
     // fputs("\n", f);
 }
 
+fn print_drm_help() {
+    // requires root
+    // b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8
+}
+
 pub type Config = ConfigT<LocationProvider, AdjustmentMethod>;
 
 pub type ConfigBuilder =
@@ -324,19 +328,22 @@ pub enum TransitionScheme {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocationProviderType {
     Manual(Manual),
-    Geoclue2,
+    // Geoclue2,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum LocationProvider {
     Manual(Manual),
-    Geoclue2(Geoclue2),
+    // Geoclue2(Geoclue2),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdjustmentMethodType {
     Dummy,
-    Drm,
+    Drm {
+        card_num: Option<usize>,
+        crtcs: Vec<u32>,
+    },
     Randr {
         screen_num: Option<usize>,
         crtcs: Vec<u32>,
@@ -536,8 +543,8 @@ impl ConfigBuilder {
             AdjustmentMethodType::Dummy => {
                 AdjustmentMethod::Dummy(Default::default())
             }
-            AdjustmentMethodType::Drm => {
-                AdjustmentMethod::Drm(Default::default())
+            AdjustmentMethodType::Drm { card_num, crtcs } => {
+                AdjustmentMethod::Drm(Drm::new(card_num, crtcs)?)
             }
             AdjustmentMethodType::Randr { screen_num, crtcs } => {
                 AdjustmentMethod::Randr(Randr::new(screen_num, crtcs)?)
@@ -549,9 +556,9 @@ impl ConfigBuilder {
 
         let location = match location {
             LocationProviderType::Manual(m) => LocationProvider::Manual(m),
-            LocationProviderType::Geoclue2 => {
-                LocationProvider::Geoclue2(Default::default())
-            }
+            // LocationProviderType::Geoclue2 => {
+            //     LocationProvider::Geoclue2(Default::default())
+            // }
         };
 
         Ok(Config {
@@ -1212,7 +1219,7 @@ impl FromStr for LocationProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // TODO: map cities or countries to locations
         match s {
-            "geoclue2" => Ok(Self::Geoclue2),
+            // "geoclue2" => Ok(Self::Geoclue2),
             _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
         }
         .map_err(|_| anyhow!("asdf"))
@@ -1223,6 +1230,23 @@ impl FromStr for AdjustmentMethodType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: refactor
+        let drm = |n: Option<&str>, c: Option<&str>| {
+            Ok(Self::Drm {
+                card_num: match n {
+                    None => None,
+                    Some(s) => Some(s.parse()?),
+                },
+                crtcs: match c {
+                    None => Vec::new(),
+                    Some(s) => s
+                        .split(',')
+                        .map(|s| Ok(s.trim().parse()?))
+                        .collect::<Result<Vec<_>>>()?,
+                },
+            })
+        };
+
         let randr = |n: Option<&str>, c: Option<&str>| {
             Ok(Self::Randr {
                 screen_num: match n {
@@ -1241,7 +1265,9 @@ impl FromStr for AdjustmentMethodType {
 
         match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
             ["dummy"] => Ok(Self::Dummy),
-            ["drm"] => Ok(Self::Drm),
+            ["drm"] => drm(None, None),
+            ["drm", n] => drm(Some(n), None),
+            ["drm", n, c] => drm(Some(n), Some(c)),
             ["vidmode"] => Ok(Self::Vidmode { screen_num: None }),
             ["vidmode", n] => Ok(Self::Vidmode {
                 screen_num: Some(n.parse()?),

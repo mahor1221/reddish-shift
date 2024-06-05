@@ -75,11 +75,12 @@ impl Randr {
                 let c_ramp = conn.randr_get_crtc_gamma(id)?;
                 Ok((id, c_size, c_ramp))
             })
+            // collect to send all of the requests
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .map(|(id, c_size, c_ramp)| {
                 let r = match c_ramp.reply() {
-                    Ok(ramps) => Ok(ramps),
+                    Ok(r) => Ok(r),
                     Err(ReplyError::X11Error(e))
                         if e.error_kind == X11ErrorKind::RandrBadCrtc =>
                     {
@@ -109,7 +110,7 @@ impl Randr {
         Ok(Self { conn, crtcs })
     }
 
-    fn set_color<'s>(
+    fn set_gamma_ramps<'s>(
         &'s self,
         f: impl Fn(&Crtc) -> Result<VoidCookie<'s, X11Connection>>,
     ) -> Result<()> {
@@ -117,6 +118,7 @@ impl Randr {
         self.crtcs
             .iter()
             .map(f)
+            // collect to send all of the requests
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             // fprintf(stderr, _("`%s' returned error %d\n"), "RANDR Set CRTC Gamma",
@@ -129,7 +131,7 @@ impl Randr {
 
 impl Adjuster for Randr {
     fn restore(&self) -> Result<()> {
-        self.set_color(|crtc| {
+        self.set_gamma_ramps(|crtc| {
             Ok(self.conn.randr_set_crtc_gamma(
                 crtc.id,
                 &crtc.saved_ramps[0],
@@ -140,9 +142,9 @@ impl Adjuster for Randr {
     }
 
     fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
-        self.set_color(|crtc| {
+        self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
-                GammaRamps::new(crtc.ramp_size)
+                GammaRamps::new(crtc.ramp_size as u32)
             } else {
                 crtc.saved_ramps.clone()
             };

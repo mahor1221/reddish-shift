@@ -21,6 +21,11 @@
 use crate::{config::Location, Provider};
 use anyhow::Result;
 
+// TODO:
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Geoclue2;
+impl Provider for Geoclue2 {}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Manual {
     location: Location,

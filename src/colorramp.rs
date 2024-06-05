@@ -30,7 +30,7 @@ pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
 impl GammaRamps {
     // used in vidmode and randr
-    pub fn new(ramp_size: u16) -> Self {
+    pub fn new(ramp_size: u32) -> Self {
         // Initialize gamma ramps to pure state
         // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
         let a = (u16::MAX as u32 + 1) as f64;

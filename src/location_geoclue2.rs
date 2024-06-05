@@ -50,10 +50,6 @@ use gobject_sys::{
 use libc::{close, fputs, free, malloc, FILE};
 use std::ffi::{c_char, c_float, c_int, c_uint, c_void, CStr};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Geoclue2;
-impl Provider for Geoclue2 {}
-
 pub type gboolean = c_int;
 
 struct location_t {

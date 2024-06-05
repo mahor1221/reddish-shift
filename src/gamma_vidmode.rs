@@ -71,7 +71,7 @@ impl Vidmode {
         })
     }
 
-    fn set_gamma_ramp(&self, ramps: &GammaRamps) -> Result<()> {
+    fn set_gamma_ramps(&self, ramps: &GammaRamps) -> Result<()> {
         self.conn
             .xf86vidmode_set_gamma_ramp(
                 self.screen_num,
@@ -88,17 +88,17 @@ impl Vidmode {
 
 impl Adjuster for Vidmode {
     fn restore(&self) -> Result<()> {
-        self.set_gamma_ramp(&self.saved_ramps)
+        self.set_gamma_ramps(&self.saved_ramps)
     }
 
     fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         let mut ramps = if reset_ramps {
-            GammaRamps::new(self.ramp_size)
+            GammaRamps::new(self.ramp_size as u32)
         } else {
             self.saved_ramps.clone()
         };
 
         colorramp_fill(cs, &mut ramps);
-        self.set_gamma_ramp(&ramps)
+        self.set_gamma_ramps(&ramps)
     }
 }
