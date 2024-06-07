@@ -31,35 +31,29 @@ pub mod pipeutils;
 pub mod signals;
 pub mod solar;
 
-// use libc::{
-//     __errno_location, exit, fprintf, fputs, pause, perror, poll, pollfd,
-//     printf, setlocale, setvbuf, strcmp,
-// };
-// use signals::{disable, exiting, signals_install_handlers};
 use anyhow::{anyhow, Result};
 use config::{
-    AdjustmentMethod, ColorSettings, ConfigBuilder, Elevation, ElevationRange,
-    Location, LocationProvider, Mode, TimeOffset, TimeRanges,
+    AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
+    ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
     TransitionScheme,
 };
-// use hooks::hooks_signal_period_change;
+use hooks::hooks_signal_period_change;
+use signals::{disable, exiting, signals_install_handlers};
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     ops::Deref,
+    ptr::addr_of_mut,
+    thread::sleep,
+    time::Duration,
 };
 use time::OffsetDateTime as DateTime;
 
 pub type Nfds = u64;
 pub type SigAtomic = i32;
 
-// extern "C" {
-//     pub static stdout: *mut libc::FILE;
-//     pub static stderr: *mut libc::FILE;
-// }
-
 // Duration of sleep between screen updates (milliseconds)
-const SLEEP_DURATION: u32 = 5000;
-const SLEEP_DURATION_SHORT: u32 = 100;
+const SLEEP_DURATION: u64 = 5000;
+const SLEEP_DURATION_SHORT: u64 = 100;
 // Length of fade in numbers of short sleep durations
 const FADE_LENGTH: u32 = 40;
 
@@ -148,21 +142,7 @@ fn main() -> Result<()> {
 
     // TODO: add a command for calculating solar elevation for the next 24h
     match cfg.mode {
-        Mode::Daemon => {
-            // r = run_continual_mode(
-            //     options.provider,
-            //     location_state,
-            //     scheme,
-            //     options.method,
-            //     method_state,
-            //     options.use_fade,
-            //     options.preserve_gamma,
-            //     options.verbose,
-            // );
-            // if r < 0 as c_int {
-            //     exit(1 as c_int);
-            // }
-        }
+        Mode::Daemon => unsafe { run_daemon_mode(&cfg)? },
 
         Mode::Oneshot => {
             // TODO: add time-zone to config, or convert location to timezone
@@ -213,6 +193,261 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// Run continual mode loop
+// This is the main loop of the continual mode which keeps track of the
+// current time and continuously updates the screen to the appropriate
+// color temperature
+unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
+    let mut r = 0;
+
+    // Short fade parameters
+    let mut fade_length = 0;
+    let mut fade_time = 0;
+
+    // temperature: 0,
+    // gamma: [0.; 3],
+    // brightness: 0.,
+    let mut fade_start_interp = ColorSettings::default();
+
+    let r = signals_install_handlers();
+    if r < 0 {
+        return Err(anyhow!("{r}"));
+    }
+
+    // Save previous parameters so we can avoid printing status updates if the
+    // values did not change
+    let mut prev_period: Period;
+
+    // Previous target color setting and current actual color setting Actual
+    // color setting takes into account the current color fade
+    let mut prev_target_interp = ColorSettings::default();
+    let mut interp = ColorSettings::default();
+    let mut loc = Location::default();
+
+    // if config.verbose {
+    //  // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+    //  // interp.temperature,
+    //  // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+    //  // interp.brightness as c_double,
+    // }
+
+    // Continuously adjust color temperature
+    let mut done = 0;
+    let mut prev_disabled = 1;
+    let mut disabled = 0;
+    let mut location_available = 1;
+    loop {
+        // Check to see if disable signal was caught
+        if disable != 0 && done == 0 {
+            disabled = (disabled == 0) as i32;
+            core::ptr::write_volatile(
+                addr_of_mut!(disable) as *mut SigAtomic,
+                0,
+            );
+        }
+
+        // Check to see if exit signal was caught
+        if exiting != 0 {
+            if done != 0 {
+                // On second signal stop the ongoing fade
+                break;
+            }
+            done = 1;
+            disabled = 1;
+            ::core::ptr::write_volatile(
+                addr_of_mut!(exiting) as *mut SigAtomic,
+                0,
+            );
+        }
+
+        // Print status change
+        // if config.verbose && disabled != prev_disabled {
+        //     // printf(
+        //     //     // gettext(
+        //     //     b"Status: %s\n\0" as *const u8 as *const c_char,
+        //     //     if disabled != 0 {
+        //     //         // gettext(
+        //     //         b"Disabled\0" as *const u8 as *const c_char
+        //     //     } else {
+        //     //         // gettext(
+        //     //         b"Enabled\0" as *const u8 as *const c_char
+        //     //     },
+        //     // );
+        // }
+        prev_disabled = disabled;
+
+        let now = DateTime::now_local()?;
+
+        let period = match cfg.scheme {
+            TransitionScheme::Time(time_ranges) => {
+                Period::from_time(now.time().into(), time_ranges)
+            }
+            TransitionScheme::Elevation(elev_range) => {
+                let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
+                let (loc, available) = cfg.location.get()?;
+                let elev = Elevation::new(now, loc);
+                Period::from_elevation(elev, elev_range)
+                // if config.verbose {
+                //     // TRANSLATORS: Append degree symbol if possible
+                //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
+                //     todo!()
+                // }
+            }
+        };
+
+        let target_interp =
+            cfg.night.interpolate_with(&cfg.day, period.into());
+
+        if disabled != 0 {
+            period = PERIOD_NONE;
+            target_interp = ColorSettings::default();
+        }
+        if done != 0 {
+            period = PERIOD_NONE;
+        }
+
+        // // Print period if it changed during this update,
+        // // or if we are in the transition period. In transition we
+        // // print the progress, so we always print it in
+        // // that case
+        // if config.verbose
+        //     && (period != prev_period || period == Period::Transition)
+        // {
+        //     print_period(period, transition_prog);
+        // }
+
+        /* Activate hooks if period changed */
+        if period != prev_period {
+            hooks_signal_period_change(prev_period, period);
+        }
+
+        // Start fade if the parameter differences are too big to apply
+        // instantly
+        if !cfg.disable_fade
+            && (fade_length == 0 && interp.is_very_diff_from(&target_interp)
+                || fade_length != 0
+                    && target_interp.is_very_diff_from(&prev_target_interp))
+        {
+            fade_length = FADE_LENGTH;
+            fade_time = 0;
+            fade_start_interp = interp;
+        }
+
+        // Handle ongoing fade
+        if fade_length != 0 {
+            fade_time += 1;
+            let frac = fade_time as f64 / fade_length as f64;
+            let alpha = ease_fade(frac).clamp(0.0, 1.0).try_into()?;
+            let interp =
+                fade_start_interp.interpolate_with(&target_interp, alpha);
+            if fade_time > fade_length {
+                fade_time = 0;
+                fade_length = 0;
+            }
+        } else {
+            interp = target_interp;
+        }
+
+        // Break loop when done and final fade is over
+        if done != 0 && fade_length == 0 {
+            break;
+        }
+
+        // if config.verbose {
+        //     if prev_target_interp.temperature != target_interp.temperature {
+        //         // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
+        //         // target_interp.temperature,
+        //         todo!()
+        //     }
+        //     if prev_target_interp.brightness != target_interp.brightness {
+        //         // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
+        //         // target_interp.brightness as c_double,
+        //         todo!()
+        //     }
+        // }
+
+        // Adjust temperature
+        cfg.method.set(&interp, cfg.reset_ramps);
+
+        // Save period and target color setting as previous
+        prev_period = period;
+        prev_target_interp = target_interp;
+
+        // Sleep length depends on whether a fade is ongoing
+        let delay = if fade_length != 0 {
+            SLEEP_DURATION
+        } else {
+            SLEEP_DURATION_SHORT
+        };
+
+        // Update location
+        let mut loc_fd = -1;
+        // if need_location {
+        //     loc_fd = ((*provider).get_fd).expect("non-null function pointer")(
+        //         location_state,
+        //     );
+        // }
+
+        if loc_fd >= 0 {
+            // // Provider is dynamic
+            // let mut pollfds: [pollfd; 1] = [pollfd {
+            //     fd: 0,
+            //     events: 0,
+            //     revents: 0,
+            // }; 1];
+
+            // pollfds[0 as c_int as usize].fd = loc_fd;
+            // pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
+            // let mut r_0: c_int =
+            //     poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
+            // if r_0 < 0 as c_int {
+            //     if *__errno_location() == 4 as c_int {
+            //         continue;
+            //     }
+            //     perror(b"poll\0" as *const u8 as *const c_char);
+            //     eprintln!("Unable to get location from provider.");
+            //     return -(1 as c_int);
+            // } else {
+            //     if r_0 == 0 as c_int {
+            //         continue;
+            //     }
+
+            //     // Get new location and availability
+            //     // information
+            //     let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
+            //     let mut new_available: c_int = 0;
+            //     r_0 = ((*provider).handle).expect("non-null function pointer")(
+            //         location_state,
+            //         &mut new_loc,
+            //         &mut new_available,
+            //     );
+            //     if r_0 < 0 as c_int {
+            //         eprintln!("Unable to get location from provider.");
+            //         return -(1 as c_int);
+            //     }
+            //     if new_available == 0 && new_available != location_available {
+            //         eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
+            //     }
+
+            //     if new_available != 0
+            //         && (new_loc.lat != loc.lat
+            //             || new_loc.lon != loc.lon
+            //             || new_available != location_available)
+            //     {
+            //         loc = new_loc;
+            //         print_location(&mut loc);
+            //     }
+            //     location_available = new_available;
+            // }
+        } else {
+            sleep(Duration::from_millis(delay));
+        }
+    }
+
+    cfg.method.restore()?;
+    Ok(())
+}
+
 /// Periods of day
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Period {
@@ -224,7 +459,7 @@ enum Period {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Alpha(f64);
+struct Alpha(f64);
 
 // Read NOTE in src/config.rs
 impl Deref for Alpha {
@@ -242,19 +477,6 @@ impl TryFrom<f64> for Alpha {
             Ok(Self(n))
         } else {
             Err(anyhow!("alpha"))
-        }
-    }
-}
-
-impl Alpha {
-    // TODO: why?
-    pub fn clamp(n: f64) -> Self {
-        if n < 0.0 {
-            Self(0.0)
-        } else if n < 1.0 {
-            Self(n)
-        } else {
-            Self(1.0)
         }
     }
 }
@@ -330,19 +552,6 @@ impl Display for Location {
     }
 }
 
-/// Easing function for fade
-/// See https://github.com/mietek/ease-tween
-fn ease_fade(t: f64) -> f64 {
-    if t <= 0.0 {
-        0.0
-    } else if t >= 1.0 {
-        1.0
-    } else {
-        1.0042954579734844
-            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
-    }
-}
-
 pub trait IsDefault {
     fn is_default(&self) -> bool;
 }
@@ -378,11 +587,11 @@ pub trait Adjuster {
 impl Provider for LocationProvider {
     fn get(&self) -> Result<(Location, bool)> {
         // if cfg.need_location {
-        // b"Waiting for current location to become available...\n\0" as *const u8
+        //     b"Waiting for current location to become available...\n\0" as *const u8
 
-        // Wait for location provider
-        // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-        // print_location(&mut loc);
+        //     Wait for location provider
+        //     b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
+        //     print_location(&mut loc);
         // }
 
         match self {
@@ -420,285 +629,15 @@ impl Adjuster for AdjustmentMethod {
     }
 }
 
-// Run continual mode loop
-// This is the main loop of the continual mode which keeps track of the
-// current time and continuously updates the screen to the appropriate
-// color temperature
-// fn run_continual_mode(config: &Config) -> c_int {
-//     let mut r: c_int = 0;
-
-//     // Short fade parameters
-//     let mut fade_length = 0;
-//     let mut fade_time = 0;
-//     let mut fade_start_interp: ColorSetting = ColorSetting {
-//         temperature: 0,
-//         gamma: [0.; 3],
-//         brightness: 0.,
-//     };
-
-//     r = signals_install_handlers();
-//     if r < 0 as c_int {
-//         return r;
-//     }
-
-//     // Save previous parameters so we can avoid printing status updates if
-//     // the values did not change
-//     let mut prev_period: Period;
-
-//     // Previous target color setting and current actual color setting
-//     // Actual color setting takes into account the current color fade
-//     let mut prev_target_interp = ColorSetting::default();
-//     let mut interp = ColorSetting::default();
-//     let mut loc: location_t = location_t {
-//         lat: ::core::f32::NAN,
-//         lon: ::core::f32::NAN,
-//     };
-
-//     let need_location = config.transition_scheme.select == TransitionSchemeKind::Elevation;
-
-//     if need_location {
-//         // println!("Waiting for initial location to become available...");
-
-//         // Get initial location from provider
-//         // r = provider_get_location(provider, location_state, -(1 as c_int), &mut loc);
-//         // eprintln!("Unable to get location from provider.");
-//         // print_location(&mut loc);
-//         todo!()
-//     }
-
-//     if config.verbose {
-//         // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-//         // interp.temperature,
-//         // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-//         // interp.brightness as c_double,
-//         todo!()
-//     }
-
-//     // Continuously adjust color temperature
-//     let mut done: c_int = 0 as c_int;
-//     let mut prev_disabled: c_int = 1 as c_int;
-//     let mut disabled: c_int = 0 as c_int;
-//     let mut location_available: c_int = 1 as c_int;
-//     loop {
-//         // Check to see if disable signal was caught
-//         if disable != 0 && done == 0 {
-//             disabled = (disabled == 0) as c_int;
-//             ::core::ptr::write_volatile(addr_of_mut!(disable) as *mut SigAtomic, 0 as c_int);
-//         }
-
-//         // Check to see if exit signal was caught
-//         if exiting != 0 {
-//             if done != 0 {
-//                 // On second signal stop the ongoing fade
-//                 break;
-//             }
-//             done = 1 as c_int;
-//             disabled = 1 as c_int;
-//             ::core::ptr::write_volatile(addr_of_mut!(exiting) as *mut SigAtomic, 0 as c_int);
-//         }
-
-//         // Print status change
-//         if config.verbose && disabled != prev_disabled {
-//             // printf(
-//             //     // gettext(
-//             //     b"Status: %s\n\0" as *const u8 as *const c_char,
-//             //     if disabled != 0 {
-//             //         // gettext(
-//             //         b"Disabled\0" as *const u8 as *const c_char
-//             //     } else {
-//             //         // gettext(
-//             //         b"Enabled\0" as *const u8 as *const c_char
-//             //     },
-//             // );
-//             todo!()
-//         }
-//         prev_disabled = disabled;
-
-//         // Read timestamp
-//         let mut now: c_double = 0.;
-//         r = systemtime_get_time(&mut now);
-//         if r < 0 as c_int {
-//             eprintln!("Unable to read system time.");
-//             return -(1 as c_int);
-//         }
-
-//         let (period, transition_prog): (Period, TransitionProgress) =
-//             match config.transition_scheme.select {
-//                 TransitionSchemeKind::TimeRanges => {
-//                     // let time_offset: c_int = get_seconds_since_midnight(now);
-//                     // period = get_period_from_time(scheme, time_offset);
-//                     // transition_prog = get_transition_progress_from_time(scheme, time_offset);
-//                     todo!()
-//                 }
-//                 TransitionSchemeKind::Elevation => {
-//                     // let elevation: c_double =
-//                     //     solar_elevation(now, loc.lat as c_double, loc.lon as c_double);
-//                     // period = get_period_from_elevation(scheme, elevation);
-//                     // transition_prog = get_transition_progress_from_elevation(scheme, elevation);
-//                     todo!()
-//                 }
-//             };
-
-//         // Use transition progress to get target color
-//         //    temperature
-//         let target_interp = interpolate_color_settings(
-//             &config.night_color_setting,
-//             &config.day_color_setting,
-//             transition_prog,
-//         );
-
-//         if disabled != 0 {
-//             period = PERIOD_NONE;
-//             color_setting_reset(&mut target_interp);
-//         }
-//         if done != 0 {
-//             period = PERIOD_NONE;
-//         }
-
-//         // Print period if it changed during this update,
-//         // or if we are in the transition period. In transition we
-//         // print the progress, so we always print it in
-//         // that case
-//         if config.verbose && (period != prev_period || period == Period::Transition) {
-//             print_period(period, transition_prog);
-//         }
-
-//         /* Activate hooks if period changed */
-//         if period != prev_period {
-//             hooks_signal_period_change(prev_period, period);
-//         }
-
-//         // Start fade if the parameter differences are too big to apply
-//         // instantly
-//         if config.fade
-//             && (fade_length == 0 && is_color_setting_diff_major(&mut interp, &mut target_interp)
-//                 || fade_length != 0 as c_int
-//                     && is_color_setting_diff_major(&mut target_interp, &mut prev_target_interp))
-//         {
-//             fade_length = 40 as c_int;
-//             fade_time = 0 as c_int;
-//             fade_start_interp = interp;
-//         }
-
-//         // Handle ongoing fade
-//         if fade_length != 0 as c_int {
-//             fade_time += 1;
-//             let frac = fade_time as f32 / fade_length as f32;
-//             let alpha = if 0.0 > ease_fade(frac) {
-//                 Alpha(0.0)
-//             } else if ease_fade(frac) < 1.0 {
-//                 Alpha(ease_fade(frac))
-//             } else {
-//                 Alpha(1.0)
-//             };
-//             let interp =
-//                 interpolate_color_settings(&mut fade_start_interp, &mut target_interp, alpha);
-//             if fade_time > fade_length {
-//                 fade_time = 0;
-//                 fade_length = 0;
-//             }
-//         } else {
-//             interp = target_interp;
-//         }
-
-//         // Break loop when done and final fade is over
-//         if done != 0 && fade_length == 0 as c_int {
-//             break;
-//         }
-
-//         if config.verbose {
-//             if prev_target_interp.temperature != target_interp.temperature {
-//                 // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-//                 // target_interp.temperature,
-//                 todo!()
-//             }
-//             if prev_target_interp.brightness != target_interp.brightness {
-//                 // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-//                 // target_interp.brightness as c_double,
-//                 todo!()
-//             }
-//         }
-
-//         // Adjust temperature
-//         r = ((*method).set_temperature).expect("non-null function pointer")(
-//             method_state,
-//             &mut interp,
-//             preserve_gamma,
-//         );
-//         // eprintln!("Temperature adjustment failed.");
-
-//         // Save period and target color setting as previous
-//         prev_period = period;
-//         prev_target_interp = target_interp;
-
-//         // Sleep length depends on whether a fade is ongoing
-//         let mut delay = 5000;
-//         if fade_length != 0 {
-//             delay = 100;
-//         }
-
-//         // Update location
-//         let mut loc_fd = -1;
-//         if need_location {
-//             loc_fd = ((*provider).get_fd).expect("non-null function pointer")(location_state);
-//         }
-
-//         if loc_fd >= 0 as c_int {
-//             // Provider is dynamic
-//             let mut pollfds: [pollfd; 1] = [pollfd {
-//                 fd: 0,
-//                 events: 0,
-//                 revents: 0,
-//             }; 1];
-
-//             pollfds[0 as c_int as usize].fd = loc_fd;
-//             pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
-//             let mut r_0: c_int = poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
-//             if r_0 < 0 as c_int {
-//                 if *__errno_location() == 4 as c_int {
-//                     continue;
-//                 }
-//                 perror(b"poll\0" as *const u8 as *const c_char);
-//                 eprintln!("Unable to get location from provider.");
-//                 return -(1 as c_int);
-//             } else {
-//                 if r_0 == 0 as c_int {
-//                     continue;
-//                 }
-
-//                 // Get new location and availability
-//                 // information
-//                 let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
-//                 let mut new_available: c_int = 0;
-//                 r_0 = ((*provider).handle).expect("non-null function pointer")(
-//                     location_state,
-//                     &mut new_loc,
-//                     &mut new_available,
-//                 );
-//                 if r_0 < 0 as c_int {
-//                     eprintln!("Unable to get location from provider.");
-//                     return -(1 as c_int);
-//                 }
-//                 if new_available == 0 && new_available != location_available {
-//                     eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
-//                 }
-
-//                 if new_available != 0
-//                     && (new_loc.lat != loc.lat
-//                         || new_loc.lon != loc.lon
-//                         || new_available != location_available)
-//                 {
-//                     loc = new_loc;
-//                     print_location(&mut loc);
-//                 }
-//                 location_available = new_available;
-//             }
-//         } else {
-//             systemtime_msleep(delay as c_uint);
-//         }
-//     }
-
-//     // Restore saved gamma ramps
-//     ((*method).restore).expect("non-null function pointer")(method_state);
-//     0 as c_int
-// }
+/// Easing function for fade
+/// See https://github.com/mietek/ease-tween
+fn ease_fade(t: f64) -> f64 {
+    if t <= 0.0 {
+        0.0
+    } else if t >= 1.0 {
+        1.0
+    } else {
+        1.0042954579734844
+            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+    }
+}

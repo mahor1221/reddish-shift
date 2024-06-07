@@ -230,14 +230,9 @@ fn print_drm_help() {
     // b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8
 }
 
-pub type Config = ConfigT<LocationProvider, AdjustmentMethod>;
-
-pub type ConfigBuilder =
-    ConfigT<LocationProviderType, Option<AdjustmentMethodType>>;
-
 /// Merge of cli arguments and config files
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConfigT<L, M> {
+#[derive(Debug)]
+pub struct Config {
     pub verbosity: Verbosity,
     pub dry_run: bool,
     pub mode: Mode,
@@ -248,8 +243,24 @@ pub struct ConfigT<L, M> {
     pub disable_fade: bool,
     pub scheme: TransitionScheme,
 
-    pub location: L,
-    pub method: M,
+    pub location: LocationProvider,
+    pub method: AdjustmentMethod,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigBuilder {
+    verbosity: Verbosity,
+    dry_run: bool,
+    mode: Mode,
+
+    day: ColorSettings,
+    night: ColorSettings,
+    reset_ramps: bool,
+    disable_fade: bool,
+    scheme: TransitionScheme,
+
+    location: LocationProviderType,
+    method: Option<AdjustmentMethodType>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,40 +331,6 @@ pub struct Location {
     pub lon: Longitude,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TransitionScheme {
-    Time(TimeRanges),
-    Elevation(ElevationRange),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LocationProviderType {
-    Manual(Manual),
-    // Geoclue2,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum LocationProvider {
-    Manual(Manual),
-    // Geoclue2(Geoclue2),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdjustmentMethodType {
-    Dummy,
-    Drm {
-        card_num: Option<usize>,
-        crtcs: Vec<u32>,
-    },
-    Randr {
-        screen_num: Option<usize>,
-        crtcs: Vec<u32>,
-    },
-    Vidmode {
-        screen_num: Option<usize>,
-    },
-}
-
 #[derive(Debug)]
 pub enum AdjustmentMethod {
     Dummy(Dummy),
@@ -377,6 +354,40 @@ pub enum Verbosity {
     #[default]
     Low,
     High,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransitionScheme {
+    Time(TimeRanges),
+    Elevation(ElevationRange),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LocationProvider {
+    Manual(Manual),
+    // Geoclue2(Geoclue2),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum LocationProviderType {
+    Manual(Manual),
+    // Geoclue2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AdjustmentMethodType {
+    Dummy,
+    Drm {
+        card_num: Option<usize>,
+        crtcs: Vec<u32>,
+    },
+    Randr {
+        screen_num: Option<usize>,
+        crtcs: Vec<u32>,
+    },
+    Vidmode {
+        screen_num: Option<usize>,
+    },
 }
 
 //
