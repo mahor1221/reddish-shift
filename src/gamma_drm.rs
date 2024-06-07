@@ -78,41 +78,27 @@ impl Drm {
         let path = format!("/dev/dri/card{}", card_num.unwrap_or_default());
         let card = Card::open(path)?;
 
-        // See https://docs.kernel.org/gpu/drm-kms.html
-        let supported_crtcs = card
-            .resource_handles()?
-            .connectors
-            .into_iter()
-            .map(|h| card.get_connector(h, false))
-            .collect::<IoResult<Vec<_>>>()?
-            .into_iter()
-            .filter_map(|conn| conn.current_encoder())
-            .map(|h| card.get_encoder(h))
-            .collect::<IoResult<Vec<_>>>()?
-            .into_iter()
-            .filter_map(|enc| enc.crtc())
-            .collect::<Vec<_>>();
-
         // TODO: accumulate errors
+        let all_crtcs = card.resource_handles()?.crtcs;
         let crtcs = if crtc_ids.is_empty() {
-            supported_crtcs
+            all_crtcs
         } else {
-            let crtcs = crtc_ids
+            crtc_ids
                 .into_iter()
-                .map(handle_from_u32)
-                .collect::<Option<Vec<CrtcHandle>>>()
-                .ok_or(anyhow!("must be non zero positive"))?;
-
-            for &h in &crtcs {
-                if !supported_crtcs.iter().any(|&s| s == h) {
-                    let crtcs = supported_crtcs
-                        .iter()
-                        .map(|&h| h.into())
-                        .collect::<Vec<u32>>();
-                    Err(anyhow!("Valid CRTCs are {crtcs:?}",))?
-                }
-            }
-            crtcs
+                .map(|handle| {
+                    let handle: CrtcHandle = handle_from_u32(handle)
+                        .ok_or(anyhow!("must be non zero positive"))?;
+                    if all_crtcs.iter().any(|&h| handle == h) {
+                        Ok::<_, anyhow::Error>(handle)
+                    } else {
+                        let crtcs = all_crtcs
+                            .iter()
+                            .map(|&h| h.into())
+                            .collect::<Vec<u32>>();
+                        Err(anyhow!("Valid CRTCs are {crtcs:?}",))?
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?
         };
 
         let crtcs = crtcs
@@ -121,13 +107,32 @@ impl Drm {
                 let info = card.get_crtc(handle)?;
                 let ramp_size = info.gamma_length();
                 if ramp_size <= 1 {
-                    Err(anyhow!("gamma_length"))?
+                    Err(anyhow!("ramp_size"))?
                 }
 
-                let (mut r, mut b, mut g) =
+                dbg!(&handle);
+                let (mut r, mut g, mut b) =
                     (Vec::new(), Vec::new(), Vec::new());
-                // FIXME: Error: Invalid argument (os error 22)
-                card.get_gamma(handle, &mut r, &mut b, &mut g)?;
+                // FIX: Error: Bad address (os error 14)
+                // drm_ffi::mode::get_gamma(
+                //     card.as_fd(),
+                //     handle.into(),
+                //     ramp_size as usize,
+                //     &mut r,
+                //     &mut g,
+                //     &mut b,
+                // )?;
+                //
+                // The C function drmModeCrtcGetGamma works on my system
+                // Test here: https://github.com/mahor1221/redshift
+                // build and run: ./redshift -m drm:card=<your card> -x
+                //
+                // everything is similar to the C function, why it doesn't work
+                // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.c#L1000
+                // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
+                //
+                // FIX: Error: Invalid argument (os error 22)
+                card.get_gamma(handle, &mut r, &mut g, &mut b)?;
                 let saved_ramps = GammaRamps([r, g, b]);
                 // _("DRM could not read gamma ramps on CRTC %i on\n"
                 // "graphics card %i, ignoring device.\n"),
