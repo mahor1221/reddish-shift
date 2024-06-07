@@ -28,7 +28,7 @@ impl Adjuster for Dummy {
         Err(anyhow!("Temperature adjustment failed"))
     }
 
-    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         // println!("Temperature: {temp}"); // (*setting).temperature);
         println!("{cs:?}, PreserveGamma({reset_ramps})");
         Ok(())

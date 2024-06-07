@@ -19,11 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    colorramp::{colorramp_fill, GammaRamps},
-    config::ColorSettings,
-    Adjuster,
-};
+use crate::{colorramp::GammaRamps, config::ColorSettings, Adjuster};
 use anyhow::{anyhow, Result};
 use drm::{
     control::{
@@ -78,10 +74,7 @@ impl Card {
 }
 
 impl Drm {
-    pub fn new(
-        card_num: Option<usize>,
-        mut crtc_ids: Vec<u32>,
-    ) -> Result<Self> {
+    pub fn new(card_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
         let path = format!("/dev/dri/card{}", card_num.unwrap_or_default());
         let card = Card::open(path)?;
 
@@ -104,8 +97,6 @@ impl Drm {
         let crtcs = if crtc_ids.is_empty() {
             supported_crtcs
         } else {
-            crtc_ids.sort();
-            crtc_ids.dedup();
             let crtcs = crtc_ids
                 .into_iter()
                 .map(handle_from_u32)
@@ -133,14 +124,13 @@ impl Drm {
                     Err(anyhow!("gamma_length"))?
                 }
 
-                let saved_ramps = {
-                    let (mut r, mut b, mut g) =
-                        (Vec::new(), Vec::new(), Vec::new());
-                    card.get_gamma(handle, &mut r, &mut b, &mut g)?;
-                    // _("DRM could not read gamma ramps on CRTC %i on\n"
-                    // "graphics card %i, ignoring device.\n"),
-                    GammaRamps([r, g, b])
-                };
+                let (mut r, mut b, mut g) =
+                    (Vec::new(), Vec::new(), Vec::new());
+                // FIXME: Error: Invalid argument (os error 22)
+                card.get_gamma(handle, &mut r, &mut b, &mut g)?;
+                let saved_ramps = GammaRamps([r, g, b]);
+                // _("DRM could not read gamma ramps on CRTC %i on\n"
+                // "graphics card %i, ignoring device.\n"),
 
                 Ok(Crtc {
                     handle,
@@ -175,7 +165,7 @@ impl Adjuster for Drm {
         })
     }
 
-    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
                 GammaRamps::new(crtc.ramp_size)
@@ -183,7 +173,7 @@ impl Adjuster for Drm {
                 crtc.saved_ramps.clone()
             };
 
-            colorramp_fill(cs, &mut ramps);
+            ramps.colorramp_fill(cs);
             self.card
                 .set_gamma(crtc.handle, &ramps[0], &ramps[1], &ramps[2])
         })

@@ -18,11 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    colorramp::{colorramp_fill, GammaRamps},
-    config::ColorSettings,
-    Adjuster,
-};
+use crate::{colorramp::GammaRamps, config::ColorSettings, Adjuster};
 use anyhow::{anyhow, Result};
 use x11rb::{
     connection::Connection as _,
@@ -46,10 +42,7 @@ struct Crtc {
 }
 
 impl Randr {
-    pub fn new(
-        screen_num: Option<usize>,
-        mut crtc_ids: Vec<u32>,
-    ) -> Result<Self> {
+    pub fn new(screen_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
         // uses the DISPLAY environment variable if screen_num is None
         let screen_num = screen_num.map(|n| ":".to_string() + &n.to_string());
         let (conn, screen_num) = x11rb::connect(screen_num.as_deref())?;
@@ -67,8 +60,6 @@ impl Randr {
         let crtcs = if crtc_ids.is_empty() {
             conn.randr_get_screen_resources_current(win)?.reply()?.crtcs
         } else {
-            crtc_ids.sort();
-            crtc_ids.dedup();
             crtc_ids
         };
 
@@ -146,7 +137,7 @@ impl Adjuster for Randr {
         })
     }
 
-    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
                 GammaRamps::new(crtc.ramp_size as u32)
@@ -154,7 +145,7 @@ impl Adjuster for Randr {
                 crtc.saved_ramps.clone()
             };
 
-            colorramp_fill(cs, &mut ramps);
+            ramps.colorramp_fill(cs);
             Ok(self.conn.randr_set_crtc_gamma(
                 crtc.id, &ramps[0], &ramps[1], &ramps[2],
             )?)

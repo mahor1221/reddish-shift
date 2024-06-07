@@ -39,39 +39,38 @@ impl GammaRamps {
             .collect::<Vec<_>>();
         Self([v.clone(), v.clone(), v])
     }
-}
 
-pub fn colorramp_fill(setting: &ColorSettings, ramps: &mut GammaRamps) {
-    let white_point = approximate_white_point(setting);
-    let a = (u16::MAX as u32 + 1) as f64;
-    let f = |y: u16, c: usize| -> u16 {
-        let r = y as f64 / a * *setting.brght * white_point[c];
-        let r = r.powf(1.0 / setting.gamma[c]) * a;
-        r as u16
-    };
+    pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
+        let white_point = approximate_white_point(setting);
+        let a = (u16::MAX as u32 + 1) as f64;
+        let f = |y: u16, c: usize| -> u16 {
+            let r = y as f64 / a * *setting.brght * white_point[c];
+            let r = r.powf(1.0 / setting.gamma[c]) * a;
+            r as u16
+        };
 
-    for i in 0..ramps[0].len() {
-        ramps[0][i] = f(ramps[0][i], 0);
-        ramps[1][i] = f(ramps[1][i], 1);
-        ramps[2][i] = f(ramps[2][i], 2);
+        for i in 0..self[0].len() {
+            self[0][i] = f(self[0][i], 0);
+            self[1][i] = f(self[1][i], 1);
+            self[2][i] = f(self[2][i], 2);
+        }
     }
 }
 
-pub fn colorramp_fill_float(
-    setting: &ColorSettings,
-    ramps: &mut GammaRampsFloat,
-) {
-    let white_point = approximate_white_point(setting);
-    let f = |y: f64, c: usize| -> f64 {
-        let r = y * *setting.brght * white_point[c];
-        let r = r.powf(1.0 / setting.gamma[c]);
-        r
-    };
+impl GammaRampsFloat {
+    pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
+        let white_point = approximate_white_point(setting);
+        let f = |y: f64, c: usize| -> f64 {
+            let r = y * *setting.brght * white_point[c];
+            let r = r.powf(1.0 / setting.gamma[c]);
+            r
+        };
 
-    for i in 0..ramps[0].len() {
-        ramps[0][i] = f(ramps[0][i], 0);
-        ramps[1][i] = f(ramps[1][i], 1);
-        ramps[2][i] = f(ramps[2][i], 2);
+        for i in 0..self[0].len() {
+            self[0][i] = f(self[0][i], 0);
+            self[1][i] = f(self[1][i], 1);
+            self[2][i] = f(self[2][i], 2);
+        }
     }
 }
 

@@ -18,11 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    colorramp::{colorramp_fill, GammaRamps},
-    config::ColorSettings,
-    Adjuster,
-};
+use crate::{colorramp::GammaRamps, config::ColorSettings, Adjuster};
 use anyhow::{anyhow, Result};
 use x11rb::{
     protocol::xf86vidmode::ConnectionExt,
@@ -91,14 +87,14 @@ impl Adjuster for Vidmode {
         self.set_gamma_ramps(&self.saved_ramps)
     }
 
-    fn set_color(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
         let mut ramps = if reset_ramps {
             GammaRamps::new(self.ramp_size as u32)
         } else {
             self.saved_ramps.clone()
         };
 
-        colorramp_fill(cs, &mut ramps);
+        ramps.colorramp_fill(cs);
         self.set_gamma_ramps(&ramps)
     }
 }
