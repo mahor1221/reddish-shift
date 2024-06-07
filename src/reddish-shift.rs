@@ -38,12 +38,13 @@ use config::{
     TransitionScheme,
 };
 use hooks::hooks_signal_period_change;
-use signals::{disable, exiting, signals_install_handlers};
+use signals::{
+    disable as DISABLE, exiting as EXITING, signals_install_handlers,
+};
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     ops::Deref,
     ptr::addr_of_mut,
-    thread::sleep,
     time::Duration,
 };
 use time::OffsetDateTime as DateTime;
@@ -55,7 +56,7 @@ pub type SigAtomic = i32;
 const SLEEP_DURATION: u64 = 5000;
 const SLEEP_DURATION_SHORT: u64 = 100;
 // Length of fade in numbers of short sleep durations
-const FADE_LENGTH: u32 = 40;
+const FADE_STEPS: u16 = 40;
 
 fn main() -> Result<()> {
     // // Init locale
@@ -148,23 +149,7 @@ fn main() -> Result<()> {
             // TODO: add time-zone to config, or convert location to timezone
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
             let now = DateTime::now_local()?;
-
-            let period = match cfg.scheme {
-                TransitionScheme::Time(time_ranges) => {
-                    Period::from_time(now.time().into(), time_ranges)
-                }
-                TransitionScheme::Elevation(elev_range) => {
-                    let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
-                    let (loc, available) = cfg.location.get()?;
-                    let elev = Elevation::new(now, loc);
-                    Period::from_elevation(elev, elev_range)
-                    // if config.verbose {
-                    //     // TRANSLATORS: Append degree symbol if possible
-                    //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
-                    //     todo!()
-                    // }
-                }
-            };
+            let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
 
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());
@@ -193,22 +178,10 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-// Run continual mode loop
-// This is the main loop of the continual mode which keeps track of the
-// current time and continuously updates the screen to the appropriate
-// color temperature
+/// This is the main loop of the daemon mode which keeps track of the
+/// current time and continuously updates the screen to the appropriate color
+/// temperature
 unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
-    let mut r = 0;
-
-    // Short fade parameters
-    let mut fade_length = 0;
-    let mut fade_time = 0;
-
-    // temperature: 0,
-    // gamma: [0.; 3],
-    // brightness: 0.,
-    let mut fade_start_interp = ColorSettings::default();
-
     let r = signals_install_handlers();
     if r < 0 {
         return Err(anyhow!("{r}"));
@@ -238,24 +211,24 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
     let mut location_available = 1;
     loop {
         // Check to see if disable signal was caught
-        if disable != 0 && done == 0 {
+        if DISABLE != 0 && done == 0 {
             disabled = (disabled == 0) as i32;
             core::ptr::write_volatile(
-                addr_of_mut!(disable) as *mut SigAtomic,
+                addr_of_mut!(DISABLE) as *mut SigAtomic,
                 0,
             );
         }
 
         // Check to see if exit signal was caught
-        if exiting != 0 {
+        if EXITING != 0 {
             if done != 0 {
                 // On second signal stop the ongoing fade
                 break;
             }
             done = 1;
             disabled = 1;
-            ::core::ptr::write_volatile(
-                addr_of_mut!(exiting) as *mut SigAtomic,
+            core::ptr::write_volatile(
+                addr_of_mut!(EXITING) as *mut SigAtomic,
                 0,
             );
         }
@@ -277,34 +250,17 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         prev_disabled = disabled;
 
         let now = DateTime::now_local()?;
-
-        let period = match cfg.scheme {
-            TransitionScheme::Time(time_ranges) => {
-                Period::from_time(now.time().into(), time_ranges)
-            }
-            TransitionScheme::Elevation(elev_range) => {
-                let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
-                let (loc, available) = cfg.location.get()?;
-                let elev = Elevation::new(now, loc);
-                Period::from_elevation(elev, elev_range)
-                // if config.verbose {
-                //     // TRANSLATORS: Append degree symbol if possible
-                //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
-                //     todo!()
-                // }
-            }
-        };
-
+        let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
         let target_interp =
             cfg.night.interpolate_with(&cfg.day, period.into());
 
-        if disabled != 0 {
-            period = PERIOD_NONE;
-            target_interp = ColorSettings::default();
-        }
-        if done != 0 {
-            period = PERIOD_NONE;
-        }
+        // if disabled != 0 {
+        //     period = PERIOD_NONE;
+        //     target_interp = ColorSettings::default();
+        // }
+        // if done != 0 {
+        //     period = PERIOD_NONE;
+        // }
 
         // // Print period if it changed during this update,
         // // or if we are in the transition period. In transition we
@@ -316,40 +272,23 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         //     print_period(period, transition_prog);
         // }
 
-        /* Activate hooks if period changed */
-        if period != prev_period {
-            hooks_signal_period_change(prev_period, period);
-        }
+        // // Activate hooks if period changed
+        // if period != prev_period {
+        //     hooks_signal_period_change(prev_period, period);
+        // }
 
         // Start fade if the parameter differences are too big to apply
         // instantly
         if !cfg.disable_fade
-            && (fade_length == 0 && interp.is_very_diff_from(&target_interp)
-                || fade_length != 0
+            && (fade && interp.is_very_diff_from(&target_interp)
+                || !fade
                     && target_interp.is_very_diff_from(&prev_target_interp))
         {
-            fade_length = FADE_LENGTH;
-            fade_time = 0;
-            fade_start_interp = interp;
-        }
-
-        // Handle ongoing fade
-        if fade_length != 0 {
-            fade_time += 1;
-            let frac = fade_time as f64 / fade_length as f64;
-            let alpha = ease_fade(frac).clamp(0.0, 1.0).try_into()?;
-            let interp =
-                fade_start_interp.interpolate_with(&target_interp, alpha);
-            if fade_time > fade_length {
-                fade_time = 0;
-                fade_length = 0;
-            }
-        } else {
-            interp = target_interp;
+            fade = true;
         }
 
         // Break loop when done and final fade is over
-        if done != 0 && fade_length == 0 {
+        if done != 0 && !fade {
             break;
         }
 
@@ -369,15 +308,15 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         // Adjust temperature
         cfg.method.set(&interp, cfg.reset_ramps);
 
-        // Save period and target color setting as previous
-        prev_period = period;
-        prev_target_interp = target_interp;
+        // // Save period and target color setting as previous
+        // prev_period = period;
+        // prev_target_interp = target_interp;
 
         // Sleep length depends on whether a fade is ongoing
-        let delay = if fade_length != 0 {
-            SLEEP_DURATION
-        } else {
+        let delay = if fade {
             SLEEP_DURATION_SHORT
+        } else {
+            SLEEP_DURATION
         };
 
         // Update location
@@ -440,7 +379,7 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
             //     location_available = new_available;
             // }
         } else {
-            sleep(Duration::from_millis(delay));
+            std::thread::sleep(Duration::from_millis(delay));
         }
     }
 
@@ -522,6 +461,30 @@ impl Period {
             Self::Transition { progress }
         } else {
             Self::Daytime
+        }
+    }
+
+    fn from_scheme(
+        scheme: &TransitionScheme,
+        here: &LocationProvider,
+        now: DateTime,
+    ) -> Result<Self> {
+        match scheme {
+            TransitionScheme::Elevation(elev_range) => {
+                let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
+                let (loc, available) = here.get()?;
+                let elev = Elevation::new(now, loc);
+                Ok(Period::from_elevation(elev, *elev_range))
+                // if config.verbose {
+                //     // TRANSLATORS: Append degree symbol if possible
+                //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
+                //     todo!()
+                // }
+            }
+
+            TransitionScheme::Time(time_ranges) => {
+                Ok(Period::from_time(now.time().into(), *time_ranges))
+            }
         }
     }
 }
@@ -629,15 +592,79 @@ impl Adjuster for AdjustmentMethod {
     }
 }
 
-/// Easing function for fade
-/// See https://github.com/mietek/ease-tween
-fn ease_fade(t: f64) -> f64 {
-    if t <= 0.0 {
-        0.0
-    } else if t >= 1.0 {
-        1.0
-    } else {
-        1.0042954579734844
-            * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+enum FadeStatus {
+    Completed,
+    Ungoing {
+        start: ColorSettings,
+        end: ColorSettings,
+        step: u16,
+    },
+}
+
+struct Fade {
+    current: ColorSettings,
+    status: FadeStatus,
+}
+
+impl Fade {
+    pub fn next(self, target: ColorSettings, disable: bool) -> Self {
+        let (current, status) = match (self.status, self.current, disable) {
+            (_, _, true) => (target, FadeStatus::Completed),
+            (FadeStatus::Ungoing { .. }, current, _)
+            | (FadeStatus::Completed, current, _)
+                if !current.is_very_diff_from(&target) =>
+            {
+                (target, FadeStatus::Completed)
+            }
+
+            (FadeStatus::Completed, start, false) => {
+                let current = Self::interpolate_by_step(&start, &target, 0);
+                let status = FadeStatus::Ungoing {
+                    start,
+                    end: target,
+                    step: 0,
+                };
+                (current, status)
+            }
+
+            (FadeStatus::Ungoing { start, end, step }, _, false) => {
+                if step < FADE_STEPS {
+                    let step = step + 1;
+                    let current =
+                        Self::interpolate_by_step(&start, &target, step);
+                    (current, FadeStatus::Ungoing { start, end, step })
+                } else {
+                    (end, FadeStatus::Completed)
+                }
+            }
+        };
+
+        Self { current, status }
+    }
+
+    fn interpolate_by_step(
+        start: &ColorSettings,
+        end: &ColorSettings,
+        step: u16,
+    ) -> ColorSettings {
+        let frac = step as f64 / FADE_STEPS as f64;
+        let alpha = Self::ease_fade(frac)
+            .clamp(0.0, 1.0)
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
+        start.interpolate_with(end, alpha)
+    }
+
+    /// Easing function for fade
+    /// See https://github.com/mietek/ease-tween
+    fn ease_fade(t: f64) -> f64 {
+        if t <= 0.0 {
+            0.0
+        } else if t >= 1.0 {
+            1.0
+        } else {
+            1.0042954579734844
+                * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+        }
     }
 }
