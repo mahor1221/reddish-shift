@@ -41,6 +41,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use time::OffsetDateTime;
 use toml::Value;
 
 // Angular elevation of the sun at which the color temperature
@@ -243,6 +244,7 @@ pub struct Config {
     pub disable_fade: bool,
     pub scheme: TransitionScheme,
 
+    pub time: fn() -> Result<OffsetDateTime>,
     pub location: LocationProvider,
     pub method: AdjustmentMethod,
 }
@@ -579,6 +581,8 @@ impl ConfigBuilder {
             // }
         };
 
+        let time = || Ok(OffsetDateTime::now_local()?);
+
         Ok(Config {
             verbosity,
             dry_run,
@@ -588,6 +592,7 @@ impl ConfigBuilder {
             reset_ramps,
             disable_fade,
             scheme,
+            time,
             location,
             method,
         })

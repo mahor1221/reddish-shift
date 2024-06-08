@@ -47,7 +47,7 @@ use std::{
     ptr::addr_of_mut,
     time::Duration,
 };
-use time::OffsetDateTime as DateTime;
+use time::OffsetDateTime;
 
 pub type Nfds = u64;
 pub type SigAtomic = i32;
@@ -148,7 +148,7 @@ fn main() -> Result<()> {
         Mode::Oneshot => {
             // TODO: add time-zone to config, or convert location to timezone
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
-            let now = DateTime::now_local()?;
+            let now = (cfg.time)()?;
             let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
 
             // Use transition progress to set color temperature
@@ -249,7 +249,7 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         // }
         prev_disabled = disabled;
 
-        let now = DateTime::now_local()?;
+        let now = (cfg.time)()?;
         let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
         let target_interp =
             cfg.night.interpolate_with(&cfg.day, period.into());
@@ -467,11 +467,11 @@ impl Period {
     fn from_scheme(
         scheme: &TransitionScheme,
         here: &LocationProvider,
-        now: DateTime,
+        now: OffsetDateTime,
     ) -> Result<Self> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
-                let now = (now - DateTime::UNIX_EPOCH).as_seconds_f64();
+                let now = (now - OffsetDateTime::UNIX_EPOCH).as_seconds_f64();
                 let (loc, available) = here.get()?;
                 let elev = Elevation::new(now, loc);
                 Ok(Period::from_elevation(elev, *elev_range))
@@ -592,57 +592,58 @@ impl Adjuster for AdjustmentMethod {
     }
 }
 
-enum FadeStatus {
-    Completed,
-    Ungoing {
-        start: ColorSettings,
-        end: ColorSettings,
-        step: u16,
-    },
+#[derive(Debug, Clone)]
+pub struct Fade {
+    pub disable: bool,
+    pub current: ColorSettings,
+    pub status: FadeStatus,
 }
 
-struct Fade {
-    current: ColorSettings,
-    status: FadeStatus,
+#[derive(Debug, Clone)]
+enum FadeStatus {
+    Completed,
+    Ungoing { step: u16 },
 }
 
 impl Fade {
-    pub fn next(self, target: ColorSettings, disable: bool) -> Self {
-        let (current, status) = match (self.status, self.current, disable) {
-            (_, _, true) => (target, FadeStatus::Completed),
-            (FadeStatus::Ungoing { .. }, current, _)
-            | (FadeStatus::Completed, current, _)
-                if !current.is_very_diff_from(&target) =>
-            {
-                (target, FadeStatus::Completed)
-            }
-
-            (FadeStatus::Completed, start, false) => {
-                let current = Self::interpolate_by_step(&start, &target, 0);
-                let status = FadeStatus::Ungoing {
-                    start,
-                    end: target,
-                    step: 0,
-                };
-                (current, status)
-            }
-
-            (FadeStatus::Ungoing { start, end, step }, _, false) => {
-                if step < FADE_STEPS {
-                    let step = step + 1;
-                    let current =
-                        Self::interpolate_by_step(&start, &target, step);
-                    (current, FadeStatus::Ungoing { start, end, step })
-                } else {
-                    (end, FadeStatus::Completed)
-                }
-            }
-        };
-
-        Self { current, status }
+    pub fn new(current: ColorSettings, disable: bool) -> Self {
+        Self {
+            disable,
+            current,
+            status: FadeStatus::Completed,
+        }
     }
 
-    fn interpolate_by_step(
+    pub fn next(&mut self, target: ColorSettings) {
+        let target_is_very_different = self.current.is_very_diff_from(&target);
+        match (&self.status, target_is_very_different, self.disable) {
+            (_, _, true)
+            | (FadeStatus::Ungoing { .. }, false, false)
+            | (FadeStatus::Completed, false, false) => {
+                self.current = target;
+                self.status = FadeStatus::Completed;
+            }
+
+            (FadeStatus::Completed, true, false) => {
+                self.current = Self::interpolate(&self.current, &target, 0);
+                self.status = FadeStatus::Ungoing { step: 0 };
+            }
+
+            (FadeStatus::Ungoing { step }, true, false) => {
+                if *step < FADE_STEPS {
+                    let step = *step + 1;
+                    self.current =
+                        Self::interpolate(&self.current, &target, step);
+                    self.status = FadeStatus::Ungoing { step };
+                } else {
+                    self.current = target;
+                    self.status = FadeStatus::Completed;
+                }
+            }
+        }
+    }
+
+    fn interpolate(
         start: &ColorSettings,
         end: &ColorSettings,
         step: u16,
