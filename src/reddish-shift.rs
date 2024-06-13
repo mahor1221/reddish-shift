@@ -28,18 +28,18 @@ pub mod location_manual;
 pub mod solar;
 
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
 use config::{
     AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
     TransitionScheme,
 };
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     ops::Deref,
     time::Duration,
 };
-use time::OffsetDateTime;
 
 // Duration of sleep between screen updates (milliseconds)
 const SLEEP_DURATION: Duration = Duration::from_millis(5000);
@@ -48,6 +48,7 @@ const SLEEP_DURATION_SHORT: Duration = Duration::from_millis(100);
 const FADE_STEPS: u16 = 40;
 
 fn main() -> Result<()> {
+    let cfg = ConfigBuilder::new()?.build()?;
     // // Init locale
     // setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
     // setlocale(5 as c_int, b"\0" as *const u8 as *const c_char);
@@ -128,19 +129,25 @@ fn main() -> Result<()> {
     //     // );
     // }
 
-    let cfg = ConfigBuilder::new()?.build()?;
+    run(cfg, || {
+        let (tx, rx) = mpsc::channel();
+        ctrlc::set_handler(move || {
+            tx.send(()).expect("Could not send signal on channel")
+        })
+        .expect("Error setting Ctrl-C handler");
+        rx
+    })
+}
 
+fn run(cfg: Config, sig: impl FnOnce() -> Receiver<()>) -> Result<()> {
     // TODO: add a command for calculating solar elevation for the next 24h
     match cfg.mode {
-        Mode::Daemon => run_daemon_mode(&cfg)?,
+        Mode::Daemon => run_daemon_mode(&cfg, &sig())?,
 
         Mode::Oneshot => {
-            // TODO: add time-zone to config, or convert location to timezone
-            // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
+            // Use period and transition progress to set color temperature
             let period =
                 Period::from_scheme(&cfg.scheme, &cfg.location, cfg.time)?;
-
-            // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());
 
             // if options.verbosity {
@@ -170,7 +177,7 @@ fn main() -> Result<()> {
 /// This is the main loop of the daemon mode which keeps track of the
 /// current time and continuously updates the screen to the appropriate color
 /// temperature
-fn run_daemon_mode(cfg: &Config) -> Result<()> {
+fn run_daemon_mode(cfg: &Config, sig: &Receiver<()>) -> Result<()> {
     // if config.verbose {
     //  // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
     //  // interp.temperature,
@@ -185,10 +192,6 @@ fn run_daemon_mode(cfg: &Config) -> Result<()> {
 
     let mut fade = Fade::default();
     let mut signal = None;
-    let (tx, rx) = mpsc::channel();
-    ctrlc::set_handler(move || {
-        tx.send(()).expect("Could not send signal on channel")
-    })?;
 
     loop {
         let sleep_duration = match (signal, &fade.status) {
@@ -258,7 +261,7 @@ fn run_daemon_mode(cfg: &Config) -> Result<()> {
         // prev_period = period;
         // prev_interp = fade.current.clone();
 
-        match rx.recv_timeout(sleep_duration) {
+        match sig.recv_timeout(sleep_duration) {
             Err(RecvTimeoutError::Timeout) => {}
             Err(e) => Err(e)?,
             Ok(()) => match signal {
@@ -418,13 +421,11 @@ impl Period {
     fn from_scheme(
         scheme: &TransitionScheme,
         here: &LocationProvider,
-        now: impl Fn() -> Result<OffsetDateTime>,
+        now: impl Fn() -> DateTime<Utc>,
     ) -> Result<Self> {
-        let now = now()?;
-
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
-                let now = (now - OffsetDateTime::UNIX_EPOCH).as_seconds_f64();
+                let now = (now() - DateTime::UNIX_EPOCH).num_seconds() as f64;
                 let (here, available) = here.get()?;
                 let elev = Elevation::new(now, here);
                 Ok(Period::from_elevation(elev, *elev_range))
@@ -436,7 +437,8 @@ impl Period {
             }
 
             TransitionScheme::Time(time_ranges) => {
-                Ok(Period::from_time(now.time().into(), *time_ranges))
+                let time = now().naive_local().time().into();
+                Ok(Period::from_time(time, *time_ranges))
             }
         }
     }

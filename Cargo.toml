@@ -21,7 +21,7 @@ toml = "0.8"
 exitcode = "1.1.2"
 ctrlc = { version = "3.4.4", features = ["termination"] }
 
-time = { version = "0.3", features = ["local-offset"] }
+chrono = "0.4"
 x11rb = { version = "0.13", features = ["xf86vidmode", "randr"] }
 drm = "0.12.0"
 

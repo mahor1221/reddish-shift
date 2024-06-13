@@ -28,6 +28,7 @@ use crate::{
     Alpha,
 };
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, NaiveTime, Timelike, Utc};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
@@ -41,7 +42,6 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-use time::OffsetDateTime;
 use toml::Value;
 
 // Angular elevation of the sun at which the color temperature
@@ -244,7 +244,7 @@ pub struct Config {
     pub disable_fade: bool,
     pub scheme: TransitionScheme,
 
-    pub time: fn() -> Result<OffsetDateTime>,
+    pub time: fn() -> DateTime<Utc>,
     pub location: LocationProvider,
     pub method: AdjustmentMethod,
 }
@@ -261,6 +261,7 @@ pub struct ConfigBuilder {
     disable_fade: bool,
     scheme: TransitionScheme,
 
+    time: fn() -> DateTime<Utc>,
     location: LocationProviderType,
     method: Option<AdjustmentMethodType>,
 }
@@ -548,6 +549,7 @@ impl ConfigBuilder {
             reset_ramps,
             disable_fade,
             scheme,
+            time,
             location,
             method,
         } = self;
@@ -580,8 +582,6 @@ impl ConfigBuilder {
             //     LocationProvider::Geoclue2(Default::default())
             // }
         };
-
-        let time = || Ok(OffsetDateTime::now_local()?);
 
         Ok(Config {
             verbosity,
@@ -871,7 +871,20 @@ impl Default for TransitionScheme {
         Self::Elevation(Default::default())
     }
 }
+
 impl Default for LocationProviderType {
+    fn default() -> Self {
+        Self::Manual(Default::default())
+    }
+}
+
+impl Default for AdjustmentMethod {
+    fn default() -> Self {
+        Self::Dummy(Default::default())
+    }
+}
+
+impl Default for LocationProvider {
     fn default() -> Self {
         Self::Manual(Default::default())
     }
@@ -887,10 +900,22 @@ impl Default for ConfigBuilder {
             dry_run: Default::default(),
             reset_ramps: Default::default(),
             disable_fade: Default::default(),
-            method: Default::default(),
             scheme: Default::default(),
+            time: || Utc::now(),
+            method: Default::default(),
             location: Default::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        ConfigBuilder {
+            method: Some(AdjustmentMethodType::Dummy),
+            ..Default::default()
+        }
+        .build()
+        .unwrap_or_else(|_| unreachable!())
     }
 }
 
@@ -1014,10 +1039,9 @@ impl From<Time> for TimeOffset {
     }
 }
 
-impl From<time::Time> for TimeOffset {
-    fn from(time: time::Time) -> Self {
-        let (h, m, s) = time.as_hms();
-        Self(h as u32 * 60 * 60 + m as u32 * 60 + s as u32)
+impl From<NaiveTime> for TimeOffset {
+    fn from(time: NaiveTime) -> Self {
+        Self(time.num_seconds_from_midnight())
     }
 }
 
@@ -1502,6 +1526,11 @@ mod test {
         config.merge_with_config_file(cfg);
         assert_eq!(config, ConfigBuilder::default());
         Ok(())
+    }
+
+    #[test]
+    fn test_config_default() {
+        Config::default();
     }
 
     // TODO: assert_eq default config with config.toml
