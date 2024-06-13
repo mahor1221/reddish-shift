@@ -28,12 +28,12 @@ use crate::{
     Alpha,
 };
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, NaiveTime, Timelike, Utc};
+use chrono::{DateTime, Local, NaiveTime, Timelike};
 use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
 use std::{
-    env,
+    default, env,
     fmt::Display,
     fs::File,
     io::Read,
@@ -49,7 +49,7 @@ use toml::Value;
 const SLEEP_DURATION: Duration = Duration::from_millis(5000);
 const FADE_SLEEP_DURATION: Duration = Duration::from_millis(100);
 // Length of fade in numbers of fade's sleep durations
-const FADE_STEPS: u8 = 40;
+pub const FADE_STEPS: u8 = 40;
 
 // Angular elevation of the sun at which the color temperature
 // transition period starts and ends (in degrees).
@@ -242,7 +242,7 @@ Please report bugs to <{PKG_BUGREPORT}>"
 #[derive(Debug)]
 pub struct Config {
     // cli only fields
-    pub verbosity: Verbosity,
+    pub verbose: bool,
     pub dry_run: bool,
     pub mode: Mode,
 
@@ -252,18 +252,17 @@ pub struct Config {
     pub reset_ramps: bool,
     pub scheme: TransitionScheme,
     pub disable_fade: bool,
-    pub fade_steps: u8,
     pub fade_sleep_duration: Duration,
     pub sleep_duration: Duration,
 
     pub location: LocationProvider,
     pub method: AdjustmentMethod,
-    pub time: fn() -> DateTime<Utc>,
+    pub time: fn() -> DateTime<Local>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
-    verbosity: Verbosity,
+    verbose: bool,
     dry_run: bool,
     mode: Mode,
 
@@ -272,22 +271,21 @@ pub struct ConfigBuilder {
     reset_ramps: bool,
     disable_fade: bool,
     scheme: TransitionScheme,
-    fade_steps: u8,
     sleep_duration: Duration,
     fade_sleep_duration: Duration,
 
     location: LocationProviderType,
     method: Option<AdjustmentMethodType>,
-    time: fn() -> DateTime<Utc>,
+    time: fn() -> DateTime<Local>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Temperature(u16);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Brightness(f64);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Gamma([f64; 3]);
 
 #[derive(Debug, Clone)]
@@ -329,7 +327,7 @@ pub struct TimeRanges {
     pub dusk: TimeRange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialOrd)]
 pub struct Elevation(f64);
 
 /// The solar elevations at which the transition begins/ends,
@@ -339,9 +337,9 @@ pub struct ElevationRange {
     pub low: Elevation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Latitude(f64);
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Longitude(f64);
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Location {
@@ -364,14 +362,6 @@ pub enum Mode {
     Oneshot,
     Set,
     Reset,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Verbosity {
-    Quite,
-    #[default]
-    Low,
-    High,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -408,6 +398,14 @@ enum AdjustmentMethodType {
     },
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+enum Verbosity {
+    Quite,
+    #[default]
+    Low,
+    High,
+}
+
 //
 // Config file
 //
@@ -421,7 +419,6 @@ struct ConfigFile {
     reset_ramps: Option<bool>,
     scheme: Option<TransitionScheme>,
     disable_fade: Option<bool>,
-    fade_steps: Option<u8>,
     fade_sleep_duration: Option<u16>,
     sleep_duration: Option<u16>,
     location: Option<LocationProviderType>,
@@ -454,16 +451,7 @@ struct CliArgs {
     config: Option<PathBuf>,
     #[arg(long, global = true, display_order(100))]
     dry_run: bool,
-    #[command(flatten)]
-    verbosity: VerbosityArgs,
-}
-
-#[derive(Debug, Args)]
-#[group(multiple = false)]
-struct VerbosityArgs {
-    #[arg(long, short, global = true, display_order(100))]
-    quite: bool,
-    #[arg(long, short, global = true, display_order(100))]
+    #[arg(short, long, global = true, display_order(100))]
     verbose: bool,
 }
 
@@ -486,8 +474,6 @@ enum ModeArgs {
         // redshift uses -r for disabling fade
         #[arg(long)]
         disable_fade: bool,
-        #[arg(long, value_name = "0-255")]
-        fade_steps: Option<u8>,
         #[arg(long, value_name = "0-65535")]
         fade_sleep_duration: Option<u16>,
         #[arg(long, value_name = "0-65535")]
@@ -567,7 +553,7 @@ impl ConfigBuilder {
 
     pub fn build(self) -> Result<Config> {
         let Self {
-            verbosity,
+            verbose: verbosity,
             dry_run,
             mode,
             day,
@@ -575,7 +561,6 @@ impl ConfigBuilder {
             reset_ramps,
             disable_fade,
             scheme,
-            fade_steps,
             sleep_duration,
             fade_sleep_duration,
             location,
@@ -613,7 +598,7 @@ impl ConfigBuilder {
         };
 
         Ok(Config {
-            verbosity,
+            verbose: verbosity,
             dry_run,
             mode,
             day,
@@ -621,7 +606,6 @@ impl ConfigBuilder {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_steps,
             fade_sleep_duration,
             sleep_duration,
             location,
@@ -633,25 +617,17 @@ impl ConfigBuilder {
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
         let CliArgs {
             config: _,
-            verbosity: VerbosityArgs { quite, verbose },
+            verbose,
             dry_run,
             mode,
         } = cli_args;
 
-        let verbosity = match (quite, verbose) {
-            (true, false) => Verbosity::Quite,
-            (false, false) => Verbosity::Low,
-            (false, true) => Verbosity::High,
-            (true, true) => unreachable!(), // clap returns error
-        };
-
-        self.verbosity = verbosity;
+        self.verbose = verbose;
         self.dry_run = dry_run;
         match mode {
             Some(ModeArgs::Daemon {
                 c: ca,
                 disable_fade,
-                fade_steps,
                 fade_sleep_duration,
                 sleep_duration,
             }) => {
@@ -659,9 +635,6 @@ impl ConfigBuilder {
                 self.disable_fade = disable_fade;
                 self.mode = Mode::Daemon;
 
-                if let Some(t) = fade_steps {
-                    self.fade_steps = t;
-                }
                 if let Some(t) = fade_sleep_duration {
                     self.fade_sleep_duration = Duration::from_millis(t as u64);
                 }
@@ -739,7 +712,6 @@ impl ConfigBuilder {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_steps,
             fade_sleep_duration,
             sleep_duration,
             method,
@@ -769,9 +741,6 @@ impl ConfigBuilder {
             self.disable_fade = t;
         }
 
-        if let Some(t) = fade_steps {
-            self.fade_steps = t;
-        }
         if let Some(t) = fade_sleep_duration {
             self.fade_sleep_duration = Duration::from_millis(t as u64);
         }
@@ -831,7 +800,6 @@ impl ConfigFile {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_steps,
             fade_sleep_duration,
             sleep_duration,
             method,
@@ -853,9 +821,6 @@ impl ConfigFile {
             self.scheme = Some(t);
         }
 
-        if let Some(t) = fade_steps {
-            self.fade_steps = Some(t);
-        }
         if let Some(t) = sleep_duration {
             self.sleep_duration = Some(t);
         }
@@ -889,6 +854,12 @@ impl Default for Brightness {
 impl Default for Gamma {
     fn default() -> Self {
         Gamma([DEFAULT_GAMMA; 3])
+    }
+}
+
+impl Default for Elevation {
+    fn default() -> Self {
+        Self(0.0)
     }
 }
 
@@ -969,17 +940,16 @@ impl Default for ConfigBuilder {
             day: ColorSettings::default_day(),
             night: ColorSettings::default_night(),
             mode: Default::default(),
-            verbosity: Default::default(),
+            verbose: Default::default(),
             dry_run: Default::default(),
             reset_ramps: Default::default(),
             scheme: Default::default(),
             disable_fade: Default::default(),
-            fade_steps: FADE_STEPS,
             fade_sleep_duration: FADE_SLEEP_DURATION,
             sleep_duration: SLEEP_DURATION,
             method: Default::default(),
             location: Default::default(),
-            time: || Utc::now(),
+            time: || Local::now(),
         }
     }
 }
@@ -1099,10 +1069,10 @@ impl TryFrom<(u8, u8)> for Time {
     type Error = anyhow::Error;
 
     fn try_from((hour, minute): (u8, u8)) -> Result<Self, Self::Error> {
-        if hour < 24 {
-            Err(anyhow!("minute"))
-        } else if minute < 60 {
+        if hour >= 24 {
             Err(anyhow!("hour"))
+        } else if minute >= 60 {
+            Err(anyhow!("minute"))
         } else {
             Ok(Self { hour, minute })
         }
@@ -1560,6 +1530,36 @@ impl<'de> Deserialize<'de> for AdjustmentMethodType {
 }
 
 //
+
+fn eq(lhs: f64, rhs: f64) -> bool {
+    (lhs * 100.0).round() == (rhs * 100.0).round()
+}
+
+impl PartialEq for Brightness {
+    fn eq(&self, other: &Self) -> bool {
+        eq(**self, **other)
+    }
+}
+impl PartialEq for Elevation {
+    fn eq(&self, other: &Self) -> bool {
+        eq(**self, **other)
+    }
+}
+impl PartialEq for Latitude {
+    fn eq(&self, other: &Self) -> bool {
+        eq(**self, **other)
+    }
+}
+impl PartialEq for Longitude {
+    fn eq(&self, other: &Self) -> bool {
+        eq(**self, **other)
+    }
+}
+impl PartialEq for Gamma {
+    fn eq(&self, other: &Self) -> bool {
+        eq(self[0], other[0]) && eq(self[1], other[1]) && eq(self[2], other[2])
+    }
+}
 
 impl Elevation {
     pub fn new(secs_from_epoch: f64, loc: Location) -> Self {

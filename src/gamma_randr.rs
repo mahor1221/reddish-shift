@@ -137,7 +137,7 @@ impl Adjuster for Randr {
         })
     }
 
-    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
         self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
                 GammaRamps::new(crtc.ramp_size as u32)

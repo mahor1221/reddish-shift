@@ -87,7 +87,7 @@ impl Adjuster for Vidmode {
         self.set_gamma_ramps(&self.saved_ramps)
     }
 
-    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
         let mut ramps = if reset_ramps {
             GammaRamps::new(self.ramp_size as u32)
         } else {

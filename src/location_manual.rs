@@ -18,6 +18,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::io::Write;
+
 use crate::{config::Location, Provider};
 use anyhow::Result;
 
@@ -38,11 +40,7 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get(&self) -> Result<(Location, bool)> {
-        let available = true;
-        Ok((self.location, available))
+    fn get(&self, _w: &mut impl Write) -> Result<Location> {
+        Ok(self.location)
     }
-    // fn fd() -> Result<()> {
-    //     Err(anyhow!("-1"))
-    // }
 }

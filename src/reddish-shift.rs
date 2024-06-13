@@ -18,6 +18,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+// TODO: add setting screen brightness, a percentage of the current brightness
+
 pub mod colorramp;
 pub mod config;
 pub mod display;
@@ -30,49 +32,21 @@ pub mod solar;
 pub mod utils;
 
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use config::{
     AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
-    TransitionScheme, Verbosity,
+    TransitionScheme, FADE_STEPS,
 };
-use std::fmt::Debug;
-use std::io::Write;
-use std::ops::Deref;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use utils::Enum2;
+use std::{
+    fmt::Debug,
+    io::Write,
+    ops::Deref,
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+};
+use utils::IsDefault;
 
 fn main() -> Result<()> {
-    // // Init locale
-    // setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
-    // setlocale(5 as c_int, b"\0" as *const u8 as *const c_char);
-
-    // // Internationalisation
-    // bindtextdomain(
-    //     b"redshift\0" as *const u8 as *const c_char,
-    //     b"/home/mahor/redshift/root/share/locale\0" as *const u8 as *const c_char,
-    // );
-    // textdomain(b"redshift\0" as *const u8 as *const c_char);
-
-    // // Flush messages consistently even if redirected to a pipe or
-    // // file.  Change the flush behaviour to line-buffered, without
-    // // changing the actual buffers being used
-    // setvbuf(stdout, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
-    // setvbuf(stderr, std::ptr::null_mut::<c_char>(), 1 as c_int, 0);
-
-    // use TransitionScheme::*;
-    // cfg.need_location = match (&cfg.mode, &cfg.scheme) {
-    //     (Mode::Daemon | Mode::Oneshot, Elevation(_)) => true,
-    //     (Mode::Set | Mode::Reset, _) | (_, Time(_)) => false,
-    // };
-
-    // match (cfg.need_location, &cfg.location) {
-    //     (true, LocationProvider::Manual(loc)) if loc.is_default() => {
-    //         eprintln!("using default location");
-    //     }
-    //     _ => {}
-    // }
-
     // if cfg.need_location {
     // if !(options.provider).is_null() {
     //     // Use provider specified on command line
@@ -124,9 +98,18 @@ fn main() -> Result<()> {
     // }
 
     let c = ConfigBuilder::new()?.build()?;
-
     let stdout = std::io::stdout();
     let mut w = stdout.lock();
+
+    let need_location = match (&c.mode, &c.scheme) {
+        (Mode::Daemon | Mode::Oneshot, TransitionScheme::Elevation(_)) => true,
+        (Mode::Set | Mode::Reset, _) | (_, TransitionScheme::Time(_)) => false,
+    };
+    if need_location {
+        if c.location.get(&mut w)?.is_default() {
+            writeln!(w, "Warning: using default location")?;
+        }
+    }
 
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || {
@@ -140,22 +123,24 @@ fn main() -> Result<()> {
 fn run(c: Config, sig: Receiver<()>, w: &mut impl Write) -> Result<()> {
     // TODO: add a command for calculating solar elevation for the next 24h
     match c.mode {
-        Mode::Daemon => run_daemon_mode(&c, &sig, w)?,
+        Mode::Daemon => {
+            DaemonMode::default().run_loop(&c, &sig, w)?;
+            c.method.restore(c.dry_run)?;
+        }
 
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
-            let (period, info) = Period::from(&c.scheme, &c.location, c.time)?;
-            if c.verbosity == Verbosity::High {
-                writeln!(w, "{period}\n{info}")?;
+            let (p, i) = Period::from(&c.scheme, &c.location, c.time, w)?;
+            let interp = c.night.interpolate_with(&c.day, p.into());
+            if c.verbose {
+                writeln!(w, "{p}\n{i}{interp}")?;
             }
-
-            let interp = c.night.interpolate_with(&c.day, period.into());
-            c.method.set(&interp, c.reset_ramps)?;
+            c.method.set(c.dry_run, c.reset_ramps, &interp)?;
         }
 
         Mode::Set => {
             // for the set command, color settings are stored in the day field
-            c.method.set(&c.day, c.reset_ramps)?;
+            c.method.set(c.dry_run, c.reset_ramps, &c.day)?;
             // if cfg.verbosity {
             //     // b"Color settings: %uK\n\0"
             // }
@@ -163,156 +148,204 @@ fn run(c: Config, sig: Receiver<()>, w: &mut impl Write) -> Result<()> {
 
         Mode::Reset => {
             let cs = ColorSettings::default();
-            c.method.set(&cs, true)?;
+            c.method.set(c.dry_run, true, &cs)?;
         }
     }
 
     Ok(())
 }
 
-/// This is the main loop of the daemon mode which keeps track of the
-/// current time and continuously updates the screen to the appropriate color
-/// temperature
-fn run_daemon_mode(
-    c: &Config,
-    sig: &Receiver<()>,
-    w: &mut impl Write,
-) -> Result<()> {
-    // if config.verbose {
-    //  // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-    //  // interp.temperature,
-    //  // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-    //  // interp.brightness as c_double,
-    // }
+#[derive(Debug, Clone, Default)]
+struct DaemonMode {
+    signal: Signal,
+    fade: Fade,
 
-    // // Save previous parameters so we can avoid printing status updates if the
-    // // values did not change
-    let mut prev_period = None;
-    let mut prev_interp = ColorSettings::default();
+    period: Period,
+    info: PeriodInfo,
+    interp: ColorSettings,
 
-    let mut fade = Fade::default();
-    let mut signal = None;
+    // Save previous parameters so we can avoid printing status updates if the
+    // values did not change
+    period_prev: Option<Period>,
+    info_prev: Option<PeriodInfo>,
+    interp_prev: Option<ColorSettings>,
+}
 
-    loop {
-        let sleep_duration = match (signal, &fade.status) {
-            (None, FadeStatus::Completed) => c.sleep_duration,
-            (None | Some(Signal::Interrupt), FadeStatus::Ungoing { .. }) => {
-                c.fade_sleep_duration
+impl DaemonMode {
+    /// This is the main loop of the daemon mode which keeps track of the
+    /// current time and continuously updates the screen to the appropriate
+    /// color temperature
+    fn run_loop(
+        &mut self,
+        c: &Config,
+        sig: &Receiver<()>,
+        w: &mut impl Write,
+    ) -> Result<()> {
+        loop {
+            (self.period, self.info) =
+                Period::from(&c.scheme, &c.location, c.time, w)?;
+            let target = match self.signal {
+                Signal::None => {
+                    c.night.interpolate_with(&c.day, self.period.into())
+                }
+                Signal::Interrupt => ColorSettings::default(),
+            };
+            self.fade.next(c.disable_fade, target, &mut self.interp);
+            self.write(w)?;
+            w.flush()?;
+
+            // // Activate hooks if period changed
+            // if period != prev_period {
+            //     hooks_signal_period_change(prev_period, period);
+            // }
+            c.method.set(c.dry_run, c.reset_ramps, &self.interp)?;
+
+            self.period_prev = Some(self.period);
+            self.info_prev = Some(self.info.clone());
+            self.interp_prev = Some(self.interp.clone());
+
+            // sleep for a duration then continue the loop
+            // or wake up and restore the default colors slowly on first ctrl-c
+            // or break the loop on the second ctrl-c immediately
+            let sleep_duration = match (self.signal, self.fade) {
+                (Signal::None, Fade::Completed) => c.sleep_duration,
+                (_, Fade::Ungoing { .. }) => c.fade_sleep_duration,
+                (Signal::Interrupt, Fade::Completed) => break Ok(()),
+            };
+
+            match sig.recv_timeout(sleep_duration) {
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(e) => Err(e)?,
+                Ok(()) => match self.signal {
+                    Signal::None => self.signal = Signal::Interrupt,
+                    Signal::Interrupt => break Ok(()),
+                },
             }
-            (Some(Signal::Interrupt), FadeStatus::Completed) => break,
-            (Some(Signal::Terminate), _) => break,
-        };
-
-        let (period, info) = Period::from(&c.scheme, &c.location, c.time)?;
-        let target_interp = c.night.interpolate_with(&c.day, period.into());
-        fade.next(c, target_interp);
-        let ColorSettings { temp, gamma, brght } = &fade.current;
-
-        if c.verbosity == Verbosity::High {
-            if Some(period) != prev_period {
-                writeln!(w, "{period}\n{info}")?;
-            }
-            if temp != &prev_interp.temp {
-                writeln!(w, "{temp}")?;
-            }
-            if brght != &prev_interp.brght {
-                writeln!(w, "{brght}")?;
-            }
-            if gamma != &prev_interp.gamma {
-                writeln!(w, "{gamma}")?;
-            }
-        }
-
-        // // Activate hooks if period changed
-        // if period != prev_period {
-        //     hooks_signal_period_change(prev_period, period);
-        // }
-
-        c.method.set(&fade.current, c.reset_ramps)?;
-
-        prev_period = Some(period);
-        prev_interp = fade.current.clone();
-
-        w.flush()?;
-
-        match sig.recv_timeout(sleep_duration) {
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(e) => Err(e)?,
-            Ok(()) => match signal {
-                None => signal = Some(Signal::Interrupt),
-                Some(Signal::Interrupt) => signal = Some(Signal::Terminate),
-                Some(Signal::Terminate) => {}
-            },
         }
     }
 
-    c.method.restore()?;
-    Ok(())
+    fn write(&self, w: &mut impl Write) -> Result<()> {
+        let ColorSettings { temp, gamma, brght } = &self.interp;
 
-    // loop {
-    //     // Update location
-    //     let mut loc_fd = -1;
-    //     if need_location {
-    //         loc_fd = ((*provider).get_fd).expect("non-null function pointer")(
-    //             location_state,
-    //         );
-    //     }
+        if self.fade == Fade::Completed || self.interp_prev.is_none() {
+            if Some(&self.period) != self.period_prev.as_ref() {
+                writeln!(w, "{}", self.period)?;
+            }
+            match (&self.info, &self.info_prev) {
+                (PeriodInfo::Elevation { .. }, None) => {
+                    write!(w, "{}", self.info)?;
+                }
+                (
+                    PeriodInfo::Elevation { elev: e1, .. },
+                    Some(PeriodInfo::Elevation { elev: e2, .. }),
+                ) if e1 != e2 => {
+                    writeln!(w, "{e1}")?;
+                }
+                (
+                    PeriodInfo::Elevation { loc: l1, .. },
+                    Some(PeriodInfo::Elevation { loc: l2, .. }),
+                ) if l1 != l2 => {
+                    writeln!(w, "{l1}")?;
+                }
+                _ => {}
+            }
+            if Some(gamma) != self.interp_prev.as_ref().map(|c| &c.gamma) {
+                writeln!(w, "{gamma}")?;
+            }
+            if Some(brght) != self.interp_prev.as_ref().map(|c| &c.brght) {
+                writeln!(w, "{brght}")?;
+            }
+            if Some(temp) != self.interp_prev.as_ref().map(|c| &c.temp) {
+                writeln!(w, "{temp}")?;
+            }
+        } else {
+            if Some(temp) != self.interp_prev.as_ref().map(|c| &c.temp) {
+                writeln!(w, "{temp}")?;
+            }
+        }
 
-    //     if loc_fd >= 0 {
-    //         // Provider is dynamic
-    //         let mut pollfds: [pollfd; 1] = [pollfd {
-    //             fd: 0,
-    //             events: 0,
-    //             revents: 0,
-    //         }; 1];
+        Ok(())
+    }
+}
 
-    //         pollfds[0 as c_int as usize].fd = loc_fd;
-    //         pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
-    //         let mut r_0: c_int =
-    //             poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
-    //         if r_0 < 0 as c_int {
-    //             if *__errno_location() == 4 as c_int {
-    //                 continue;
-    //             }
-    //             perror(b"poll\0" as *const u8 as *const c_char);
-    //             eprintln!("Unable to get location from provider.");
-    //             return -(1 as c_int);
-    //         } else {
-    //             if r_0 == 0 as c_int {
-    //                 continue;
-    //             }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Signal {
+    #[default]
+    None,
+    Interrupt,
+}
 
-    //             // Get new location and availability
-    //             // information
-    //             let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
-    //             let mut new_available: c_int = 0;
-    //             r_0 = ((*provider).handle).expect("non-null function pointer")(
-    //                 location_state,
-    //                 &mut new_loc,
-    //                 &mut new_available,
-    //             );
-    //             if r_0 < 0 as c_int {
-    //                 eprintln!("Unable to get location from provider.");
-    //                 return -(1 as c_int);
-    //             }
-    //             if new_available == 0 && new_available != location_available {
-    //                 eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
-    //             }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fade {
+    Completed,
+    Ungoing { step: u8 },
+}
 
-    //             if new_available != 0
-    //                 && (new_loc.lat != loc.lat
-    //                     || new_loc.lon != loc.lon
-    //                     || new_available != location_available)
-    //             {
-    //                 loc = new_loc;
-    //                 print_location(&mut loc);
-    //             }
-    //             location_available = new_available;
-    //         }
-    //     } else {
-    //         std::thread::sleep(Duration::from_millis(delay));
-    //     }
-    // }
+impl Default for Fade {
+    fn default() -> Self {
+        Self::Completed
+    }
+}
+
+impl Fade {
+    fn next(
+        &mut self,
+        disable_fade: bool,
+        target: ColorSettings,
+        current: &mut ColorSettings,
+    ) {
+        let target_is_very_different = current.is_very_diff_from(&target);
+        match (&self, target_is_very_different, disable_fade) {
+            (_, _, true)
+            | (Fade::Completed, false, false)
+            | (Fade::Ungoing { .. }, false, false) => {
+                *self = Fade::Completed;
+                *current = target;
+            }
+
+            (Fade::Completed, true, false) => {
+                *self = Fade::Ungoing { step: 0 };
+                *current = Self::interpolate(current, &target, 0)
+            }
+
+            (Fade::Ungoing { step }, true, false) => {
+                if *step < FADE_STEPS {
+                    let step = *step + 1;
+                    *self = Fade::Ungoing { step };
+                    *current = Self::interpolate(current, &target, step)
+                } else {
+                    *self = Fade::Completed;
+                    *current = target;
+                }
+            }
+        }
+    }
+
+    fn interpolate(
+        start: &ColorSettings,
+        end: &ColorSettings,
+        step: u8,
+    ) -> ColorSettings {
+        let frac = step as f64 / FADE_STEPS as f64;
+        let alpha = Self::ease_fade(frac)
+            .clamp(0.0, 1.0)
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
+        start.interpolate_with(end, alpha)
+    }
+
+    /// Easing function for fade
+    /// See https://github.com/mietek/ease-tween
+    fn ease_fade(t: f64) -> f64 {
+        if t <= 0.0 {
+            0.0
+        } else if t >= 1.0 {
+            1.0
+        } else {
+            1.0042954579734844
+                * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+        }
+    }
 }
 
 /// Periods of day
@@ -321,12 +354,12 @@ enum Period {
     Daytime,
     Night,
     Transition {
-        progress: f64, // Between 0 and 1
+        progress: u8, // Between 0 and 100
     },
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Alpha(f64);
+pub struct Alpha(f64);
 
 // Read NOTE in src/config.rs
 impl Deref for Alpha {
@@ -353,24 +386,33 @@ impl From<Period> for Alpha {
         match period {
             Period::Daytime => Self(1.0),
             Period::Night => Self(0.0),
-            Period::Transition { progress } => Self(progress),
+            Period::Transition { progress } => Self(progress as f64 / 100.0),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PeriodInfo {
+    Elevation { elev: Elevation, loc: Location },
+    Time,
 }
 
 impl Period {
     /// Determine which period we are currently in based on time offset
     fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
         let TimeRanges { dawn, dusk } = time_ranges;
-        let sub = |a: TimeOffset, b: TimeOffset| (*a - *b) as f64;
+        let sub =
+            |a: TimeOffset, b: TimeOffset| (*a as i32 - *b as i32) as f64;
 
         if time < dawn.start || time >= dusk.end {
             Self::Night
         } else if time < dawn.end {
             let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
+            let progress = (progress * 100.0) as u8;
             Self::Transition { progress }
         } else if time > dusk.start {
             let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
+            let progress = (progress * 100.0) as u8;
             Self::Transition { progress }
         } else {
             Self::Daytime
@@ -386,6 +428,7 @@ impl Period {
             Self::Night
         } else if elev < high {
             let progress = sub(low, elev) / sub(low, high);
+            let progress = (progress * 100.0) as u8;
             Self::Transition { progress }
         } else {
             Self::Daytime
@@ -394,32 +437,52 @@ impl Period {
 
     fn from(
         scheme: &TransitionScheme,
-        here: &LocationProvider,
-        now: impl Fn() -> DateTime<Utc>,
-    ) -> Result<(Self, Enum2<Elevation, TimeOffset>)> {
+        location: &LocationProvider,
+        datetime: impl Fn() -> DateTime<Local>,
+        w: &mut impl Write,
+    ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
-                let now = (now() - DateTime::UNIX_EPOCH).num_seconds() as f64;
-                let (here, available) = here.get()?;
+                let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
+                    .num_seconds() as f64;
+                let here = location.get(w)?;
                 let elev = Elevation::new(now, here);
                 let period = Period::from_elevation(elev, *elev_range);
-                Ok((period, Enum2::T0(elev)))
+                let info = PeriodInfo::Elevation { elev, loc: here };
+                Ok((period, info))
             }
 
             TransitionScheme::Time(time_ranges) => {
-                let time = now().naive_local().time().into();
+                let time = datetime().time().into();
                 let period = Period::from_time(time, *time_ranges);
-                Ok((period, Enum2::T1(time)))
+                Ok((period, PeriodInfo::Time))
             }
         }
     }
 }
 
+impl Default for Period {
+    fn default() -> Self {
+        Self::Daytime
+    }
+}
+
+impl Default for PeriodInfo {
+    fn default() -> Self {
+        Self::Elevation {
+            elev: Default::default(),
+            loc: Default::default(),
+        }
+    }
+}
+
+//
+
 pub trait Provider {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self) -> Result<(Location, bool)> {
+    fn get(&self, _w: &mut impl Write) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
 }
@@ -432,30 +495,28 @@ pub trait Adjuster {
 
     /// Set a specific color temperature
     #[allow(unused_variables)]
-    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
         Err(anyhow!("Temperature adjustment failed"))
     }
 }
 
 impl Provider for LocationProvider {
-    fn get(&self) -> Result<(Location, bool)> {
-        // if cfg.need_location {
-        //     b"Waiting for current location to become available...\n\0" as *const u8
+    fn get(&self, w: &mut impl Write) -> Result<Location> {
+        // b"Waiting for current location to become available...\n\0" as *const u8
 
-        //     Wait for location provider
-        //     b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-        //     print_location(&mut loc);
-        // }
+        // Wait for location provider
+        // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
+        // print_location(&mut loc);
 
         match self {
-            Self::Manual(t) => t.get(),
+            Self::Manual(t) => t.get(w),
             // Self::Geoclue2(t) => t.get(),
         }
     }
 }
 
-impl Adjuster for AdjustmentMethod {
-    fn restore(&self) -> Result<()> {
+impl AdjustmentMethod {
+    fn restore(&self, dry_run: bool) -> Result<()> {
         match self {
             Self::Dummy(t) => t.restore(),
             Self::Randr(t) => t.restore(),
@@ -464,12 +525,17 @@ impl Adjuster for AdjustmentMethod {
         }
     }
 
-    fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {
+    fn set(
+        &self,
+        dry_run: bool,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<()> {
         match self {
-            Self::Dummy(t) => t.set(cs, reset_ramps),
-            Self::Randr(t) => t.set(cs, reset_ramps),
-            Self::Drm(t) => t.set(cs, reset_ramps),
-            Self::Vidmode(t) => t.set(cs, reset_ramps),
+            Self::Dummy(t) => t.set(reset_ramps, cs),
+            Self::Randr(t) => t.set(reset_ramps, cs),
+            Self::Drm(t) => t.set(reset_ramps, cs),
+            Self::Vidmode(t) => t.set(reset_ramps, cs),
         }
 
         // // In Quartz (macOS) the gamma adjustments will
@@ -479,87 +545,5 @@ impl Adjuster for AdjustmentMethod {
         //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
         //     pause();
         // }
-    }
-}
-
-//
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Signal {
-    Interrupt,
-    Terminate,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Fade {
-    pub current: ColorSettings,
-    pub status: FadeStatus,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FadeStatus {
-    Completed,
-    Ungoing { step: u8 },
-}
-
-impl Default for FadeStatus {
-    fn default() -> Self {
-        Self::Completed
-    }
-}
-
-impl Fade {
-    pub fn next(&mut self, c: &Config, target: ColorSettings) {
-        match (&self.status, self.current.is_very_diff_from(&target)) {
-            (FadeStatus::Completed, false)
-            | (FadeStatus::Ungoing { .. }, false) => {
-                self.current = target;
-                self.status = FadeStatus::Completed;
-            }
-
-            (FadeStatus::Completed, true) => {
-                self.current = Self::interpolate(c, &self.current, &target, 0);
-                self.status = FadeStatus::Ungoing { step: 0 };
-            }
-
-            (FadeStatus::Ungoing { step }, true) => {
-                if *step < c.fade_steps {
-                    let step = *step + 1;
-                    self.current =
-                        Self::interpolate(c, &self.current, &target, step);
-                    self.status = FadeStatus::Ungoing { step };
-                } else {
-                    self.current = target;
-                    self.status = FadeStatus::Completed;
-                }
-            }
-        }
-    }
-
-    fn interpolate(
-        c: &Config,
-        start: &ColorSettings,
-        end: &ColorSettings,
-        step: u8,
-    ) -> ColorSettings {
-        let frac = step as f64 / c.fade_steps as f64;
-        let alpha = Self::ease_fade(frac)
-            .clamp(0.0, 1.0)
-            .try_into()
-            .unwrap_or_else(|_| unreachable!());
-        start.interpolate_with(end, alpha)
-    }
-
-    /// Easing function for fade
-    /// See https://github.com/mietek/ease-tween
-    fn ease_fade(t: f64) -> f64 {
-        if t <= 0.0 {
-            0.0
-        } else if t >= 1.0 {
-            1.0
-        } else {
-            1.0042954579734844
-                * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
-        }
     }
 }
