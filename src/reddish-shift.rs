@@ -24,11 +24,7 @@ pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
 pub mod gamma_vidmode;
-pub mod hooks;
-// pub mod location_geoclue2;
 pub mod location_manual;
-pub mod pipeutils;
-pub mod signals;
 pub mod solar;
 
 use anyhow::{anyhow, Result};
@@ -37,24 +33,17 @@ use config::{
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
     TransitionScheme,
 };
-use hooks::hooks_signal_period_change;
-use signals::{
-    disable as DISABLE, exiting as EXITING, signals_install_handlers,
-};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     ops::Deref,
-    ptr::addr_of_mut,
     time::Duration,
 };
 use time::OffsetDateTime;
 
-pub type Nfds = u64;
-pub type SigAtomic = i32;
-
 // Duration of sleep between screen updates (milliseconds)
-const SLEEP_DURATION: u64 = 5000;
-const SLEEP_DURATION_SHORT: u64 = 100;
+const SLEEP_DURATION: Duration = Duration::from_millis(5000);
+const SLEEP_DURATION_SHORT: Duration = Duration::from_millis(100);
 // Length of fade in numbers of short sleep durations
 const FADE_STEPS: u16 = 40;
 
@@ -143,13 +132,13 @@ fn main() -> Result<()> {
 
     // TODO: add a command for calculating solar elevation for the next 24h
     match cfg.mode {
-        Mode::Daemon => unsafe { run_daemon_mode(&cfg)? },
+        Mode::Daemon => run_daemon_mode(&cfg)?,
 
         Mode::Oneshot => {
             // TODO: add time-zone to config, or convert location to timezone
             // b"Unable to read system time.\n\0" as *const u8 as *const c_char,
-            let now = (cfg.time)()?;
-            let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
+            let period =
+                Period::from_scheme(&cfg.scheme, &cfg.location, cfg.time)?;
 
             // Use transition progress to set color temperature
             let interp = cfg.night.interpolate_with(&cfg.day, period.into());
@@ -181,22 +170,7 @@ fn main() -> Result<()> {
 /// This is the main loop of the daemon mode which keeps track of the
 /// current time and continuously updates the screen to the appropriate color
 /// temperature
-unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
-    let r = signals_install_handlers();
-    if r < 0 {
-        return Err(anyhow!("{r}"));
-    }
-
-    // Save previous parameters so we can avoid printing status updates if the
-    // values did not change
-    let mut prev_period: Period;
-
-    // Previous target color setting and current actual color setting Actual
-    // color setting takes into account the current color fade
-    let mut prev_target_interp = ColorSettings::default();
-    let mut interp = ColorSettings::default();
-    let mut loc = Location::default();
-
+fn run_daemon_mode(cfg: &Config) -> Result<()> {
     // if config.verbose {
     //  // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
     //  // interp.temperature,
@@ -204,34 +178,37 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
     //  // interp.brightness as c_double,
     // }
 
-    // Continuously adjust color temperature
-    let mut done = 0;
-    let mut prev_disabled = 1;
-    let mut disabled = 0;
-    let mut location_available = 1;
-    loop {
-        // Check to see if disable signal was caught
-        if DISABLE != 0 && done == 0 {
-            disabled = (disabled == 0) as i32;
-            core::ptr::write_volatile(
-                addr_of_mut!(DISABLE) as *mut SigAtomic,
-                0,
-            );
-        }
+    // // Save previous parameters so we can avoid printing status updates if the
+    // // values did not change
+    // let mut prev_period = None;
+    // let mut prev_interp = ColorSettings::default();
 
-        // Check to see if exit signal was caught
-        if EXITING != 0 {
-            if done != 0 {
-                // On second signal stop the ongoing fade
-                break;
+    let mut fade = Fade::default();
+    let mut signal = None;
+    let (tx, rx) = mpsc::channel();
+    ctrlc::set_handler(move || {
+        tx.send(()).expect("Could not send signal on channel")
+    })?;
+
+    loop {
+        let sleep_duration = match (signal, &fade.status) {
+            (None, FadeStatus::Completed) => SLEEP_DURATION,
+            (None | Some(Signal::Interrupt), FadeStatus::Ungoing { .. }) => {
+                SLEEP_DURATION_SHORT
             }
-            done = 1;
-            disabled = 1;
-            core::ptr::write_volatile(
-                addr_of_mut!(EXITING) as *mut SigAtomic,
-                0,
-            );
-        }
+            (Some(Signal::Interrupt), FadeStatus::Completed) => break,
+            (Some(Signal::Terminate), _) => break,
+        };
+
+        let (period, interp) = if signal == Some(Signal::Interrupt) {
+            Default::default()
+        } else {
+            let p = Period::from_scheme(&cfg.scheme, &cfg.location, cfg.time)?;
+            let i = cfg.night.interpolate_with(&cfg.day, p.into());
+            (Some(p), i)
+        };
+
+        fade.next(interp);
 
         // Print status change
         // if config.verbose && disabled != prev_disabled {
@@ -247,20 +224,6 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         //     //     },
         //     // );
         // }
-        prev_disabled = disabled;
-
-        let now = (cfg.time)()?;
-        let period = Period::from_scheme(&cfg.scheme, &cfg.location, now)?;
-        let target_interp =
-            cfg.night.interpolate_with(&cfg.day, period.into());
-
-        // if disabled != 0 {
-        //     period = PERIOD_NONE;
-        //     target_interp = ColorSettings::default();
-        // }
-        // if done != 0 {
-        //     period = PERIOD_NONE;
-        // }
 
         // // Print period if it changed during this update,
         // // or if we are in the transition period. In transition we
@@ -271,26 +234,6 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         // {
         //     print_period(period, transition_prog);
         // }
-
-        // // Activate hooks if period changed
-        // if period != prev_period {
-        //     hooks_signal_period_change(prev_period, period);
-        // }
-
-        // Start fade if the parameter differences are too big to apply
-        // instantly
-        if !cfg.disable_fade
-            && (fade && interp.is_very_diff_from(&target_interp)
-                || !fade
-                    && target_interp.is_very_diff_from(&prev_target_interp))
-        {
-            fade = true;
-        }
-
-        // Break loop when done and final fade is over
-        if done != 0 && !fade {
-            break;
-        }
 
         // if config.verbose {
         //     if prev_target_interp.temperature != target_interp.temperature {
@@ -305,86 +248,94 @@ unsafe fn run_daemon_mode(cfg: &Config) -> Result<()> {
         //     }
         // }
 
-        // Adjust temperature
-        cfg.method.set(&interp, cfg.reset_ramps);
-
-        // // Save period and target color setting as previous
-        // prev_period = period;
-        // prev_target_interp = target_interp;
-
-        // Sleep length depends on whether a fade is ongoing
-        let delay = if fade {
-            SLEEP_DURATION_SHORT
-        } else {
-            SLEEP_DURATION
-        };
-
-        // Update location
-        let mut loc_fd = -1;
-        // if need_location {
-        //     loc_fd = ((*provider).get_fd).expect("non-null function pointer")(
-        //         location_state,
-        //     );
+        // // Activate hooks if period changed
+        // if period != prev_period {
+        //     hooks_signal_period_change(prev_period, period);
         // }
 
-        if loc_fd >= 0 {
-            // // Provider is dynamic
-            // let mut pollfds: [pollfd; 1] = [pollfd {
-            //     fd: 0,
-            //     events: 0,
-            //     revents: 0,
-            // }; 1];
+        cfg.method.set(&fade.current, cfg.reset_ramps)?;
 
-            // pollfds[0 as c_int as usize].fd = loc_fd;
-            // pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
-            // let mut r_0: c_int =
-            //     poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
-            // if r_0 < 0 as c_int {
-            //     if *__errno_location() == 4 as c_int {
-            //         continue;
-            //     }
-            //     perror(b"poll\0" as *const u8 as *const c_char);
-            //     eprintln!("Unable to get location from provider.");
-            //     return -(1 as c_int);
-            // } else {
-            //     if r_0 == 0 as c_int {
-            //         continue;
-            //     }
+        // prev_period = period;
+        // prev_interp = fade.current.clone();
 
-            //     // Get new location and availability
-            //     // information
-            //     let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
-            //     let mut new_available: c_int = 0;
-            //     r_0 = ((*provider).handle).expect("non-null function pointer")(
-            //         location_state,
-            //         &mut new_loc,
-            //         &mut new_available,
-            //     );
-            //     if r_0 < 0 as c_int {
-            //         eprintln!("Unable to get location from provider.");
-            //         return -(1 as c_int);
-            //     }
-            //     if new_available == 0 && new_available != location_available {
-            //         eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
-            //     }
-
-            //     if new_available != 0
-            //         && (new_loc.lat != loc.lat
-            //             || new_loc.lon != loc.lon
-            //             || new_available != location_available)
-            //     {
-            //         loc = new_loc;
-            //         print_location(&mut loc);
-            //     }
-            //     location_available = new_available;
-            // }
-        } else {
-            std::thread::sleep(Duration::from_millis(delay));
+        match rx.recv_timeout(sleep_duration) {
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(e) => Err(e)?,
+            Ok(()) => match signal {
+                None => signal = Some(Signal::Interrupt),
+                Some(Signal::Interrupt) => signal = Some(Signal::Terminate),
+                Some(Signal::Terminate) => {}
+            },
         }
     }
 
     cfg.method.restore()?;
     Ok(())
+
+    // loop {
+    //     // Update location
+    //     let mut loc_fd = -1;
+    //     if need_location {
+    //         loc_fd = ((*provider).get_fd).expect("non-null function pointer")(
+    //             location_state,
+    //         );
+    //     }
+
+    //     if loc_fd >= 0 {
+    //         // Provider is dynamic
+    //         let mut pollfds: [pollfd; 1] = [pollfd {
+    //             fd: 0,
+    //             events: 0,
+    //             revents: 0,
+    //         }; 1];
+
+    //         pollfds[0 as c_int as usize].fd = loc_fd;
+    //         pollfds[0 as c_int as usize].events = 0x1 as c_int as c_short;
+    //         let mut r_0: c_int =
+    //             poll(pollfds.as_mut_ptr(), 1 as c_int as Nfds, delay);
+    //         if r_0 < 0 as c_int {
+    //             if *__errno_location() == 4 as c_int {
+    //                 continue;
+    //             }
+    //             perror(b"poll\0" as *const u8 as *const c_char);
+    //             eprintln!("Unable to get location from provider.");
+    //             return -(1 as c_int);
+    //         } else {
+    //             if r_0 == 0 as c_int {
+    //                 continue;
+    //             }
+
+    //             // Get new location and availability
+    //             // information
+    //             let mut new_loc: location_t = location_t { lat: 0., lon: 0. };
+    //             let mut new_available: c_int = 0;
+    //             r_0 = ((*provider).handle).expect("non-null function pointer")(
+    //                 location_state,
+    //                 &mut new_loc,
+    //                 &mut new_available,
+    //             );
+    //             if r_0 < 0 as c_int {
+    //                 eprintln!("Unable to get location from provider.");
+    //                 return -(1 as c_int);
+    //             }
+    //             if new_available == 0 && new_available != location_available {
+    //                 eprintln!("Location is temporarily unavailable; Using previous location until it becomes available...");
+    //             }
+
+    //             if new_available != 0
+    //                 && (new_loc.lat != loc.lat
+    //                     || new_loc.lon != loc.lon
+    //                     || new_available != location_available)
+    //             {
+    //                 loc = new_loc;
+    //                 print_location(&mut loc);
+    //             }
+    //             location_available = new_available;
+    //         }
+    //     } else {
+    //         std::thread::sleep(Duration::from_millis(delay));
+    //     }
+    // }
 }
 
 /// Periods of day
@@ -467,13 +418,15 @@ impl Period {
     fn from_scheme(
         scheme: &TransitionScheme,
         here: &LocationProvider,
-        now: OffsetDateTime,
+        now: impl Fn() -> Result<OffsetDateTime>,
     ) -> Result<Self> {
+        let now = now()?;
+
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
                 let now = (now - OffsetDateTime::UNIX_EPOCH).as_seconds_f64();
-                let (loc, available) = here.get()?;
-                let elev = Elevation::new(now, loc);
+                let (here, available) = here.get()?;
+                let elev = Elevation::new(now, here);
                 Ok(Period::from_elevation(elev, *elev_range))
                 // if config.verbose {
                 //     // TRANSLATORS: Append degree symbol if possible
@@ -592,44 +545,47 @@ impl Adjuster for AdjustmentMethod {
     }
 }
 
-#[derive(Debug, Clone)]
+//
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
+    Interrupt,
+    Terminate,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Fade {
-    pub disable: bool,
     pub current: ColorSettings,
     pub status: FadeStatus,
 }
 
-#[derive(Debug, Clone)]
-enum FadeStatus {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FadeStatus {
     Completed,
     Ungoing { step: u16 },
 }
 
-impl Fade {
-    pub fn new(current: ColorSettings, disable: bool) -> Self {
-        Self {
-            disable,
-            current,
-            status: FadeStatus::Completed,
-        }
+impl Default for FadeStatus {
+    fn default() -> Self {
+        Self::Completed
     }
+}
 
+impl Fade {
     pub fn next(&mut self, target: ColorSettings) {
-        let target_is_very_different = self.current.is_very_diff_from(&target);
-        match (&self.status, target_is_very_different, self.disable) {
-            (_, _, true)
-            | (FadeStatus::Ungoing { .. }, false, false)
-            | (FadeStatus::Completed, false, false) => {
+        match (&self.status, self.current.is_very_diff_from(&target)) {
+            (FadeStatus::Completed, false)
+            | (FadeStatus::Ungoing { .. }, false) => {
                 self.current = target;
                 self.status = FadeStatus::Completed;
             }
 
-            (FadeStatus::Completed, true, false) => {
+            (FadeStatus::Completed, true) => {
                 self.current = Self::interpolate(&self.current, &target, 0);
                 self.status = FadeStatus::Ungoing { step: 0 };
             }
 
-            (FadeStatus::Ungoing { step }, true, false) => {
+            (FadeStatus::Ungoing { step }, true) => {
                 if *step < FADE_STEPS {
                     let step = *step + 1;
                     self.current =
