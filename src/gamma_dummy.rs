@@ -19,13 +19,13 @@
 */
 
 use crate::{config::ColorSettings, Adjuster};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dummy;
 impl Adjuster for Dummy {
     fn restore(&self) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed"))
+        Ok(())
     }
 
     fn set(&self, cs: &ColorSettings, reset_ramps: bool) -> Result<()> {

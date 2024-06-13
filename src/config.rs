@@ -41,8 +41,15 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 use toml::Value;
+
+// Duration of sleep between screen updates (milliseconds)
+const SLEEP_DURATION: Duration = Duration::from_millis(5000);
+const FADE_SLEEP_DURATION: Duration = Duration::from_millis(100);
+// Length of fade in numbers of fade's sleep durations
+const FADE_STEPS: u8 = 40;
 
 // Angular elevation of the sun at which the color temperature
 // transition period starts and ends (in degrees).
@@ -145,108 +152,113 @@ Please report bugs to <{PKG_BUGREPORT}>"
     )
 };
 
-fn print_method_list() {
-    println!("Available adjustment methods:");
+// fn print_method_list() {
+//     println!("Available adjustment methods:");
 
-    // let mut i: c_int = 0 as c_int;
-    // while !((*gamma_methods.offset(i as isize)).name).is_null() {
-    //     let name = (*gamma_methods.offset(i as isize)).name;
-    //     let name = CStr::from_ptr(name).to_str().unwrap();
-    //     println!("  {name}");
-    //     i += 1;
-    // }
+//     // let mut i: c_int = 0 as c_int;
+//     // while !((*gamma_methods.offset(i as isize)).name).is_null() {
+//     //     let name = (*gamma_methods.offset(i as isize)).name;
+//     //     let name = CStr::from_ptr(name).to_str().unwrap();
+//     //     println!("  {name}");
+//     //     i += 1;
+//     // }
 
-    // TRANSLATORS: `help' must not be translated.
-    println!(
-        "
-Specify colon-separated options with `-m METHOD:OPTIONS`
-Try `-m METHOD:help' for help."
-    );
-}
+//     // TRANSLATORS: `help' must not be translated.
+//     println!(
+//         "
+// Specify colon-separated options with `-m METHOD:OPTIONS`
+// Try `-m METHOD:help' for help."
+//     );
+// }
 
-fn print_provider_list() {
-    println!("Available location providers:");
+// fn print_provider_list() {
+//     println!("Available location providers:");
 
-    // let mut i: c_int = 0 as c_int;
-    // while !((*location_providers.offset(i as isize)).name).is_null() {
-    //     let name = (*location_providers.offset(i as isize)).name;
-    //     let name = CStr::from_ptr(name).to_str().unwrap();
-    //     println!("  {name}");
-    //     i += 1;
-    // }
+//     // let mut i: c_int = 0 as c_int;
+//     // while !((*location_providers.offset(i as isize)).name).is_null() {
+//     //     let name = (*location_providers.offset(i as isize)).name;
+//     //     let name = CStr::from_ptr(name).to_str().unwrap();
+//     //     println!("  {name}");
+//     //     i += 1;
+//     // }
 
-    // TRANSLATORS: `help' must not be translated.
-    println!(
-        "
-Specify colon-separated options with`-l PROVIDER:OPTIONS'.
-Try `-l PROVIDER:help' for help.
-"
-    );
-}
+//     // TRANSLATORS: `help' must not be translated.
+//     println!(
+//         "
+// Specify colon-separated options with`-l PROVIDER:OPTIONS'.
+// Try `-l PROVIDER:help' for help.
+// "
+//     );
+// }
 
-fn print_manual_help() {
-    // TRANSLATORS: Manual location help output
-    // left column must not be translated
-    println!(
-        "Specify location manually.
+// fn print_manual_help() {
+//     // TRANSLATORS: Manual location help output
+//     // left column must not be translated
+//     println!(
+//         "Specify location manually.
 
-  lat=N\t\tLatitude
-  lon=N\t\tLongitude
+//   lat=N\t\tLatitude
+//   lon=N\t\tLongitude
 
-  Both values are expected to be floating point numbers,
-  negative values representing west / south, respectively."
-    );
-}
+//   Both values are expected to be floating point numbers,
+//   negative values representing west / south, respectively."
+//     );
+// }
 
-// "Parameter `{}` is now always on;  Use the `-P` command-line option to disable.",
+// // "Parameter `{}` is now always on;  Use the `-P` command-line option to disable.",
 
-fn print_dummy_help() {
-    println!("Does not affect the display but prints the color temperature to the terminal.")
-}
+// fn print_dummy_help() {
+//     println!("Does not affect the display but prints the color temperature to the terminal.")
+// }
 
-fn start_dummy() {
-    eprintln!("WARNING: Using dummy gamma method! Display will not be affected by this gamma method.");
-}
+// fn start_dummy() {
+//     eprintln!("WARNING: Using dummy gamma method! Display will not be affected by this gamma method.");
+// }
 
-fn print_vidmode_help() {
-    // b"Adjust gamma ramps with the X VidMode extension.\n\0" as *const u8
-    // b"  screen=N\t\tX screen to apply adjustments to\n\0" as *const u8
-}
+// fn print_vidmode_help() {
+//     // b"Adjust gamma ramps with the X VidMode extension.\n\0" as *const u8
+//     // b"  screen=N\t\tX screen to apply adjustments to\n\0" as *const u8
+// }
 
-fn print_randr_help() {
-    // fputs(_("Adjust gamma ramps with the X RANDR extension.\n"), f);
-    // fputs("\n", f);
+// fn print_randr_help() {
+//     // fputs(_("Adjust gamma ramps with the X RANDR extension.\n"), f);
+//     // fputs("\n", f);
 
-    // /* TRANSLATORS: RANDR help output
-    //    left column must not be translated */
-    // fputs(_("  screen=N\t\tX screen to apply adjustments to\n"
-    //         "  crtc=N\tList of comma separated CRTCs to apply"
-    //         " adjustments to\n"),
-    //       f);
-    // fputs("\n", f);
-}
+//     // /* TRANSLATORS: RANDR help output
+//     //    left column must not be translated */
+//     // fputs(_("  screen=N\t\tX screen to apply adjustments to\n"
+//     //         "  crtc=N\tList of comma separated CRTCs to apply"
+//     //         " adjustments to\n"),
+//     //       f);
+//     // fputs("\n", f);
+// }
 
-fn print_drm_help() {
-    // requires root
-    // b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8
-}
+// fn print_drm_help() {
+//     // requires root
+//     // b"Adjust gamma ramps with Direct Rendering Manager.\n\0" as *const u8
+// }
 
 /// Merge of cli arguments and config files
 #[derive(Debug)]
 pub struct Config {
+    // cli only fields
     pub verbosity: Verbosity,
     pub dry_run: bool,
     pub mode: Mode,
 
+    // cli and config file fields
     pub day: ColorSettings,
     pub night: ColorSettings,
     pub reset_ramps: bool,
-    pub disable_fade: bool,
     pub scheme: TransitionScheme,
+    pub disable_fade: bool,
+    pub fade_steps: u8,
+    pub fade_sleep_duration: Duration,
+    pub sleep_duration: Duration,
 
-    pub time: fn() -> DateTime<Utc>,
     pub location: LocationProvider,
     pub method: AdjustmentMethod,
+    pub time: fn() -> DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,10 +272,13 @@ pub struct ConfigBuilder {
     reset_ramps: bool,
     disable_fade: bool,
     scheme: TransitionScheme,
+    fade_steps: u8,
+    sleep_duration: Duration,
+    fade_sleep_duration: Duration,
 
-    time: fn() -> DateTime<Utc>,
     location: LocationProviderType,
     method: Option<AdjustmentMethodType>,
+    time: fn() -> DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -404,8 +419,11 @@ struct ConfigFile {
     brightness: Option<Either<f64, BrightnessRange>>,
     gamma: Option<Either<f64, GammaRange>>,
     reset_ramps: Option<bool>,
-    disable_fade: Option<bool>,
     scheme: Option<TransitionScheme>,
+    disable_fade: Option<bool>,
+    fade_steps: Option<u8>,
+    fade_sleep_duration: Option<u16>,
+    sleep_duration: Option<u16>,
     location: Option<LocationProviderType>,
     method: Option<AdjustmentMethodType>,
 }
@@ -462,13 +480,25 @@ struct ColorSettingsArgs {
 
 #[derive(Debug, Subcommand)]
 enum ModeArgs {
-    Daemon(CmdArgs),
+    Daemon {
+        #[command(flatten)]
+        c: CmdArgs,
+        // redshift uses -r for disabling fade
+        #[arg(long)]
+        disable_fade: bool,
+        #[arg(long, value_name = "0-255")]
+        fade_steps: Option<u8>,
+        #[arg(long, value_name = "0-65535")]
+        fade_sleep_duration: Option<u16>,
+        #[arg(long, value_name = "0-65535")]
+        sleep_duration: Option<u16>,
+    },
     Oneshot(CmdArgs),
     Set {
         #[command(flatten)]
         cs: ColorSettingsArgs,
         #[command(flatten)]
-        sa: CmdInnerArgs,
+        c: CmdInnerArgs,
     },
     Reset(CmdInnerArgs),
 }
@@ -495,10 +525,6 @@ struct CmdArgs {
     brightness: Option<BrightnessRange>,
     #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = GammaRange::from_str)]
     gamma: Option<GammaRange>,
-
-    // redshift uses -r for disabling fade
-    #[arg(long, display_order(99))]
-    disable_fade: bool,
 
     #[command(flatten)]
     inner: CmdInnerArgs,
@@ -549,9 +575,12 @@ impl ConfigBuilder {
             reset_ramps,
             disable_fade,
             scheme,
-            time,
+            fade_steps,
+            sleep_duration,
+            fade_sleep_duration,
             location,
             method,
+            time,
         } = self;
 
         // try all methods until one that works is found.
@@ -590,11 +619,14 @@ impl ConfigBuilder {
             day,
             night,
             reset_ramps,
-            disable_fade,
             scheme,
-            time,
+            disable_fade,
+            fade_steps,
+            fade_sleep_duration,
+            sleep_duration,
             location,
             method,
+            time,
         })
     }
 
@@ -616,15 +648,32 @@ impl ConfigBuilder {
         self.verbosity = verbosity;
         self.dry_run = dry_run;
         match mode {
-            Some(ModeArgs::Daemon(c)) => {
-                self.merge_with_cmd_args(c);
+            Some(ModeArgs::Daemon {
+                c: ca,
+                disable_fade,
+                fade_steps,
+                fade_sleep_duration,
+                sleep_duration,
+            }) => {
+                self.merge_with_cmd_args(ca);
+                self.disable_fade = disable_fade;
                 self.mode = Mode::Daemon;
+
+                if let Some(t) = fade_steps {
+                    self.fade_steps = t;
+                }
+                if let Some(t) = fade_sleep_duration {
+                    self.fade_sleep_duration = Duration::from_millis(t as u64);
+                }
+                if let Some(t) = sleep_duration {
+                    self.sleep_duration = Duration::from_millis(t as u64);
+                }
             }
             Some(ModeArgs::Oneshot(c)) => {
                 self.merge_with_cmd_args(c);
                 self.mode = Mode::Oneshot;
             }
-            Some(ModeArgs::Set { cs, sa: ca }) => {
+            Some(ModeArgs::Set { cs, c: ca }) => {
                 self.merge_with_inner_cmd_args(ca);
                 self.day = cs.into();
                 self.mode = Mode::Set;
@@ -642,7 +691,6 @@ impl ConfigBuilder {
             temperature,
             brightness,
             gamma,
-            disable_fade,
             inner,
             scheme,
             location,
@@ -661,7 +709,6 @@ impl ConfigBuilder {
             self.night.gamma = t.night;
         }
 
-        self.disable_fade = disable_fade;
         if let Some(t) = scheme {
             self.scheme = t;
         }
@@ -690,9 +737,12 @@ impl ConfigBuilder {
             brightness,
             gamma,
             reset_ramps,
-            disable_fade,
-            method,
             scheme,
+            disable_fade,
+            fade_steps,
+            fade_sleep_duration,
+            sleep_duration,
+            method,
             location,
         } = config;
 
@@ -712,13 +762,23 @@ impl ConfigBuilder {
         if let Some(t) = reset_ramps {
             self.reset_ramps = t;
         }
+        if let Some(t) = scheme {
+            self.scheme = t;
+        }
         if let Some(t) = disable_fade {
             self.disable_fade = t;
         }
 
-        if let Some(t) = scheme {
-            self.scheme = t;
+        if let Some(t) = fade_steps {
+            self.fade_steps = t;
         }
+        if let Some(t) = fade_sleep_duration {
+            self.fade_sleep_duration = Duration::from_millis(t as u64);
+        }
+        if let Some(t) = sleep_duration {
+            self.sleep_duration = Duration::from_millis(t as u64);
+        }
+
         if let Some(t) = location {
             self.location = t;
         }
@@ -769,9 +829,12 @@ impl ConfigFile {
             brightness,
             gamma,
             reset_ramps,
-            disable_fade,
-            method,
             scheme,
+            disable_fade,
+            fade_steps,
+            fade_sleep_duration,
+            sleep_duration,
+            method,
             location,
         } = other;
 
@@ -786,10 +849,20 @@ impl ConfigFile {
         }
         self.reset_ramps = reset_ramps;
         self.disable_fade = disable_fade;
-
         if let Some(t) = scheme {
             self.scheme = Some(t);
         }
+
+        if let Some(t) = fade_steps {
+            self.fade_steps = Some(t);
+        }
+        if let Some(t) = sleep_duration {
+            self.sleep_duration = Some(t);
+        }
+        if let Some(t) = fade_sleep_duration {
+            self.fade_sleep_duration = Some(t);
+        }
+
         if let Some(t) = location {
             self.location = Some(t);
         }
@@ -899,11 +972,14 @@ impl Default for ConfigBuilder {
             verbosity: Default::default(),
             dry_run: Default::default(),
             reset_ramps: Default::default(),
-            disable_fade: Default::default(),
             scheme: Default::default(),
-            time: || Utc::now(),
+            disable_fade: Default::default(),
+            fade_steps: FADE_STEPS,
+            fade_sleep_duration: FADE_SLEEP_DURATION,
+            sleep_duration: SLEEP_DURATION,
             method: Default::default(),
             location: Default::default(),
+            time: || Utc::now(),
         }
     }
 }
@@ -1035,7 +1111,16 @@ impl TryFrom<(u8, u8)> for Time {
 
 impl From<Time> for TimeOffset {
     fn from(Time { hour, minute }: Time) -> Self {
-        Self(hour as u32 * 60 * 60 + minute as u32 * 60)
+        Self(hour as u32 * 3600 + minute as u32 * 60)
+    }
+}
+
+impl From<TimeOffset> for Time {
+    fn from(time: TimeOffset) -> Self {
+        Self {
+            hour: (*time as f64 / 3600.0) as u8,
+            minute: ((*time as f64 % 3600.0) / 60.0) as u8,
+        }
     }
 }
 

@@ -20,35 +20,29 @@
 
 pub mod colorramp;
 pub mod config;
+pub mod display;
 pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
 pub mod gamma_vidmode;
 pub mod location_manual;
 pub mod solar;
+pub mod utils;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use config::{
     AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
-    TransitionScheme,
+    TransitionScheme, Verbosity,
 };
+use std::fmt::Debug;
+use std::io::Write;
+use std::ops::Deref;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::{
-    fmt::{Display, Formatter, Result as FmtResult},
-    ops::Deref,
-    time::Duration,
-};
-
-// Duration of sleep between screen updates (milliseconds)
-const SLEEP_DURATION: Duration = Duration::from_millis(5000);
-const SLEEP_DURATION_SHORT: Duration = Duration::from_millis(100);
-// Length of fade in numbers of short sleep durations
-const FADE_STEPS: u16 = 40;
+use utils::Enum2;
 
 fn main() -> Result<()> {
-    let cfg = ConfigBuilder::new()?.build()?;
     // // Init locale
     // setlocale(0 as c_int, b"\0" as *const u8 as *const c_char);
     // setlocale(5 as c_int, b"\0" as *const u8 as *const c_char);
@@ -129,37 +123,39 @@ fn main() -> Result<()> {
     //     // );
     // }
 
-    run(cfg, || {
-        let (tx, rx) = mpsc::channel();
-        ctrlc::set_handler(move || {
-            tx.send(()).expect("Could not send signal on channel")
-        })
-        .expect("Error setting Ctrl-C handler");
-        rx
+    let c = ConfigBuilder::new()?.build()?;
+
+    let stdout = std::io::stdout();
+    let mut w = stdout.lock();
+
+    let (tx, rx) = mpsc::channel();
+    ctrlc::set_handler(move || {
+        tx.send(()).expect("Could not send signal on channel")
     })
+    .expect("Error setting Ctrl-C handler");
+
+    run(c, rx, &mut w)
 }
 
-fn run(cfg: Config, sig: impl FnOnce() -> Receiver<()>) -> Result<()> {
+fn run(c: Config, sig: Receiver<()>, w: &mut impl Write) -> Result<()> {
     // TODO: add a command for calculating solar elevation for the next 24h
-    match cfg.mode {
-        Mode::Daemon => run_daemon_mode(&cfg, &sig())?,
+    match c.mode {
+        Mode::Daemon => run_daemon_mode(&c, &sig, w)?,
 
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
-            let period =
-                Period::from_scheme(&cfg.scheme, &cfg.location, cfg.time)?;
-            let interp = cfg.night.interpolate_with(&cfg.day, period.into());
+            let (period, info) = Period::from(&c.scheme, &c.location, c.time)?;
+            if c.verbosity == Verbosity::High {
+                writeln!(w, "{period}\n{info}")?;
+            }
 
-            // if options.verbosity {
-            //     // print_period(period, transition_prog);
-            //     // b"Color settings: %uK\n\0"
-            // }
-            cfg.method.set(&interp, cfg.reset_ramps)?;
+            let interp = c.night.interpolate_with(&c.day, period.into());
+            c.method.set(&interp, c.reset_ramps)?;
         }
 
         Mode::Set => {
             // for the set command, color settings are stored in the day field
-            cfg.method.set(&cfg.day, cfg.reset_ramps)?;
+            c.method.set(&c.day, c.reset_ramps)?;
             // if cfg.verbosity {
             //     // b"Color settings: %uK\n\0"
             // }
@@ -167,7 +163,7 @@ fn run(cfg: Config, sig: impl FnOnce() -> Receiver<()>) -> Result<()> {
 
         Mode::Reset => {
             let cs = ColorSettings::default();
-            cfg.method.set(&cs, true)?;
+            c.method.set(&cs, true)?;
         }
     }
 
@@ -177,7 +173,11 @@ fn run(cfg: Config, sig: impl FnOnce() -> Receiver<()>) -> Result<()> {
 /// This is the main loop of the daemon mode which keeps track of the
 /// current time and continuously updates the screen to the appropriate color
 /// temperature
-fn run_daemon_mode(cfg: &Config, sig: &Receiver<()>) -> Result<()> {
+fn run_daemon_mode(
+    c: &Config,
+    sig: &Receiver<()>,
+    w: &mut impl Write,
+) -> Result<()> {
     // if config.verbose {
     //  // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
     //  // interp.temperature,
@@ -187,79 +187,53 @@ fn run_daemon_mode(cfg: &Config, sig: &Receiver<()>) -> Result<()> {
 
     // // Save previous parameters so we can avoid printing status updates if the
     // // values did not change
-    // let mut prev_period = None;
-    // let mut prev_interp = ColorSettings::default();
+    let mut prev_period = None;
+    let mut prev_interp = ColorSettings::default();
 
     let mut fade = Fade::default();
     let mut signal = None;
 
     loop {
         let sleep_duration = match (signal, &fade.status) {
-            (None, FadeStatus::Completed) => SLEEP_DURATION,
+            (None, FadeStatus::Completed) => c.sleep_duration,
             (None | Some(Signal::Interrupt), FadeStatus::Ungoing { .. }) => {
-                SLEEP_DURATION_SHORT
+                c.fade_sleep_duration
             }
             (Some(Signal::Interrupt), FadeStatus::Completed) => break,
             (Some(Signal::Terminate), _) => break,
         };
 
-        let (period, interp) = if signal == Some(Signal::Interrupt) {
-            Default::default()
-        } else {
-            let p = Period::from_scheme(&cfg.scheme, &cfg.location, cfg.time)?;
-            let i = cfg.night.interpolate_with(&cfg.day, p.into());
-            (Some(p), i)
-        };
+        let (period, info) = Period::from(&c.scheme, &c.location, c.time)?;
+        let target_interp = c.night.interpolate_with(&c.day, period.into());
+        fade.next(c, target_interp);
+        let ColorSettings { temp, gamma, brght } = &fade.current;
 
-        fade.next(interp);
-
-        // Print status change
-        // if config.verbose && disabled != prev_disabled {
-        //     // printf(
-        //     //     // gettext(
-        //     //     b"Status: %s\n\0" as *const u8 as *const c_char,
-        //     //     if disabled != 0 {
-        //     //         // gettext(
-        //     //         b"Disabled\0" as *const u8 as *const c_char
-        //     //     } else {
-        //     //         // gettext(
-        //     //         b"Enabled\0" as *const u8 as *const c_char
-        //     //     },
-        //     // );
-        // }
-
-        // // Print period if it changed during this update,
-        // // or if we are in the transition period. In transition we
-        // // print the progress, so we always print it in
-        // // that case
-        // if config.verbose
-        //     && (period != prev_period || period == Period::Transition)
-        // {
-        //     print_period(period, transition_prog);
-        // }
-
-        // if config.verbose {
-        //     if prev_target_interp.temperature != target_interp.temperature {
-        //         // b"Color temperature: %uK\n\0" as *const u8 as *const c_char,
-        //         // target_interp.temperature,
-        //         todo!()
-        //     }
-        //     if prev_target_interp.brightness != target_interp.brightness {
-        //         // b"Brightness: %.2f\n\0" as *const u8 as *const c_char,
-        //         // target_interp.brightness as c_double,
-        //         todo!()
-        //     }
-        // }
+        if c.verbosity == Verbosity::High {
+            if Some(period) != prev_period {
+                writeln!(w, "{period}\n{info}")?;
+            }
+            if temp != &prev_interp.temp {
+                writeln!(w, "{temp}")?;
+            }
+            if brght != &prev_interp.brght {
+                writeln!(w, "{brght}")?;
+            }
+            if gamma != &prev_interp.gamma {
+                writeln!(w, "{gamma}")?;
+            }
+        }
 
         // // Activate hooks if period changed
         // if period != prev_period {
         //     hooks_signal_period_change(prev_period, period);
         // }
 
-        cfg.method.set(&fade.current, cfg.reset_ramps)?;
+        c.method.set(&fade.current, c.reset_ramps)?;
 
-        // prev_period = period;
-        // prev_interp = fade.current.clone();
+        prev_period = Some(period);
+        prev_interp = fade.current.clone();
+
+        w.flush()?;
 
         match sig.recv_timeout(sleep_duration) {
             Err(RecvTimeoutError::Timeout) => {}
@@ -272,7 +246,7 @@ fn run_daemon_mode(cfg: &Config, sig: &Receiver<()>) -> Result<()> {
         }
     }
 
-    cfg.method.restore()?;
+    c.method.restore()?;
     Ok(())
 
     // loop {
@@ -418,65 +392,26 @@ impl Period {
         }
     }
 
-    fn from_scheme(
+    fn from(
         scheme: &TransitionScheme,
         here: &LocationProvider,
         now: impl Fn() -> DateTime<Utc>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, Enum2<Elevation, TimeOffset>)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
                 let now = (now() - DateTime::UNIX_EPOCH).num_seconds() as f64;
                 let (here, available) = here.get()?;
                 let elev = Elevation::new(now, here);
-                Ok(Period::from_elevation(elev, *elev_range))
-                // if config.verbose {
-                //     // TRANSLATORS: Append degree symbol if possible
-                //     // b"Solar elevation: %f\n\0" as *const u8 as *const c_char,
-                //     todo!()
-                // }
+                let period = Period::from_elevation(elev, *elev_range);
+                Ok((period, Enum2::T0(elev)))
             }
 
             TransitionScheme::Time(time_ranges) => {
                 let time = now().naive_local().time().into();
-                Ok(Period::from_time(time, *time_ranges))
+                let period = Period::from_time(time, *time_ranges);
+                Ok((period, Enum2::T1(time)))
             }
         }
-    }
-}
-
-impl Display for Period {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match self {
-            Period::Daytime => f.write_str("Period: Daytime"),
-            Period::Night => f.write_str("Period: Night"),
-            Period::Transition { progress } => {
-                write!(f, "Period: Transition ({progress:.2}% day)")
-            }
-        }
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let a = *self.lat;
-        let b = *self.lon;
-        let ns = if a >= 0.0 { "N" } else { "S" };
-        let ew = if b >= 0.0 { "E" } else { "W" };
-        let a = a.abs();
-        let aa = a.fract() * 100.0;
-        let b = b.abs();
-        let bb = b.fract() * 100.0;
-        write!(f, "Location: {a:.0}°{aa:.0}′{ns} {b:.0}°{bb:.0}′{ew}")
-    }
-}
-
-pub trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T: Default + PartialEq> IsDefault for T {
-    fn is_default(&self) -> bool {
-        *self == T::default()
     }
 }
 
@@ -564,7 +499,7 @@ pub struct Fade {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FadeStatus {
     Completed,
-    Ungoing { step: u16 },
+    Ungoing { step: u8 },
 }
 
 impl Default for FadeStatus {
@@ -574,7 +509,7 @@ impl Default for FadeStatus {
 }
 
 impl Fade {
-    pub fn next(&mut self, target: ColorSettings) {
+    pub fn next(&mut self, c: &Config, target: ColorSettings) {
         match (&self.status, self.current.is_very_diff_from(&target)) {
             (FadeStatus::Completed, false)
             | (FadeStatus::Ungoing { .. }, false) => {
@@ -583,15 +518,15 @@ impl Fade {
             }
 
             (FadeStatus::Completed, true) => {
-                self.current = Self::interpolate(&self.current, &target, 0);
+                self.current = Self::interpolate(c, &self.current, &target, 0);
                 self.status = FadeStatus::Ungoing { step: 0 };
             }
 
             (FadeStatus::Ungoing { step }, true) => {
-                if *step < FADE_STEPS {
+                if *step < c.fade_steps {
                     let step = *step + 1;
                     self.current =
-                        Self::interpolate(&self.current, &target, step);
+                        Self::interpolate(c, &self.current, &target, step);
                     self.status = FadeStatus::Ungoing { step };
                 } else {
                     self.current = target;
@@ -602,11 +537,12 @@ impl Fade {
     }
 
     fn interpolate(
+        c: &Config,
         start: &ColorSettings,
         end: &ColorSettings,
-        step: u16,
+        step: u8,
     ) -> ColorSettings {
-        let frac = step as f64 / FADE_STEPS as f64;
+        let frac = step as f64 / c.fade_steps as f64;
         let alpha = Self::ease_fade(frac)
             .clamp(0.0, 1.0)
             .try_into()
