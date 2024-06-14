@@ -490,9 +490,9 @@ enum ModeArgs {
         // redshift uses -r for disabling fade
         #[arg(long)]
         disable_fade: bool,
-        #[arg(long, value_name = "0-65535")]
+        #[arg(long, value_name = "MILLISECONDS")]
         fade_sleep_duration: Option<u16>,
-        #[arg(long, value_name = "0-65535")]
+        #[arg(long, value_name = "MILLISECONDS")]
         sleep_duration: Option<u16>,
     },
     Oneshot(CmdArgs),

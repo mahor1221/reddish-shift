@@ -19,6 +19,8 @@
 */
 
 // TODO: add setting screen brightness, a percentage of the current brightness
+// TODO: color?
+// TODO: add tldr examples
 
 pub mod colorramp;
 pub mod config;
@@ -169,9 +171,9 @@ struct DaemonMode<'a, 'b> {
 
     // Save previous parameters so we can avoid printing status updates if the
     // values did not change
-    period_prev: Option<Period>,
-    info_prev: Option<PeriodInfo>,
-    interp_prev: Option<ColorSettings>,
+    prev_period: Option<Period>,
+    prev_info: Option<PeriodInfo>,
+    prev_interp: Option<ColorSettings>,
 }
 
 impl<'a, 'b> DaemonMode<'a, 'b> {
@@ -184,9 +186,9 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
             period: Default::default(),
             info: Default::default(),
             interp: Default::default(),
-            period_prev: Default::default(),
-            info_prev: Default::default(),
-            interp_prev: Default::default(),
+            prev_period: Default::default(),
+            prev_info: Default::default(),
+            prev_interp: Default::default(),
         }
     }
 
@@ -215,11 +217,14 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
             // if period != prev_period {
             //     hooks_signal_period_change(prev_period, period);
             // }
-            c.method.set(c.dry_run, c.reset_ramps, &self.interp)?;
 
-            self.period_prev = Some(self.period);
-            self.info_prev = Some(self.info.clone());
-            self.interp_prev = Some(self.interp.clone());
+            if Some(&self.interp) != self.prev_interp.as_ref() {
+                c.method.set(c.dry_run, c.reset_ramps, &self.interp)?;
+            }
+
+            self.prev_period = Some(self.period);
+            self.prev_info = Some(self.info.clone());
+            self.prev_interp = Some(self.interp.clone());
 
             // sleep for a duration then continue the loop
             // or wake up and restore the default colors slowly on first ctrl-c
@@ -304,11 +309,11 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 
         let ColorSettings { temp, gamma, brght } = &self.interp;
 
-        if self.fade == FadeStatus::Completed || self.interp_prev.is_none() {
-            if Some(&self.period) != self.period_prev.as_ref() {
+        if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
+            if Some(&self.period) != self.prev_period.as_ref() {
                 writeln!(w, "{}", self.period)?;
             }
-            match (&self.info, &self.info_prev) {
+            match (&self.info, &self.prev_info) {
                 (PeriodInfo::Elevation { .. }, None) => {
                     write!(w, "{}", self.info)?;
                 }
@@ -326,17 +331,17 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
                 }
                 _ => {}
             }
-            if Some(gamma) != self.interp_prev.as_ref().map(|c| &c.gamma) {
+            if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
                 writeln!(w, "{gamma}")?;
             }
-            if Some(brght) != self.interp_prev.as_ref().map(|c| &c.brght) {
+            if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
                 writeln!(w, "{brght}")?;
             }
-            if Some(temp) != self.interp_prev.as_ref().map(|c| &c.temp) {
+            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
                 writeln!(w, "{temp}")?;
             }
         } else {
-            if Some(temp) != self.interp_prev.as_ref().map(|c| &c.temp) {
+            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
                 writeln!(w, "{temp}")?;
             }
         }
