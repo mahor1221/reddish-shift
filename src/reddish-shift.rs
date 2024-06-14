@@ -126,7 +126,7 @@ fn run(
     // TODO: add a command for calculating solar elevation for the next 24h
     match c.mode {
         Mode::Daemon => {
-            DaemonMode::default().run_loop(&c, &sig, v)?;
+            DaemonMode::new(&c, &sig).run_loop(v)?;
             c.method.restore(c.dry_run)?;
         }
 
@@ -155,10 +155,13 @@ fn run(
     Ok(())
 }
 
-#[derive(Debug, Clone, Default)]
-struct DaemonMode {
+#[derive(Debug)]
+struct DaemonMode<'a, 'b> {
+    cfg: &'a Config,
+    sig: &'b Receiver<()>,
+
     signal: Signal,
-    fade: Fade,
+    fade: FadeStatus,
 
     period: Period,
     info: PeriodInfo,
@@ -171,30 +174,42 @@ struct DaemonMode {
     interp_prev: Option<ColorSettings>,
 }
 
-impl DaemonMode {
+impl<'a, 'b> DaemonMode<'a, 'b> {
+    fn new(cfg: &'a Config, sig: &'b Receiver<()>) -> Self {
+        Self {
+            cfg,
+            sig,
+            signal: Default::default(),
+            fade: Default::default(),
+            period: Default::default(),
+            info: Default::default(),
+            interp: Default::default(),
+            period_prev: Default::default(),
+            info_prev: Default::default(),
+            interp_prev: Default::default(),
+        }
+    }
+
     /// This is the main loop of the daemon mode which keeps track of the
     /// current time and continuously updates the screen to the appropriate
     /// color temperature
-    fn run_loop(
-        &mut self,
-        c: &Config,
-        sig: &Receiver<()>,
-        v: &mut Verbosity<impl Write>,
-    ) -> Result<()> {
+    fn run_loop(&mut self, v: &mut Verbosity<impl Write>) -> Result<()> {
+        let c = self.cfg;
+
         loop {
             (self.period, self.info) =
                 Period::from(&c.scheme, &c.location, c.time, v)?;
+
             let target = match self.signal {
                 Signal::None => {
                     c.night.interpolate_with(&c.day, self.period.into())
                 }
                 Signal::Interrupt => ColorSettings::default(),
             };
-            self.fade.next(c.disable_fade, target, &mut self.interp);
-            if let Verbosity::High(w) = v {
-                self.write_verbose(w)?;
-                v.flush()?;
-            }
+
+            (self.interp, self.fade) = self.next_interpolate(target);
+
+            self.write_verbose(v)?;
 
             // // Activate hooks if period changed
             // if period != prev_period {
@@ -210,12 +225,12 @@ impl DaemonMode {
             // or wake up and restore the default colors slowly on first ctrl-c
             // or break the loop on the second ctrl-c immediately
             let sleep_duration = match (self.signal, self.fade) {
-                (Signal::None, Fade::Completed) => c.sleep_duration,
-                (_, Fade::Ungoing { .. }) => c.fade_sleep_duration,
-                (Signal::Interrupt, Fade::Completed) => break Ok(()),
+                (Signal::None, FadeStatus::Completed) => c.sleep_duration,
+                (_, FadeStatus::Ungoing { .. }) => c.fade_sleep_duration,
+                (Signal::Interrupt, FadeStatus::Completed) => break Ok(()),
             };
 
-            match sig.recv_timeout(sleep_duration) {
+            match self.sig.recv_timeout(sleep_duration) {
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(e) => Err(e)?,
                 Ok(()) => match self.signal {
@@ -226,10 +241,70 @@ impl DaemonMode {
         }
     }
 
-    fn write_verbose(&self, w: &mut impl Write) -> Result<()> {
+    fn next_interpolate(
+        &self,
+        target: ColorSettings,
+    ) -> (ColorSettings, FadeStatus) {
+        let target_is_very_different = self.interp.is_very_diff_from(&target);
+        match (&self.fade, target_is_very_different, self.cfg.disable_fade) {
+            (_, _, true)
+            | (FadeStatus::Completed, false, false)
+            | (FadeStatus::Ungoing { .. }, false, false) => {
+                (target, FadeStatus::Completed)
+            }
+
+            (FadeStatus::Completed, true, false) => {
+                let next = Self::interpolate(&self.interp, &target, 0);
+                (next, FadeStatus::Ungoing { step: 0 })
+            }
+
+            (FadeStatus::Ungoing { step }, true, false) => {
+                if *step < FADE_STEPS {
+                    let step = *step + 1;
+                    let next = Self::interpolate(&self.interp, &target, step);
+                    (next, FadeStatus::Ungoing { step })
+                } else {
+                    (target, FadeStatus::Completed)
+                }
+            }
+        }
+    }
+
+    fn interpolate(
+        start: &ColorSettings,
+        end: &ColorSettings,
+        step: u8,
+    ) -> ColorSettings {
+        let frac = step as f64 / FADE_STEPS as f64;
+        let alpha = Self::ease_fade(frac)
+            .clamp(0.0, 1.0)
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
+        start.interpolate_with(end, alpha)
+    }
+
+    /// Easing function for fade
+    /// See https://github.com/mietek/ease-tween
+    fn ease_fade(t: f64) -> f64 {
+        if t <= 0.0 {
+            0.0
+        } else if t >= 1.0 {
+            1.0
+        } else {
+            1.0042954579734844
+                * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
+        }
+    }
+
+    fn write_verbose(&self, v: &mut Verbosity<impl Write>) -> Result<()> {
+        let w = match v {
+            Verbosity::High(w) => w,
+            _ => return Ok(()),
+        };
+
         let ColorSettings { temp, gamma, brght } = &self.interp;
 
-        if self.fade == Fade::Completed || self.interp_prev.is_none() {
+        if self.fade == FadeStatus::Completed || self.interp_prev.is_none() {
             if Some(&self.period) != self.period_prev.as_ref() {
                 writeln!(w, "{}", self.period)?;
             }
@@ -266,6 +341,7 @@ impl DaemonMode {
             }
         }
 
+        w.flush()?;
         Ok(())
     }
 }
@@ -278,77 +354,18 @@ enum Signal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fade {
+enum FadeStatus {
     Completed,
     Ungoing { step: u8 },
 }
 
-impl Default for Fade {
+impl Default for FadeStatus {
     fn default() -> Self {
         Self::Completed
     }
 }
 
-impl Fade {
-    fn next(
-        &mut self,
-        disable_fade: bool,
-        target: ColorSettings,
-        current: &mut ColorSettings,
-    ) {
-        let target_is_very_different = current.is_very_diff_from(&target);
-        match (&self, target_is_very_different, disable_fade) {
-            (_, _, true)
-            | (Fade::Completed, false, false)
-            | (Fade::Ungoing { .. }, false, false) => {
-                *self = Fade::Completed;
-                *current = target;
-            }
-
-            (Fade::Completed, true, false) => {
-                *self = Fade::Ungoing { step: 0 };
-                *current = Self::interpolate(current, &target, 0)
-            }
-
-            (Fade::Ungoing { step }, true, false) => {
-                if *step < FADE_STEPS {
-                    let step = *step + 1;
-                    *self = Fade::Ungoing { step };
-                    *current = Self::interpolate(current, &target, step)
-                } else {
-                    *self = Fade::Completed;
-                    *current = target;
-                }
-            }
-        }
-    }
-
-    fn interpolate(
-        start: &ColorSettings,
-        end: &ColorSettings,
-        step: u8,
-    ) -> ColorSettings {
-        let frac = step as f64 / FADE_STEPS as f64;
-        let alpha = Self::ease_fade(frac)
-            .clamp(0.0, 1.0)
-            .try_into()
-            .unwrap_or_else(|_| unreachable!());
-        start.interpolate_with(end, alpha)
-    }
-
-    /// Easing function for fade
-    /// See https://github.com/mietek/ease-tween
-    fn ease_fade(t: f64) -> f64 {
-        if t <= 0.0 {
-            0.0
-        } else if t >= 1.0 {
-            1.0
-        } else {
-            1.0042954579734844
-                * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
-        }
-    }
-}
+impl FadeStatus {}
 
 /// Periods of day
 #[derive(Debug, Clone, Copy, PartialEq)]
