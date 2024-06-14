@@ -443,6 +443,7 @@ struct Either<U: TryInto<T>, T> {
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
+#[command(propagate_version = true)]
 struct CliArgs {
     #[command(subcommand)]
     mode: ModeArgs,
@@ -1680,6 +1681,9 @@ macro_rules! write_verbose {
 
 #[macro_export]
 macro_rules! writeln_verbose {
+    ($dst:expr $(,)?) => {
+        $crate::write_verbose!($dst, "\n")
+    };
     ($dst:expr, $($arg:tt)*) => {
         match $dst {
             crate::config::Verbosity::Quite

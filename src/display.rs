@@ -1,11 +1,16 @@
 use crate::{
     config::{
-        Brightness, ColorSettings, Elevation, Gamma, Location, Temperature,
-        Time, TimeOffset,
+        AdjustmentMethod, Brightness, ColorSettings, Config, Elevation,
+        ElevationRange, Gamma, Location, LocationProvider, Temperature, Time,
+        TimeOffset, TimeRange, TimeRanges, TransitionScheme, Verbosity,
     },
-    Period, PeriodInfo,
+    DaemonMode, FadeStatus, Period, PeriodInfo,
 };
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use anyhow::Result;
+use std::{
+    fmt::{Display, Formatter, Result as FmtResult},
+    io::Write as IoWrite,
+};
 
 impl Display for TimeOffset {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -22,43 +27,47 @@ impl Display for ColorSettings {
 
 impl Display for Temperature {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Temperature: {}K", **self)
+        write!(f, "    Temperature: {}K", **self)
     }
 }
 
 impl Display for Brightness {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Brightness: {}%", **self as u8 * 100)
+        write!(f, "    Brightness: {}%", **self as u8 * 100)
     }
 }
 
 impl Display for Gamma {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Gamma: {:.2}, {:.2}, {:.2}", self[0], self[1], self[2])
+        write!(
+            f,
+            "    Gamma: {:.2}, {:.2}, {:.2}",
+            self[0], self[1], self[2]
+        )
     }
 }
 
 impl Display for Time {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let Time { hour: h, minute: m } = self;
-        write!(f, "Time: {h:2}:{m:2}")
+        write!(f, "{h:02}:{m:02}")
     }
 }
 
 impl Display for Elevation {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         //// TRANSLATORS: Append degree symbol if possible
-        write!(f, "Solar elevation: {:.2}°", **self)
+        write!(f, "    Solar elevation: {:.2}°", **self)
     }
 }
 
 impl Display for Period {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Period::Daytime => f.write_str("Period: Daytime"),
-            Period::Night => f.write_str("Period: Night"),
+            Period::Daytime => f.write_str("    Period: Daytime"),
+            Period::Night => f.write_str("    Period: Night"),
             Period::Transition { progress } => {
-                write!(f, "Period: Transition ({progress}% day)")
+                write!(f, "    Period: Transition ({progress}% day)")
             }
         }
     }
@@ -78,7 +87,7 @@ impl Display for Location {
         let b1 = b as u8;
         let b2 = (b.fract() * 100.0) as u8;
         let b3 = ((b * 100.0).fract() * 100.0) as u8;
-        write!(f, "Location: {a1}°{a2}′{a3}″{ns}, {b1}°{b2}′{b3}″{ew}")
+        write!(f, "    Location: {a1}°{a2}′{a3}″{ns}, {b1}°{b2}′{b3}″{ew}")
     }
 }
 
@@ -90,5 +99,137 @@ impl Display for PeriodInfo {
                 write!(f, "{elev}\n{loc}\n")
             }
         }
+    }
+}
+
+impl Display for TimeRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let Self { start, end } = self;
+        write!(f, "from {start} to {end}")
+    }
+}
+
+//
+
+impl Config {
+    pub fn write_verbose(
+        &self,
+        v: &mut Verbosity<impl IoWrite>,
+    ) -> Result<()> {
+        let Config {
+            day,
+            night,
+            scheme,
+            location,
+            method,
+            reset_ramps,
+            disable_fade,
+            fade_sleep_duration: _,
+            sleep_duration: _,
+            mode: _,
+            dry_run: _,
+            time: _,
+        } = self;
+
+        let w = match v {
+            Verbosity::High(w) => w,
+            _ => return Ok(()),
+        };
+
+        write!(w, "Location provider: ")?;
+        match location {
+            LocationProvider::Manual(_) => writeln!(w, "manual")?,
+        }
+
+        write!(w, "Adjustment method: ")?;
+        match method {
+            AdjustmentMethod::Dummy(_) => writeln!(w, "dummy")?,
+            AdjustmentMethod::Randr(_) => writeln!(w, "randr")?,
+            AdjustmentMethod::Drm(_) => writeln!(w, "drm")?,
+            AdjustmentMethod::Vidmode(_) => writeln!(w, "vidmode")?,
+        }
+
+        writeln!(w, "Reset ramps: {reset_ramps}")?;
+        writeln!(w, "Disable fade: {disable_fade}")?;
+
+        let ColorSettings { temp, gamma, brght } = day;
+        writeln!(w, "Daytime:")?;
+        writeln!(w, "{temp}")?;
+        writeln!(w, "{gamma}")?;
+        writeln!(w, "{brght}")?;
+
+        let ColorSettings { temp, gamma, brght } = night;
+        writeln!(w, "Night:")?;
+        writeln!(w, "{temp}")?;
+        writeln!(w, "{gamma}")?;
+        writeln!(w, "{brght}")?;
+
+        writeln!(w, "Transition Scheme:")?;
+        match scheme {
+            TransitionScheme::Time(TimeRanges { dawn, dusk }) => {
+                writeln!(w, "    Dawn: {dawn}")?;
+                writeln!(w, "    Dusk: {dusk}")?;
+            }
+            TransitionScheme::Elevation(ElevationRange { high, low }) => {
+                writeln!(w, "    Elevation high: {:.2}°", **high)?;
+                writeln!(w, "    Elevation low: {:.2}°", **low)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl DaemonMode<'_, '_> {
+    pub fn write_verbose(
+        &self,
+        v: &mut Verbosity<impl IoWrite>,
+    ) -> Result<()> {
+        let w = match v {
+            Verbosity::High(w) => w,
+            _ => return Ok(()),
+        };
+
+        let ColorSettings { temp, gamma, brght } = &self.interp;
+
+        if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
+            if Some(&self.period) != self.prev_period.as_ref() {
+                writeln!(w, "{}", self.period)?;
+            }
+            match (&self.info, &self.prev_info) {
+                (PeriodInfo::Elevation { .. }, None) => {
+                    write!(w, "{}", self.info)?;
+                }
+                (
+                    PeriodInfo::Elevation { elev: e1, .. },
+                    Some(PeriodInfo::Elevation { elev: e2, .. }),
+                ) if e1 != e2 => {
+                    writeln!(w, "{e1}")?;
+                }
+                (
+                    PeriodInfo::Elevation { loc: l1, .. },
+                    Some(PeriodInfo::Elevation { loc: l2, .. }),
+                ) if l1 != l2 => {
+                    writeln!(w, "{l1}")?;
+                }
+                _ => {}
+            }
+            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
+                writeln!(w, "{temp}")?;
+            }
+            if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
+                writeln!(w, "{gamma}")?;
+            }
+            if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
+                writeln!(w, "{brght}")?;
+            }
+        } else {
+            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
+                writeln!(w, "{temp}")?;
+            }
+        }
+
+        w.flush()?;
+        Ok(())
     }
 }

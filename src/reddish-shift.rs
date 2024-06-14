@@ -51,66 +51,18 @@ use std::{
 use utils::IsDefault;
 
 fn main() -> Result<()> {
-    // if cfg.need_location {
-    // if !(options.provider).is_null() {
-    //     // Use provider specified on command line
-    // } else {
-    //     // Try all providers, use the first that works
-    //     // b"Trying location provider `%s'...\n\0" as *const u8 as *const c_char,
-    //     //     b"Trying next provider...\n\0" as *const u8 as *const c_char,
-    //     //     b"Using provider `%s'.\n\0" as *const u8 as *const c_char,
-    //     // b"No more location providers to try.\n\0" as *const u8 as *const c_char,
-    // }
-
-    // if options.verbosity {
-    //     // TRANSLATORS: Append degree symbols if possible
-    //     // b"Solar elevations: day above %.1f, night below %.1f\n\0" as *const u8
-    // }
-    // }
-
-    // if let Mode::Daemon | Mode::Oneshot = cfg.mode {
-    // if options.verbosity {
-    //     // b"Temperatures: %dK at day, %dK at night\n\0" as *const u8 as *const c_char,
-    // }
-    // }
-
-    // if options.verbosity {
-    //     // b"Brightness: %.2f:%.2f\n\0" as *const u8 as *const c_char,
-    //     // options.scheme.day.brightness as c_double,
-    //     // options.scheme.night.brightness as c_double,
-    // }
-
-    // if options.verbosity {
-    //     // printf(
-    //     //     // gettext(
-    //     //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-    //     //     // gettext(
-    //     //     b"Daytime\0" as *const u8 as *const c_char,
-    //     //     options.scheme.day.gamma[0 as c_int as usize] as c_double,
-    //     //     options.scheme.day.gamma[1 as c_int as usize] as c_double,
-    //     //     options.scheme.day.gamma[2 as c_int as usize] as c_double,
-    //     // );
-    //     // printf(
-    //     //     // gettext(
-    //     //     b"Gamma (%s): %.3f, %.3f, %.3f\n\0" as *const u8 as *const c_char,
-    //     //     // gettext(
-    //     //     b"Night\0" as *const u8 as *const c_char,
-    //     //     options.scheme.night.gamma[0 as c_int as usize] as c_double,
-    //     //     options.scheme.night.gamma[1 as c_int as usize] as c_double,
-    //     //     options.scheme.night.gamma[2 as c_int as usize] as c_double,
-    //     // );
-    // }
-
     let stdout = std::io::stdout();
     let (c, mut v) = ConfigBuilder::new()?.build(stdout.lock())?;
 
     if let (
         Mode::Daemon | Mode::Oneshot,
         TransitionScheme::Elevation(_),
-        true,
-    ) = (&c.mode, &c.scheme, c.location.get(&mut v)?.is_default())
+        LocationProvider::Manual(l),
+    ) = (&c.mode, &c.scheme, &c.location)
     {
-        writeln!(v, "Warning: using default location")?;
+        if l.get(&mut v)?.is_default() {
+            writeln!(v, "Warning: using default location")?;
+        }
     }
 
     let (tx, rx) = mpsc::channel();
@@ -129,6 +81,7 @@ fn run(
 ) -> Result<()> {
     match c.mode {
         Mode::Daemon => {
+            c.write_verbose(v)?;
             DaemonMode::new(c, sig).run_loop(v)?;
             c.method.restore(c.dry_run)?;
         }
@@ -136,19 +89,16 @@ fn run(
             // Use period and transition progress to set color temperature
             let (p, i) = Period::from(&c.scheme, &c.location, c.time, v)?;
             let interp = c.night.interpolate_with(&c.day, p.into());
-            writeln_verbose!(v, "{p}\n{i}{interp}")?;
+            c.write_verbose(v)?;
+            writeln_verbose!(v, "Current:\n{p}\n{i}{interp}")?;
             c.method.set(c.dry_run, c.reset_ramps, &interp)?;
         }
         Mode::Set => {
-            // for the set command, color settings are stored in the day field
+            // for this command, color settings are stored in the day field
             c.method.set(c.dry_run, c.reset_ramps, &c.day)?;
-            // if cfg.verbosity {
-            //     // b"Color settings: %uK\n\0"
-            // }
         }
         Mode::Reset => {
-            let cs = ColorSettings::default();
-            c.method.set(c.dry_run, true, &cs)?;
+            c.method.set(c.dry_run, true, &ColorSettings::default())?;
         }
         Mode::Print => run_print_mode(c, v)?,
     }
@@ -173,22 +123,22 @@ fn run_print_mode(c: &Config, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
 }
 
 #[derive(Debug)]
-struct DaemonMode<'a, 'b> {
-    cfg: &'a Config,
-    sig: &'b Receiver<()>,
+pub struct DaemonMode<'a, 'b> {
+    pub cfg: &'a Config,
+    pub sig: &'b Receiver<()>,
 
-    signal: Signal,
-    fade: FadeStatus,
+    pub signal: Signal,
+    pub fade: FadeStatus,
 
-    period: Period,
-    info: PeriodInfo,
-    interp: ColorSettings,
+    pub period: Period,
+    pub info: PeriodInfo,
+    pub interp: ColorSettings,
 
     // Save previous parameters so we can avoid printing status updates if the
     // values did not change
-    prev_period: Option<Period>,
-    prev_info: Option<PeriodInfo>,
-    prev_interp: Option<ColorSettings>,
+    pub prev_period: Option<Period>,
+    pub prev_info: Option<PeriodInfo>,
+    pub prev_interp: Option<ColorSettings>,
 }
 
 impl<'a, 'b> DaemonMode<'a, 'b> {
@@ -212,6 +162,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// color temperature
     fn run_loop(&mut self, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
         let c = self.cfg;
+        writeln_verbose!(v, "Current:")?;
 
         loop {
             (self.period, self.info) =
@@ -315,66 +266,17 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
                 * (-6.404173895841566 * (-7.290824133098134 * t).exp()).exp()
         }
     }
-
-    fn write_verbose(&self, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
-        let w = match v {
-            Verbosity::High(w) => w,
-            _ => return Ok(()),
-        };
-
-        let ColorSettings { temp, gamma, brght } = &self.interp;
-
-        if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
-            if Some(&self.period) != self.prev_period.as_ref() {
-                writeln!(w, "{}", self.period)?;
-            }
-            match (&self.info, &self.prev_info) {
-                (PeriodInfo::Elevation { .. }, None) => {
-                    write!(w, "{}", self.info)?;
-                }
-                (
-                    PeriodInfo::Elevation { elev: e1, .. },
-                    Some(PeriodInfo::Elevation { elev: e2, .. }),
-                ) if e1 != e2 => {
-                    writeln!(w, "{e1}")?;
-                }
-                (
-                    PeriodInfo::Elevation { loc: l1, .. },
-                    Some(PeriodInfo::Elevation { loc: l2, .. }),
-                ) if l1 != l2 => {
-                    writeln!(w, "{l1}")?;
-                }
-                _ => {}
-            }
-            if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
-                writeln!(w, "{gamma}")?;
-            }
-            if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
-                writeln!(w, "{brght}")?;
-            }
-            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                writeln!(w, "{temp}")?;
-            }
-        } else {
-            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                writeln!(w, "{temp}")?;
-            }
-        }
-
-        w.flush()?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum Signal {
+pub enum Signal {
     #[default]
     None,
     Interrupt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FadeStatus {
+pub enum FadeStatus {
     Completed,
     Ungoing { step: u8 },
 }
@@ -389,7 +291,7 @@ impl FadeStatus {}
 
 /// Periods of day
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Period {
+pub enum Period {
     Daytime,
     Night,
     Transition {

@@ -18,13 +18,12 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::io::Write;
-
 use crate::{
     config::{Location, Verbosity},
     Provider,
 };
 use anyhow::Result;
+use std::io::Write;
 
 // TODO:
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
