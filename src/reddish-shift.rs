@@ -21,6 +21,8 @@
 // TODO: add setting screen brightness, a percentage of the current brightness
 // TODO: color?
 // TODO: add tldr examples
+// TODO: use snafu for error handling
+// TODO: map cities or countries to locations
 
 pub mod colorramp;
 pub mod config;
@@ -34,15 +36,15 @@ pub mod solar;
 pub mod utils;
 
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, SubsecRound, TimeDelta};
 use config::{
     AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
     TransitionScheme, Verbosity, FADE_STEPS,
 };
 use std::{
-    fmt::Debug,
-    io::Write,
+    fmt::{Debug, Write as FmtWrite},
+    io::Write as IoWrite,
     ops::Deref,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
@@ -117,21 +119,19 @@ fn main() -> Result<()> {
     })
     .expect("Error setting Ctrl-C handler");
 
-    run(c, rx, &mut v)
+    run(&c, &rx, &mut v)
 }
 
 fn run(
-    c: Config,
-    sig: Receiver<()>,
-    v: &mut Verbosity<impl Write>,
+    c: &Config,
+    sig: &Receiver<()>,
+    v: &mut Verbosity<impl IoWrite>,
 ) -> Result<()> {
-    // TODO: add a command for calculating solar elevation for the next 24h
     match c.mode {
         Mode::Daemon => {
-            DaemonMode::new(&c, &sig).run_loop(v)?;
+            DaemonMode::new(c, sig).run_loop(v)?;
             c.method.restore(c.dry_run)?;
         }
-
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
             let (p, i) = Period::from(&c.scheme, &c.location, c.time, v)?;
@@ -139,7 +139,6 @@ fn run(
             writeln_verbose!(v, "{p}\n{i}{interp}")?;
             c.method.set(c.dry_run, c.reset_ramps, &interp)?;
         }
-
         Mode::Set => {
             // for the set command, color settings are stored in the day field
             c.method.set(c.dry_run, c.reset_ramps, &c.day)?;
@@ -147,14 +146,30 @@ fn run(
             //     // b"Color settings: %uK\n\0"
             // }
         }
-
         Mode::Reset => {
             let cs = ColorSettings::default();
             c.method.set(c.dry_run, true, &cs)?;
         }
+        Mode::Print => run_print_mode(c, v)?,
     }
 
     Ok(())
+}
+
+fn run_print_mode(c: &Config, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
+    let now = (c.time)();
+    let delta = now.to_utc() - DateTime::UNIX_EPOCH;
+    let mut buf = String::from("------------------\n");
+    for d in (0..24).map(TimeDelta::hours) {
+        let time = (now + d).time().trunc_subsecs(0);
+        let elev = Elevation::new(
+            (delta + d).num_seconds() as f64,
+            c.location.get(v)?,
+        );
+        write!(&mut buf, "{time} | {:6.2}°\n", *elev)?;
+    }
+
+    Ok(print!("{buf}"))
 }
 
 #[derive(Debug)]
@@ -195,7 +210,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// This is the main loop of the daemon mode which keeps track of the
     /// current time and continuously updates the screen to the appropriate
     /// color temperature
-    fn run_loop(&mut self, v: &mut Verbosity<impl Write>) -> Result<()> {
+    fn run_loop(&mut self, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
         let c = self.cfg;
 
         loop {
@@ -301,7 +316,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
         }
     }
 
-    fn write_verbose(&self, v: &mut Verbosity<impl Write>) -> Result<()> {
+    fn write_verbose(&self, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
         let w = match v {
             Verbosity::High(w) => w,
             _ => return Ok(()),
@@ -463,7 +478,7 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-        v: &mut Verbosity<impl Write>,
+        v: &mut Verbosity<impl IoWrite>,
     ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
@@ -506,7 +521,7 @@ pub trait Provider {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self, _v: &mut Verbosity<impl Write>) -> Result<Location> {
+    fn get(&self, _v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
 }
@@ -525,7 +540,7 @@ pub trait Adjuster {
 }
 
 impl Provider for LocationProvider {
-    fn get(&self, v: &mut Verbosity<impl Write>) -> Result<Location> {
+    fn get(&self, v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
         // Wait for location provider

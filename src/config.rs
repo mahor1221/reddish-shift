@@ -16,8 +16,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// TODO: use snafu for error handling
-
 use crate::{
     gamma_drm::Drm,
     gamma_dummy::Dummy,
@@ -362,6 +360,7 @@ pub enum Mode {
     Oneshot,
     Set,
     Reset,
+    Print,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -444,31 +443,50 @@ struct Either<U: TryInto<T>, T> {
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
-#[command(propagate_version = true)]
 struct CliArgs {
     #[command(subcommand)]
-    mode: Option<ModeArgs>,
-    #[arg(
-        long,
-        short,
-        global = true,
-        display_order(100),
-        value_name = "FILE"
-    )]
-    config: Option<PathBuf>,
-    #[arg(long, global = true, display_order(100))]
-    dry_run: bool,
-    #[command(flatten)]
-    verbosity: VerbosityArgs,
+    mode: ModeArgs,
 }
 
-#[derive(Debug, Args)]
-#[group(multiple = false)]
-struct VerbosityArgs {
-    #[arg(long, short, global = true, display_order(100))]
-    quite: bool,
-    #[arg(long, short, global = true, display_order(100))]
-    verbose: bool,
+#[derive(Debug, Subcommand)]
+enum ModeArgs {
+    Daemon {
+        #[command(flatten)]
+        c: CmdArgs,
+        #[arg(long, short = 'r')] // redshift uses -r for disabling fade
+        disable_fade: bool,
+        #[arg(long, value_name = "MILLISECONDS")]
+        fade_sleep_duration: Option<u16>,
+        #[arg(long, value_name = "MILLISECONDS")]
+        sleep_duration: Option<u16>,
+    },
+
+    Oneshot {
+        #[command(flatten)]
+        c: CmdArgs,
+    },
+
+    Set {
+        #[command(flatten)]
+        cs: ColorSettingsArgs,
+        #[command(flatten)]
+        i: CmdInnerArgs,
+    },
+
+    Reset {
+        #[command(flatten)]
+        i: CmdInnerArgs,
+    },
+
+    Print {
+        #[arg(
+        long,
+        short,
+        value_name = "LOCATION_PROVIDER | LOCATION",
+        value_parser = LocationProviderType::from_str,
+    )]
+        location: LocationProviderType,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -482,34 +500,8 @@ struct ColorSettingsArgs {
     brightness: Option<Brightness>,
 }
 
-#[derive(Debug, Subcommand)]
-enum ModeArgs {
-    Daemon {
-        #[command(flatten)]
-        c: CmdArgs,
-        // redshift uses -r for disabling fade
-        #[arg(long)]
-        disable_fade: bool,
-        #[arg(long, value_name = "MILLISECONDS")]
-        fade_sleep_duration: Option<u16>,
-        #[arg(long, value_name = "MILLISECONDS")]
-        sleep_duration: Option<u16>,
-    },
-    Oneshot(CmdArgs),
-    Set {
-        #[command(flatten)]
-        cs: ColorSettingsArgs,
-        #[command(flatten)]
-        c: CmdInnerArgs,
-    },
-    Reset(CmdInnerArgs),
-}
-
 #[derive(Debug, Args)]
 struct CmdInnerArgs {
-    #[arg(long, display_order(99))]
-    reset_ramps: bool,
-
     #[arg(
         long,
         short,
@@ -517,6 +509,25 @@ struct CmdInnerArgs {
         value_parser = AdjustmentMethodType::from_str
     )]
     method: Option<AdjustmentMethodType>,
+
+    #[arg(long)]
+    reset_ramps: bool,
+
+    #[arg(long, short, display_order(100), value_name = "FILE")]
+    config: Option<PathBuf>,
+    #[arg(long, display_order(100))]
+    dry_run: bool,
+    #[command(flatten)]
+    verbosity: VerbosityArgs,
+}
+
+#[derive(Debug, Args)]
+#[group(multiple = false)]
+struct VerbosityArgs {
+    #[arg(long, short, display_order(100))]
+    quite: bool,
+    #[arg(long, short, display_order(100))]
+    verbose: bool,
 }
 
 #[derive(Debug, Args)]
@@ -527,9 +538,6 @@ struct CmdArgs {
     brightness: Option<BrightnessRange>,
     #[arg(long, short, value_name = "GAMMA_RANGE", value_parser = GammaRange::from_str)]
     gamma: Option<GammaRange>,
-
-    #[command(flatten)]
-    inner: CmdInnerArgs,
 
     #[arg(
         long,
@@ -543,9 +551,12 @@ struct CmdArgs {
         long,
         short,
         value_name = "LOCATION_PROVIDER | LOCATION",
-        value_parser = LocationProviderType::from_str
+        value_parser = LocationProviderType::from_str,
     )]
     location: Option<LocationProviderType>,
+
+    #[command(flatten)]
+    i: CmdInnerArgs,
 }
 
 //
@@ -559,9 +570,12 @@ struct CmdArgs {
 impl ConfigBuilder {
     pub fn new() -> Result<Self> {
         let cli_args = CliArgs::parse();
-        let config_file = ConfigFile::new(cli_args.config.as_deref())?;
         let mut cfg = Self::default();
-        cfg.merge_with_config_file(config_file);
+
+        if let Some(path) = Self::config_path_from_mode(&cli_args.mode) {
+            let config_file = ConfigFile::new(path)?;
+            cfg.merge_with_config_file(config_file);
+        }
         cfg.merge_with_cli_args(cli_args);
 
         Ok(cfg)
@@ -591,7 +605,13 @@ impl ConfigBuilder {
         //     // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
         //     // Failure if no methods were successful at this point.
         //     // b"No more methods to try.\n\0" as *const u8 as *const c_char,
-        let method = match method.unwrap() {
+
+        let method = match mode {
+            Mode::Print => AdjustmentMethodType::Dummy,
+            _ => method.unwrap(),
+        };
+
+        let method = match method {
             AdjustmentMethodType::Dummy => {
                 AdjustmentMethod::Dummy(Default::default())
             }
@@ -637,55 +657,71 @@ impl ConfigBuilder {
         Ok((c, v))
     }
 
-    fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
-        let CliArgs {
-            config: _,
-            verbosity: VerbosityArgs { quite, verbose },
-            dry_run,
-            mode,
-        } = cli_args;
-
-        let verbosity = match (quite, verbose) {
-            (true, false) => VerbosityKind::Quite,
-            (false, false) => VerbosityKind::Low,
-            (false, true) => VerbosityKind::High,
-            (true, true) => unreachable!(), // clap returns error
-        };
-
-        self.verbosity = verbosity;
-        self.dry_run = dry_run;
+    fn config_path_from_mode(mode: &ModeArgs) -> Option<Option<&Path>> {
         match mode {
-            Some(ModeArgs::Daemon {
-                c: ca,
+            ModeArgs::Print { .. } => None,
+            ModeArgs::Daemon {
+                c:
+                    CmdArgs {
+                        i: CmdInnerArgs { config, .. },
+                        ..
+                    },
+                ..
+            }
+            | ModeArgs::Oneshot {
+                c:
+                    CmdArgs {
+                        i: CmdInnerArgs { config, .. },
+                        ..
+                    },
+            }
+            | ModeArgs::Set {
+                i: CmdInnerArgs { config, .. },
+                ..
+            }
+            | ModeArgs::Reset {
+                i: CmdInnerArgs { config, .. },
+            } => Some(config.as_deref()),
+        }
+    }
+
+    fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
+        let CliArgs { mode } = cli_args;
+
+        match mode {
+            ModeArgs::Daemon {
+                c,
                 disable_fade,
                 fade_sleep_duration,
                 sleep_duration,
-            }) => {
-                self.merge_with_cmd_args(ca);
-                self.disable_fade = disable_fade;
-                self.mode = Mode::Daemon;
-
+            } => {
                 if let Some(t) = fade_sleep_duration {
                     self.fade_sleep_duration = Duration::from_millis(t as u64);
                 }
                 if let Some(t) = sleep_duration {
                     self.sleep_duration = Duration::from_millis(t as u64);
                 }
+                self.merge_with_cmd_args(c);
+                self.disable_fade = disable_fade;
+                self.mode = Mode::Daemon;
             }
-            Some(ModeArgs::Oneshot(c)) => {
+            ModeArgs::Oneshot { c } => {
                 self.merge_with_cmd_args(c);
                 self.mode = Mode::Oneshot;
             }
-            Some(ModeArgs::Set { cs, c: ca }) => {
-                self.merge_with_inner_cmd_args(ca);
+            ModeArgs::Set { cs, i } => {
+                self.merge_with_inner_cmd_args(i);
                 self.day = cs.into();
                 self.mode = Mode::Set;
             }
-            Some(ModeArgs::Reset(ca)) => {
-                self.merge_with_inner_cmd_args(ca);
+            ModeArgs::Reset { i } => {
+                self.merge_with_inner_cmd_args(i);
                 self.mode = Mode::Reset;
             }
-            None => {}
+            ModeArgs::Print { location } => {
+                self.location = location;
+                self.mode = Mode::Print;
+            }
         }
     }
 
@@ -694,9 +730,9 @@ impl ConfigBuilder {
             temperature,
             brightness,
             gamma,
-            inner,
             scheme,
             location,
+            i,
         } = args;
 
         if let Some(t) = temperature {
@@ -718,14 +754,26 @@ impl ConfigBuilder {
         if let Some(t) = location {
             self.location = t;
         }
-        self.merge_with_inner_cmd_args(inner);
+        self.merge_with_inner_cmd_args(i);
     }
 
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
         let CmdInnerArgs {
+            config: _,
+            dry_run,
+            verbosity,
             reset_ramps,
             method,
         } = args;
+
+        let verbosity = match (verbosity.quite, verbosity.verbose) {
+            (true, false) => VerbosityKind::Quite,
+            (false, false) => VerbosityKind::Low,
+            (false, true) => VerbosityKind::High,
+            (true, true) => unreachable!(), // clap will return error
+        };
+        self.verbosity = verbosity;
+        self.dry_run = dry_run;
 
         self.reset_ramps = reset_ramps;
         if let Some(t) = method {
@@ -734,7 +782,6 @@ impl ConfigBuilder {
     }
 
     fn merge_with_config_file(&mut self, config: ConfigFile) {
-        // TODO: move conversions to ConfigFile filds definition with serde derives
         let ConfigFile {
             temperature,
             brightness,
@@ -1351,7 +1398,6 @@ impl FromStr for LocationProviderType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: map cities or countries to locations
         match s {
             // "geoclue2" => Ok(Self::Geoclue2),
             _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
