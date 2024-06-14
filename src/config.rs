@@ -23,7 +23,7 @@ use crate::{
     gamma_vidmode::Vidmode,
     location_manual::Manual,
     solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
-    Alpha,
+    Alpha, Geoclue2,
 };
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, NaiveTime, Timelike};
@@ -368,13 +368,13 @@ pub enum TransitionScheme {
 #[derive(Debug, PartialEq)]
 pub enum LocationProvider {
     Manual(Manual),
-    // Geoclue2(Geoclue2),
+    Geoclue2(Geoclue2),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum LocationProviderType {
     Manual(Manual),
-    // Geoclue2,
+    Geoclue2,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -623,9 +623,15 @@ impl ConfigBuilder {
 
         let location = match location {
             LocationProviderType::Manual(m) => LocationProvider::Manual(m),
-            // LocationProviderType::Geoclue2 => {
-            //     LocationProvider::Geoclue2(Default::default())
-            // }
+            LocationProviderType::Geoclue2 => {
+                LocationProvider::Geoclue2(Default::default())
+            }
+        };
+
+        let v = match verbosity {
+            VerbosityKind::Quite => Verbosity::Quite,
+            VerbosityKind::Low => Verbosity::Low(w),
+            VerbosityKind::High => Verbosity::High(w),
         };
 
         let c = Config {
@@ -640,12 +646,6 @@ impl ConfigBuilder {
             location,
             method,
             time,
-        };
-
-        let v = match verbosity {
-            VerbosityKind::Quite => Verbosity::Quite,
-            VerbosityKind::Low => Verbosity::Low(w),
-            VerbosityKind::High => Verbosity::High(w),
         };
 
         Ok((c, v))
@@ -1380,9 +1380,8 @@ impl FromStr for LocationProviderType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[allow(clippy::match_single_binding)]
         match s {
-            // "geoclue2" => Ok(Self::Geoclue2),
+            "geoclue2" => Ok(Self::Geoclue2),
             _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
         }
         .map_err(|_| anyhow!("asdf"))

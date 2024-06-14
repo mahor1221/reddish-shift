@@ -25,11 +25,6 @@ use crate::{
 use anyhow::Result;
 use std::io::Write;
 
-// TODO:
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Geoclue2;
-impl Provider for Geoclue2 {}
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Manual {
     location: Location,

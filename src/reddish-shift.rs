@@ -20,10 +20,12 @@
 
 // TODO: improve help
 // TODO: add setting screen brightness, a percentage of the current brightness
+//       See: https://github.com/qualiaa/redshift-hooks
 // TODO: color?
 // TODO: add tldr examples
-// TODO: use snafu for error handling
+// TODO: use snafu for error handling: https://github.com/shepmaster/snafu
 // TODO: map cities or countries to locations
+// TODO: benchmark: https://github.com/nvzqz/divan
 
 pub mod colorramp;
 pub mod config;
@@ -420,9 +422,6 @@ impl Default for PeriodInfo {
 //
 
 pub trait Provider {
-    // Listen and handle location updates
-    // fn fd() -> c_int;
-
     fn get(&self, _v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
@@ -434,24 +433,34 @@ pub trait Adjuster {
         Err(anyhow!("Temperature adjustment failed"))
     }
 
-    /// Set a specific color temperature
+    /// Set a specific temperature
     #[allow(unused_variables)]
     fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
         Err(anyhow!("Temperature adjustment failed"))
     }
 }
 
-impl Provider for LocationProvider {
-    fn get(&self, v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Geoclue2;
+impl Provider for Geoclue2 {
+    // Listen and handle location updates
+    // fn fd() -> c_int;
+
+    fn get(&self, _v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
         // Wait for location provider
         // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
         // print_location(&mut loc);
+        Err(anyhow!("WIP"))
+    }
+}
 
+impl Provider for LocationProvider {
+    fn get(&self, v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
         match self {
             Self::Manual(t) => t.get(v),
-            // Self::Geoclue2(t) => t.get(),
+            Self::Geoclue2(t) => t.get(v),
         }
     }
 }

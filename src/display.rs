@@ -136,6 +136,7 @@ impl Config {
         write!(w, "Location provider: ")?;
         match location {
             LocationProvider::Manual(_) => writeln!(w, "manual")?,
+            LocationProvider::Geoclue2(_) => writeln!(w, "geoclue2")?,
         }
 
         write!(w, "Adjustment method: ")?;
