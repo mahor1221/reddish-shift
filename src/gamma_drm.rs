@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{colorramp::GammaRamps, config::ColorSettings, Adjuster};
+use crate::{colorramp::GammaRamps, types::ColorSettings, Adjuster};
 use anyhow::{anyhow, Result};
 use drm::{
     control::{

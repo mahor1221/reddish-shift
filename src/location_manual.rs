@@ -19,7 +19,7 @@
 */
 
 use crate::{
-    config::{Location, Verbosity},
+    types::{Location, Verbosity},
     Provider,
 };
 use anyhow::Result;

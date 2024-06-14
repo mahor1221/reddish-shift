@@ -27,29 +27,32 @@
 // TODO: map cities or countries to locations
 // TODO: benchmark: https://github.com/nvzqz/divan
 
-pub mod colorramp;
+pub mod calc_colorramp;
+pub mod calc_solar;
+pub mod cli;
 pub mod config;
-pub mod display;
 pub mod gamma_drm;
 pub mod gamma_dummy;
 pub mod gamma_randr;
 pub mod gamma_vidmode;
 pub mod location_manual;
-pub mod solar;
+pub mod types;
+pub mod types_display;
+pub mod types_parse;
 pub mod utils;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, SubsecRound, TimeDelta};
-use config::{
-    AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
-    ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
-    TransitionScheme, Verbosity, FADE_STEPS,
-};
+use config::{Config, ConfigBuilder, FADE_STEPS};
 use std::{
     fmt::{Debug, Write as FmtWrite},
     io::Write as IoWrite,
-    ops::Deref,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
+};
+use types::{
+    AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
+    LocationProvider, Mode, Period, TimeOffset, TimeRanges, TransitionScheme,
+    Verbosity,
 };
 use utils::IsDefault;
 
@@ -289,55 +292,19 @@ impl Default for FadeStatus {
     }
 }
 
-impl FadeStatus {}
-
-/// Periods of day
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Period {
-    Daytime,
-    Night,
-    Transition {
-        progress: u8, // Between 0 and 100
-    },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Alpha(f64);
-
-// Read NOTE in src/config.rs
-impl Deref for Alpha {
-    type Target = f64;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TryFrom<f64> for Alpha {
-    type Error = anyhow::Error;
-
-    fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if (0.0..=1.0).contains(&n) {
-            Ok(Self(n))
-        } else {
-            Err(anyhow!("alpha"))
-        }
-    }
-}
-
-impl From<Period> for Alpha {
-    fn from(period: Period) -> Self {
-        match period {
-            Period::Daytime => Self(1.0),
-            Period::Night => Self(0.0),
-            Period::Transition { progress } => Self(progress as f64 / 100.0),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PeriodInfo {
     Elevation { elev: Elevation, loc: Location },
     Time,
+}
+
+impl Default for PeriodInfo {
+    fn default() -> Self {
+        Self::Elevation {
+            elev: Default::default(),
+            loc: Default::default(),
+        }
+    }
 }
 
 impl Period {
@@ -400,21 +367,6 @@ impl Period {
                 let period = Period::from_time(time, *time_ranges);
                 Ok((period, PeriodInfo::Time))
             }
-        }
-    }
-}
-
-impl Default for Period {
-    fn default() -> Self {
-        Self::Daytime
-    }
-}
-
-impl Default for PeriodInfo {
-    fn default() -> Self {
-        Self::Elevation {
-            elev: Default::default(),
-            loc: Default::default(),
         }
     }
 }

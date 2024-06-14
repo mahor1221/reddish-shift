@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{config::ColorSettings, Adjuster};
+use crate::{types::ColorSettings, Adjuster};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
