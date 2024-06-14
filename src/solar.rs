@@ -294,7 +294,7 @@ fn solar_table_fill(
 
     // Calculate absolute time of other phenomena
     for i in 2..SOLAR_TIME_MAX {
-        let angle = TIME_ANGLE[i as usize];
+        let angle = TIME_ANGLE[i];
         let offset = time_of_solar_elevation(t, t_noon, lat, lon, angle);
         table[i] = epoch_from_jd(jdn - 0.5 + offset / 1440.0);
     }
@@ -313,7 +313,7 @@ mod test {
         let res = (0..24).try_fold(String::new(), |mut buff, i| {
             let s = Duration::from_secs(i * 3600).as_secs_f64();
             let e = solar_elevation(s, 0.0, 0.0);
-            write!(&mut buff, "1970-01-01 {i:02}:00    {e:6.2}°\n")?;
+            writeln!(&mut buff, "1970-01-01 {i:02}:00    {e:6.2}°")?;
             Ok::<_, anyhow::Error>(buff)
         })?;
 

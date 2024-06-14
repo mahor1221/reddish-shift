@@ -292,7 +292,7 @@ pub type TemperatureRange = DayNight<Temperature>;
 pub type BrightnessRange = DayNight<Brightness>;
 pub type GammaRange = DayNight<Gamma>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ColorSettings {
     pub temp: Temperature,
     pub gamma: Gamma,
@@ -401,7 +401,7 @@ pub enum VerbosityKind {
     High,
 }
 
-#[derive(Debug, Clone, Eq, Ord)]
+#[derive(Debug, Clone)]
 pub enum Verbosity<W: Write> {
     Quite,
     Low(W),
@@ -576,6 +576,7 @@ impl ConfigBuilder {
         Ok(cfg)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn build<W: Write>(self, w: W) -> Result<(Config, Verbosity<W>)> {
         let Self {
             verbosity,
@@ -602,7 +603,7 @@ impl ConfigBuilder {
 
         let method = match mode {
             Mode::Print => AdjustmentMethodType::Dummy,
-            _ => method.unwrap(),
+            _ => method.ok_or(anyhow!("TODO"))?,
         };
 
         let method = match method {
@@ -772,6 +773,7 @@ impl ConfigBuilder {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn merge_with_config_file(&mut self, config: ConfigFile) {
         let ConfigFile {
             temperature,
@@ -833,12 +835,12 @@ impl ConfigFile {
         let local_config =
             dirs::config_dir().map(|d| d.join(PKG_NAME).join("config.toml"));
         let user_config = config_path
-            .and_then(|p| match p.is_file() {
-                true => Some(Ok(p)),
-                false => Some(Err(anyhow!("e"))),
+            .map(|p| match p.is_file() {
+                true => Ok(p),
+                false => Err(anyhow!("e")),
             })
             .transpose()?
-            .or_else(|| local_config.as_deref())
+            .or(local_config.as_deref())
             .ok_or(anyhow!("user_config"))?;
 
         let mut config = Self::default();
@@ -968,16 +970,6 @@ impl ColorSettings {
     }
 }
 
-impl Default for ColorSettings {
-    fn default() -> Self {
-        Self {
-            temp: Temperature::default(),
-            gamma: Gamma::default(),
-            brght: Brightness::default(),
-        }
-    }
-}
-
 impl Default for TransitionScheme {
     fn default() -> Self {
         Self::Elevation(Default::default())
@@ -1016,7 +1008,7 @@ impl Default for ConfigBuilder {
             sleep_duration: SLEEP_DURATION,
             method: Default::default(),
             location: Default::default(),
-            time: || Local::now(),
+            time: Local::now,
         }
     }
 }
@@ -1038,7 +1030,7 @@ impl Default for ConfigBuilder {
 //
 
 fn gamma(n: f64) -> Result<f64> {
-    if n >= MIN_GAMMA && n <= MAX_GAMMA {
+    if (MIN_GAMMA..=MAX_GAMMA).contains(&n) {
         Ok(n)
     } else {
         // b"Gamma value must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
@@ -1050,7 +1042,7 @@ impl TryFrom<u16> for Temperature {
     type Error = anyhow::Error;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
-        if n >= MIN_TEMPERATURE && n <= MAX_TEMPERATURE {
+        if (MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&n) {
             Ok(Self(n))
         } else {
             // b"Temperature must be between %uK and %uK.\n\0" as *const u8 as *const c_char,
@@ -1063,7 +1055,7 @@ impl TryFrom<f64> for Brightness {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if n >= MIN_BRIGHTNESS && n <= MAX_BRIGHTNESS {
+        if (MIN_BRIGHTNESS..=MAX_BRIGHTNESS).contains(&n) {
             Ok(Self(n))
         } else {
             // b"Brightness values must be between %.1f and %.1f.\n\0" as *const u8 as *const c_char,
@@ -1092,7 +1084,7 @@ impl TryFrom<f64> for Latitude {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if n >= MIN_LATITUDE && n <= MAX_LATITUDE {
+        if (MIN_LATITUDE..=MAX_LATITUDE).contains(&n) {
             Ok(Self(n))
         } else {
             // // TRANSLATORS: Append degree symbols if possible.
@@ -1109,7 +1101,7 @@ impl TryFrom<f64> for Longitude {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if n >= MIN_LONGITUDE && n <= MAX_LONGITUDE {
+        if (MIN_LONGITUDE..=MAX_LONGITUDE).contains(&n) {
             Ok(Self(n))
         } else {
             // // TRANSLATORS: Append degree symbols if possible.
@@ -1186,7 +1178,7 @@ impl TryFrom<f64> for Elevation {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if n >= MIN_ELEVATION && n <= MAX_ELEVATION {
+        if (MIN_ELEVATION..=MAX_ELEVATION).contains(&n) {
             Ok(Self(n))
         } else {
             Err(anyhow!("elevation"))
@@ -1243,7 +1235,7 @@ impl FromStr for Gamma {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+        match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
             [r, g, b] => {
                 [r.parse::<f64>()?, g.parse::<f64>()?, b.parse::<f64>()?]
                     .try_into()
@@ -1274,7 +1266,7 @@ impl FromStr for Location {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").collect::<Vec<_>>().as_slice() {
+        match *s.split(':').collect::<Vec<_>>().as_slice() {
             [lat, lon] => Ok(Self {
                 lat: lat.parse()?,
                 lon: lon.parse()?,
@@ -1288,7 +1280,7 @@ impl FromStr for Time {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+        match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
             [h, m] => (h.parse()?, m.parse()?).try_into(),
             _ => Err(anyhow!("time")),
         }
@@ -1315,7 +1307,7 @@ impl FromStr for TimeRange {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
+        match *s.split('-').collect::<Vec<_>>().as_slice() {
             [start, end] => {
                 (start.parse::<TimeOffset>()?, end.parse::<TimeOffset>()?)
                     .try_into()
@@ -1333,7 +1325,7 @@ impl FromStr for TimeRanges {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let time = match *s.split("-").collect::<Vec<_>>().as_slice() {
+        let time = match *s.split('-').collect::<Vec<_>>().as_slice() {
             [dawn, dusk] => Self {
                 dawn: dawn.parse()?,
                 dusk: dusk.parse()?,
@@ -1357,7 +1349,7 @@ impl FromStr for ElevationRange {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split(":").collect::<Vec<_>>().as_slice() {
+        match *s.split(':').collect::<Vec<_>>().as_slice() {
             [high, low] => {
                 let high = high.parse()?;
                 let low = low.parse()?;
@@ -1388,6 +1380,7 @@ impl FromStr for LocationProviderType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[allow(clippy::match_single_binding)]
         match s {
             // "geoclue2" => Ok(Self::Geoclue2),
             _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
@@ -1400,40 +1393,32 @@ impl FromStr for AdjustmentMethodType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: refactor
+        let num = |o: Option<&str>| match o {
+            None => Ok::<_, anyhow::Error>(None),
+            Some(s) => Ok(Some(s.parse()?)),
+        };
+        let crtcs = |o: Option<&str>| match o {
+            None => Ok(Vec::new()),
+            Some(s) => s
+                .split(',')
+                .map(|s| Ok(s.trim().parse()?))
+                .collect::<Result<Vec<_>>>(),
+        };
+
         let drm = |n: Option<&str>, c: Option<&str>| {
             Ok(Self::Drm {
-                card_num: match n {
-                    None => None,
-                    Some(s) => Some(s.parse()?),
-                },
-                crtcs: match c {
-                    None => Vec::new(),
-                    Some(s) => s
-                        .split(',')
-                        .map(|s| Ok(s.trim().parse()?))
-                        .collect::<Result<Vec<_>>>()?,
-                },
+                card_num: num(n)?,
+                crtcs: crtcs(c)?,
             })
         };
-
         let randr = |n: Option<&str>, c: Option<&str>| {
             Ok(Self::Randr {
-                screen_num: match n {
-                    None => None,
-                    Some(s) => Some(s.parse()?),
-                },
-                crtcs: match c {
-                    None => Vec::new(),
-                    Some(s) => s
-                        .split(',')
-                        .map(|s| Ok(s.trim().parse()?))
-                        .collect::<Result<Vec<_>>>()?,
-                },
+                screen_num: num(n)?,
+                crtcs: crtcs(c)?,
             })
         };
 
-        match s.split(":").map(str::trim).collect::<Vec<_>>().as_slice() {
+        match s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
             ["dummy"] => Ok(Self::Dummy),
             ["drm"] => drm(None, None),
             ["drm", n] => drm(Some(n), None),
@@ -1475,7 +1460,7 @@ impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.split("-").collect::<Vec<_>>().as_slice() {
+        match *s.split('-').collect::<Vec<_>>().as_slice() {
             [day_night] => {
                 let day_night = day_night.parse::<T>()?;
                 Ok(Self {
@@ -1628,30 +1613,37 @@ impl PartialEq for Gamma {
     }
 }
 
+impl<W: Write> Eq for Verbosity<W> {}
 impl<W: Write> PartialEq for Verbosity<W> {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
+        matches!(
+            (self, other),
             (Verbosity::Quite, Verbosity::Quite)
-            | (Verbosity::Low(_), Verbosity::Low(_))
-            | (Verbosity::High(_), Verbosity::High(_)) => true,
-            _ => false,
+                | (Verbosity::Low(_), Verbosity::Low(_))
+                | (Verbosity::High(_), Verbosity::High(_))
+        )
+    }
+}
+
+impl<W: Write> Ord for Verbosity<W> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Verbosity::Quite, Verbosity::Quite) => Ordering::Equal,
+            (Verbosity::Quite, Verbosity::Low(_)) => Ordering::Less,
+            (Verbosity::Quite, Verbosity::High(_)) => Ordering::Less,
+            (Verbosity::Low(_), Verbosity::Quite) => Ordering::Greater,
+            (Verbosity::Low(_), Verbosity::Low(_)) => Ordering::Equal,
+            (Verbosity::Low(_), Verbosity::High(_)) => Ordering::Less,
+            (Verbosity::High(_), Verbosity::Quite) => Ordering::Greater,
+            (Verbosity::High(_), Verbosity::Low(_)) => Ordering::Greater,
+            (Verbosity::High(_), Verbosity::High(_)) => Ordering::Equal,
         }
     }
 }
 
 impl<W: Write> PartialOrd for Verbosity<W> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Verbosity::Quite, Verbosity::Quite) => Some(Ordering::Equal),
-            (Verbosity::Quite, Verbosity::Low(_)) => Some(Ordering::Less),
-            (Verbosity::Quite, Verbosity::High(_)) => Some(Ordering::Less),
-            (Verbosity::Low(_), Verbosity::Quite) => Some(Ordering::Greater),
-            (Verbosity::Low(_), Verbosity::Low(_)) => Some(Ordering::Equal),
-            (Verbosity::Low(_), Verbosity::High(_)) => Some(Ordering::Less),
-            (Verbosity::High(_), Verbosity::Quite) => Some(Ordering::Greater),
-            (Verbosity::High(_), Verbosity::Low(_)) => Some(Ordering::Greater),
-            (Verbosity::High(_), Verbosity::High(_)) => Some(Ordering::Equal),
-        }
+        Some(self.cmp(other))
     }
 }
 
@@ -1661,9 +1653,9 @@ impl<W: Write> PartialOrd for Verbosity<W> {
 macro_rules! write_verbose {
     ($dst:expr, $($arg:tt)*) => {
         match $dst {
-            crate::config::Verbosity::Quite
-            | crate::config::Verbosity::Low(_) => Ok(()),
-            crate::config::Verbosity::High(w) => write!(w, $($arg)*),
+            $crate::config::Verbosity::Quite
+            | $crate::config::Verbosity::Low(_) => Ok(()),
+            $crate::config::Verbosity::High(w) => write!(w, $($arg)*),
         }
     };
 }
@@ -1675,9 +1667,9 @@ macro_rules! writeln_verbose {
     };
     ($dst:expr, $($arg:tt)*) => {
         match $dst {
-            crate::config::Verbosity::Quite
-            | crate::config::Verbosity::Low(_) => Ok(()),
-            crate::config::Verbosity::High(w) => writeln!(w, $($arg)*),
+            $crate::config::Verbosity::Quite
+            | $crate::config::Verbosity::Low(_) => Ok(()),
+            $crate::config::Verbosity::High(w) => writeln!(w, $($arg)*),
         }
     };
 }

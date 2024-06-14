@@ -22,15 +22,18 @@ use crate::{colorramp::GammaRamps, config::ColorSettings, Adjuster};
 use anyhow::{anyhow, Result};
 use x11rb::{
     connection::Connection as _,
-    cookie::VoidCookie,
+    cookie::{Cookie, VoidCookie},
     errors::ReplyError,
-    protocol::{randr::ConnectionExt, ErrorKind as X11ErrorKind},
-    rust_connection::RustConnection as X11Connection,
+    protocol::{
+        randr::{ConnectionExt, GetCrtcGammaReply, GetCrtcGammaSizeReply},
+        ErrorKind as X11ErrorKind,
+    },
+    rust_connection::RustConnection as Conn,
 };
 
 #[derive(Debug)]
 pub struct Randr {
-    conn: X11Connection,
+    conn: Conn,
     crtcs: Vec<Crtc>,
 }
 
@@ -56,15 +59,25 @@ impl Randr {
             Err(anyhow!("Unsupported RANDR version ({major}.{minor})"))?
         }
 
-        let win = conn.setup().roots[screen_num].root;
+        let crtcs = Self::get_crtcs(&conn, screen_num, crtc_ids)?;
+
+        Ok(Self { conn, crtcs })
+    }
+
+    fn get_crtcs(
+        conn: &Conn,
+        screen_num: usize,
+        crtc_ids: Vec<u32>,
+    ) -> Result<Vec<Crtc>> {
         let crtcs = if crtc_ids.is_empty() {
+            let win = conn.setup().roots[screen_num].root;
             conn.randr_get_screen_resources_current(win)?.reply()?.crtcs
         } else {
             crtc_ids
         };
 
         // TODO: accumulate errors
-        let crtcs = crtcs
+        crtcs
             .into_iter()
             .map(|id| {
                 let c_size = conn.randr_get_crtc_gamma_size(id)?;
@@ -74,41 +87,50 @@ impl Randr {
             // collect to send all of the requests
             .collect::<Result<Vec<_>>>()?
             .into_iter()
-            .map(|(id, c_size, c_ramp)| {
-                let r = match c_ramp.reply() {
-                    Ok(r) => Ok(r),
-                    Err(ReplyError::X11Error(e))
-                        if e.error_kind == X11ErrorKind::RandrBadCrtc =>
-                    {
-                        let crtcs = conn
-                            .randr_get_screen_resources_current(win)?
-                            .reply()?
-                            .crtcs;
-                        Err(anyhow!("Valid CRTCs are {crtcs:?}"))
-                    }
-                    Err(e) => Err(anyhow::Error::new(e)),
-                }?;
+            .map(|t| Self::get_crtc_from_cookies(conn, screen_num, t))
+            .collect::<Result<Vec<_>>>()
+    }
 
-                let saved_ramps = GammaRamps([r.red, r.green, r.blue]);
-                let ramp_size = c_size.reply()?.size;
-                if ramp_size == 0 {
-                    Err(anyhow!("Gamma ramp size too small: {ramp_size}"))?
-                }
+    fn get_crtc_from_cookies(
+        conn: &Conn,
+        screen_num: usize,
+        (id, c_size, c_ramp): (
+            u32,
+            Cookie<Conn, GetCrtcGammaSizeReply>,
+            Cookie<Conn, GetCrtcGammaReply>,
+        ),
+    ) -> Result<Crtc> {
+        let r = match c_ramp.reply() {
+            Ok(r) => Ok(r),
+            Err(ReplyError::X11Error(e))
+                if e.error_kind == X11ErrorKind::RandrBadCrtc =>
+            {
+                let win = conn.setup().roots[screen_num].root;
+                let crtcs = conn
+                    .randr_get_screen_resources_current(win)?
+                    .reply()?
+                    .crtcs;
+                Err(anyhow!("Valid CRTCs are {crtcs:?}"))
+            }
+            Err(e) => Err(anyhow::Error::new(e)),
+        }?;
 
-                Ok(Crtc {
-                    id,
-                    ramp_size,
-                    saved_ramps,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let saved_ramps = GammaRamps([r.red, r.green, r.blue]);
+        let ramp_size = c_size.reply()?.size;
+        if ramp_size == 0 {
+            Err(anyhow!("Gamma ramp size too small: {ramp_size}"))?
+        }
 
-        Ok(Self { conn, crtcs })
+        Ok(Crtc {
+            id,
+            ramp_size,
+            saved_ramps,
+        })
     }
 
     fn set_gamma_ramps<'s>(
         &'s self,
-        f: impl Fn(&Crtc) -> Result<VoidCookie<'s, X11Connection>>,
+        f: impl Fn(&Crtc) -> Result<VoidCookie<'s, Conn>>,
     ) -> Result<()> {
         // TODO: accumulate errors
         self.crtcs

@@ -112,6 +112,7 @@ impl Display for TimeRange {
 //
 
 impl Config {
+    #[allow(clippy::too_many_lines)]
     pub fn write_verbose(
         &self,
         v: &mut Verbosity<impl IoWrite>,
@@ -130,10 +131,7 @@ impl Config {
             time: _,
         } = self;
 
-        let w = match v {
-            Verbosity::High(w) => w,
-            _ => return Ok(()),
-        };
+        let Verbosity::High(w) = v else { return Ok(()) };
 
         write!(w, "Location provider: ")?;
         match location {
@@ -194,10 +192,7 @@ impl DaemonMode<'_, '_> {
         &self,
         v: &mut Verbosity<impl IoWrite>,
     ) -> Result<()> {
-        let w = match v {
-            Verbosity::High(w) => w,
-            _ => return Ok(()),
-        };
+        let Verbosity::High(w) = v else { return Ok(()) };
 
         if Some(&self.period) != self.prev_period.as_ref() {
             writeln!(w, "{}", self.period)?;
@@ -232,10 +227,8 @@ impl DaemonMode<'_, '_> {
             if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
                 writeln!(w, "{brght}")?;
             }
-        } else {
-            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                writeln!(w, "{temp}")?;
-            }
+        } else if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
+            writeln!(w, "{temp}")?;
         }
 
         w.flush()?;

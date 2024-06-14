@@ -62,8 +62,7 @@ impl GammaRampsFloat {
         let white_point = approximate_white_point(setting);
         let f = |y: f64, c: usize| -> f64 {
             let r = y * *setting.brght * white_point[c];
-            let r = r.powf(1.0 / setting.gamma[c]);
-            r
+            r.powf(1.0 / setting.gamma[c])
         };
 
         for i in 0..self[0].len() {

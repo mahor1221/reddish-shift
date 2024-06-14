@@ -18,6 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+// TODO: improve help
 // TODO: add setting screen brightness, a percentage of the current brightness
 // TODO: color?
 // TODO: add tldr examples
@@ -116,7 +117,7 @@ fn run_print_mode(c: &Config, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
             (delta + d).num_seconds() as f64,
             c.location.get(v)?,
         );
-        write!(&mut buf, "{time} | {:6.2}°\n", *elev)?;
+        writeln!(&mut buf, "{time} | {:6.2}°", *elev)?;
     }
 
     Ok(print!("{buf}"))
@@ -216,26 +217,25 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
         &self,
         target: ColorSettings,
     ) -> (ColorSettings, FadeStatus) {
+        use FadeStatus::*;
         let target_is_very_different = self.interp.is_very_diff_from(&target);
         match (&self.fade, target_is_very_different, self.cfg.disable_fade) {
-            (_, _, true)
-            | (FadeStatus::Completed, false, false)
-            | (FadeStatus::Ungoing { .. }, false, false) => {
-                (target, FadeStatus::Completed)
+            (_, _, true) | (Completed | Ungoing { .. }, false, false) => {
+                (target, Completed)
             }
 
-            (FadeStatus::Completed, true, false) => {
+            (Completed, true, false) => {
                 let next = Self::interpolate(&self.interp, &target, 0);
-                (next, FadeStatus::Ungoing { step: 0 })
+                (next, Ungoing { step: 0 })
             }
 
-            (FadeStatus::Ungoing { step }, true, false) => {
+            (Ungoing { step }, true, false) => {
                 if *step < FADE_STEPS {
                     let step = *step + 1;
                     let next = Self::interpolate(&self.interp, &target, step);
-                    (next, FadeStatus::Ungoing { step })
+                    (next, Ungoing { step })
                 } else {
-                    (target, FadeStatus::Completed)
+                    (target, Completed)
                 }
             }
         }
@@ -314,7 +314,7 @@ impl TryFrom<f64> for Alpha {
     type Error = anyhow::Error;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
-        if n >= 0.0 && n <= 1.0 {
+        if (0.0..=1.0).contains(&n) {
             Ok(Self(n))
         } else {
             Err(anyhow!("alpha"))

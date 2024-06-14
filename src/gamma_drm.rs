@@ -77,7 +77,11 @@ impl Drm {
     pub fn new(card_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
         let path = format!("/dev/dri/card{}", card_num.unwrap_or_default());
         let card = Card::open(path)?;
+        let crtcs = Self::get_crtcs(&card, crtc_ids)?;
+        Ok(Self { card, crtcs })
+    }
 
+    fn get_crtcs(card: &Card, crtc_ids: Vec<u32>) -> Result<Vec<Crtc>> {
         // TODO: accumulate errors
         let all_crtcs = card.resource_handles()?.crtcs;
         let crtcs = if crtc_ids.is_empty() {
@@ -101,51 +105,49 @@ impl Drm {
                 .collect::<Result<Vec<_>>>()?
         };
 
-        let crtcs = crtcs
+        crtcs
             .into_iter()
-            .map(|handle| {
-                let info = card.get_crtc(handle)?;
-                let ramp_size = info.gamma_length();
-                if ramp_size <= 1 {
-                    Err(anyhow!("ramp_size"))?
-                }
+            .map(|h| Self::get_crtc_from_handle(card, h))
+            .collect::<Result<Vec<_>>>()
+    }
 
-                dbg!(&handle);
-                let (mut r, mut g, mut b) =
-                    (Vec::new(), Vec::new(), Vec::new());
-                // FIX: Error: Bad address (os error 14)
-                // drm_ffi::mode::get_gamma(
-                //     card.as_fd(),
-                //     handle.into(),
-                //     ramp_size as usize,
-                //     &mut r,
-                //     &mut g,
-                //     &mut b,
-                // )?;
-                //
-                // The C function drmModeCrtcGetGamma works on my system
-                // Test here: https://github.com/mahor1221/redshift
-                // build and run: ./redshift -m drm:card=<your card> -x
-                //
-                // everything is similar to the C function, why it doesn't work
-                // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.c#L1000
-                // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
-                //
-                // FIX: Error: Invalid argument (os error 22)
-                card.get_gamma(handle, &mut r, &mut g, &mut b)?;
-                let saved_ramps = GammaRamps([r, g, b]);
-                // _("DRM could not read gamma ramps on CRTC %i on\n"
-                // "graphics card %i, ignoring device.\n"),
+    fn get_crtc_from_handle(card: &Card, handle: CrtcHandle) -> Result<Crtc> {
+        let info = card.get_crtc(handle)?;
+        let ramp_size = info.gamma_length();
+        if ramp_size <= 1 {
+            Err(anyhow!("ramp_size"))?
+        }
 
-                Ok(Crtc {
-                    handle,
-                    ramp_size,
-                    saved_ramps,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let (mut r, mut g, mut b) = (Vec::new(), Vec::new(), Vec::new());
+        // FIX: Error: Bad address (os error 14)
+        // drm_ffi::mode::get_gamma(
+        //     card.as_fd(),
+        //     handle.into(),
+        //     ramp_size as usize,
+        //     &mut r,
+        //     &mut g,
+        //     &mut b,
+        // )?;
+        //
+        // The C function drmModeCrtcGetGamma works on my system
+        // Test here: https://github.com/mahor1221/redshift
+        // build and run: ./redshift -m drm:card=<your card> -x
+        //
+        // everything is similar to the C function, why it doesn't work
+        // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.c#L1000
+        // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
+        //
+        // FIX: Error: Invalid argument (os error 22)
+        card.get_gamma(handle, &mut r, &mut g, &mut b)?;
+        let saved_ramps = GammaRamps([r, g, b]);
+        // _("DRM could not read gamma ramps on CRTC %i on\n"
+        // "graphics card %i, ignoring device.\n"),
 
-        Ok(Self { card, crtcs })
+        Ok(Crtc {
+            handle,
+            ramp_size,
+            saved_ramps,
+        })
     }
 
     fn set_gamma_ramps(
