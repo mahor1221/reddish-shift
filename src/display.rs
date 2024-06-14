@@ -127,7 +127,6 @@ impl Config {
             fade_sleep_duration: _,
             sleep_duration: _,
             mode: _,
-            dry_run: _,
             time: _,
         } = self;
 

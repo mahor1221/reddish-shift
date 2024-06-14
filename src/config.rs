@@ -240,11 +240,8 @@ Please report bugs to <{PKG_BUGREPORT}>"
 /// Merge of cli arguments and config files
 #[derive(Debug)]
 pub struct Config {
-    // cli only fields
-    pub dry_run: bool,
     pub mode: Mode,
 
-    // cli and config file fields
     pub day: ColorSettings,
     pub night: ColorSettings,
     pub reset_ramps: bool,
@@ -261,7 +258,6 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
     verbosity: VerbosityKind,
-    dry_run: bool,
     mode: Mode,
 
     day: ColorSettings,
@@ -516,8 +512,6 @@ struct CmdInnerArgs {
 
     #[arg(long, short, display_order(100), value_name = "FILE")]
     config: Option<PathBuf>,
-    #[arg(long, display_order(100))]
-    dry_run: bool,
     #[command(flatten)]
     verbosity: VerbosityArgs,
 }
@@ -585,7 +579,6 @@ impl ConfigBuilder {
     pub fn build<W: Write>(self, w: W) -> Result<(Config, Verbosity<W>)> {
         let Self {
             verbosity,
-            dry_run,
             mode,
             day,
             night,
@@ -635,7 +628,6 @@ impl ConfigBuilder {
         };
 
         let c = Config {
-            dry_run,
             mode,
             day,
             night,
@@ -761,7 +753,6 @@ impl ConfigBuilder {
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
         let CmdInnerArgs {
             config: _,
-            dry_run,
             verbosity,
             reset_ramps,
             method,
@@ -774,7 +765,6 @@ impl ConfigBuilder {
             (true, true) => unreachable!(), // clap will return error
         };
         self.verbosity = verbosity;
-        self.dry_run = dry_run;
 
         self.reset_ramps = reset_ramps;
         if let Some(t) = method {
@@ -1019,7 +1009,6 @@ impl Default for ConfigBuilder {
             night: ColorSettings::default_night(),
             mode: Default::default(),
             verbosity: Default::default(),
-            dry_run: Default::default(),
             reset_ramps: Default::default(),
             scheme: Default::default(),
             disable_fade: Default::default(),

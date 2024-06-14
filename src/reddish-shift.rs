@@ -83,7 +83,7 @@ fn run(
         Mode::Daemon => {
             c.write_verbose(v)?;
             DaemonMode::new(c, sig).run_loop(v)?;
-            c.method.restore(c.dry_run)?;
+            c.method.restore()?;
         }
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
@@ -91,14 +91,14 @@ fn run(
             let interp = c.night.interpolate_with(&c.day, p.into());
             c.write_verbose(v)?;
             writeln_verbose!(v, "Current:\n{p}\n{i}{interp}")?;
-            c.method.set(c.dry_run, c.reset_ramps, &interp)?;
+            c.method.set(c.reset_ramps, &interp)?;
         }
         Mode::Set => {
             // for this command, color settings are stored in the day field
-            c.method.set(c.dry_run, c.reset_ramps, &c.day)?;
+            c.method.set(c.reset_ramps, &c.day)?;
         }
         Mode::Reset => {
-            c.method.set(c.dry_run, true, &ColorSettings::default())?;
+            c.method.set(true, &ColorSettings::default())?;
         }
         Mode::Print => run_print_mode(c, v)?,
     }
@@ -185,7 +185,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
             // }
 
             if Some(&self.interp) != self.prev_interp.as_ref() {
-                c.method.set(c.dry_run, c.reset_ramps, &self.interp)?;
+                c.method.set(c.reset_ramps, &self.interp)?;
             }
 
             self.prev_period = Some(self.period);
@@ -456,29 +456,22 @@ impl Provider for LocationProvider {
     }
 }
 
-impl AdjustmentMethod {
-    fn restore(&self, dry_run: bool) -> Result<()> {
-        match (dry_run, self) {
-            (false, Self::Dummy(t)) => t.restore(),
-            (false, Self::Randr(t)) => t.restore(),
-            (false, Self::Drm(t)) => t.restore(),
-            (false, Self::Vidmode(t)) => t.restore(),
-            (true, _) => Ok(()),
+impl Adjuster for AdjustmentMethod {
+    fn restore(&self) -> Result<()> {
+        match self {
+            Self::Dummy(t) => t.restore(),
+            Self::Randr(t) => t.restore(),
+            Self::Drm(t) => t.restore(),
+            Self::Vidmode(t) => t.restore(),
         }
     }
 
-    fn set(
-        &self,
-        dry_run: bool,
-        reset_ramps: bool,
-        cs: &ColorSettings,
-    ) -> Result<()> {
-        match (dry_run, self) {
-            (false, Self::Dummy(t)) => t.set(reset_ramps, cs),
-            (false, Self::Randr(t)) => t.set(reset_ramps, cs),
-            (false, Self::Drm(t)) => t.set(reset_ramps, cs),
-            (false, Self::Vidmode(t)) => t.set(reset_ramps, cs),
-            (true, _) => Ok(()),
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
+        match self {
+            Self::Dummy(t) => t.set(reset_ramps, cs),
+            Self::Randr(t) => t.set(reset_ramps, cs),
+            Self::Drm(t) => t.set(reset_ramps, cs),
+            Self::Vidmode(t) => t.set(reset_ramps, cs),
         }
 
         // // In Quartz (macOS) the gamma adjustments will
