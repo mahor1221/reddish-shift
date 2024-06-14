@@ -36,7 +36,7 @@ use chrono::{DateTime, Local};
 use config::{
     AdjustmentMethod, ColorSettings, Config, ConfigBuilder, Elevation,
     ElevationRange, Location, LocationProvider, Mode, TimeOffset, TimeRanges,
-    TransitionScheme, FADE_STEPS,
+    TransitionScheme, Verbosity, FADE_STEPS,
 };
 use std::{
     fmt::Debug,
@@ -97,18 +97,16 @@ fn main() -> Result<()> {
     //     // );
     // }
 
-    let c = ConfigBuilder::new()?.build()?;
     let stdout = std::io::stdout();
-    let mut w = stdout.lock();
+    let (c, mut v) = ConfigBuilder::new()?.build(stdout.lock())?;
 
-    let need_location = match (&c.mode, &c.scheme) {
-        (Mode::Daemon | Mode::Oneshot, TransitionScheme::Elevation(_)) => true,
-        (Mode::Set | Mode::Reset, _) | (_, TransitionScheme::Time(_)) => false,
-    };
-    if need_location {
-        if c.location.get(&mut w)?.is_default() {
-            writeln!(w, "Warning: using default location")?;
-        }
+    if let (
+        Mode::Daemon | Mode::Oneshot,
+        TransitionScheme::Elevation(_),
+        true,
+    ) = (&c.mode, &c.scheme, c.location.get(&mut v)?.is_default())
+    {
+        writeln!(v, "Warning: using default location")?;
     }
 
     let (tx, rx) = mpsc::channel();
@@ -117,24 +115,26 @@ fn main() -> Result<()> {
     })
     .expect("Error setting Ctrl-C handler");
 
-    run(c, rx, &mut w)
+    run(c, rx, &mut v)
 }
 
-fn run(c: Config, sig: Receiver<()>, w: &mut impl Write) -> Result<()> {
+fn run(
+    c: Config,
+    sig: Receiver<()>,
+    v: &mut Verbosity<impl Write>,
+) -> Result<()> {
     // TODO: add a command for calculating solar elevation for the next 24h
     match c.mode {
         Mode::Daemon => {
-            DaemonMode::default().run_loop(&c, &sig, w)?;
+            DaemonMode::default().run_loop(&c, &sig, v)?;
             c.method.restore(c.dry_run)?;
         }
 
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
-            let (p, i) = Period::from(&c.scheme, &c.location, c.time, w)?;
+            let (p, i) = Period::from(&c.scheme, &c.location, c.time, v)?;
             let interp = c.night.interpolate_with(&c.day, p.into());
-            if c.verbose {
-                writeln!(w, "{p}\n{i}{interp}")?;
-            }
+            writeln_verbose!(v, "{p}\n{i}{interp}")?;
             c.method.set(c.dry_run, c.reset_ramps, &interp)?;
         }
 
@@ -179,11 +179,11 @@ impl DaemonMode {
         &mut self,
         c: &Config,
         sig: &Receiver<()>,
-        w: &mut impl Write,
+        v: &mut Verbosity<impl Write>,
     ) -> Result<()> {
         loop {
             (self.period, self.info) =
-                Period::from(&c.scheme, &c.location, c.time, w)?;
+                Period::from(&c.scheme, &c.location, c.time, v)?;
             let target = match self.signal {
                 Signal::None => {
                     c.night.interpolate_with(&c.day, self.period.into())
@@ -191,8 +191,10 @@ impl DaemonMode {
                 Signal::Interrupt => ColorSettings::default(),
             };
             self.fade.next(c.disable_fade, target, &mut self.interp);
-            self.write(w)?;
-            w.flush()?;
+            if let Verbosity::High(w) = v {
+                self.write_verbose(w)?;
+                v.flush()?;
+            }
 
             // // Activate hooks if period changed
             // if period != prev_period {
@@ -224,7 +226,7 @@ impl DaemonMode {
         }
     }
 
-    fn write(&self, w: &mut impl Write) -> Result<()> {
+    fn write_verbose(&self, w: &mut impl Write) -> Result<()> {
         let ColorSettings { temp, gamma, brght } = &self.interp;
 
         if self.fade == Fade::Completed || self.interp_prev.is_none() {
@@ -439,13 +441,13 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-        w: &mut impl Write,
+        v: &mut Verbosity<impl Write>,
     ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
                 let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
                     .num_seconds() as f64;
-                let here = location.get(w)?;
+                let here = location.get(v)?;
                 let elev = Elevation::new(now, here);
                 let period = Period::from_elevation(elev, *elev_range);
                 let info = PeriodInfo::Elevation { elev, loc: here };
@@ -482,7 +484,7 @@ pub trait Provider {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self, _w: &mut impl Write) -> Result<Location> {
+    fn get(&self, _v: &mut Verbosity<impl Write>) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
 }
@@ -501,7 +503,7 @@ pub trait Adjuster {
 }
 
 impl Provider for LocationProvider {
-    fn get(&self, w: &mut impl Write) -> Result<Location> {
+    fn get(&self, v: &mut Verbosity<impl Write>) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
         // Wait for location provider
@@ -509,7 +511,7 @@ impl Provider for LocationProvider {
         // print_location(&mut loc);
 
         match self {
-            Self::Manual(t) => t.get(w),
+            Self::Manual(t) => t.get(v),
             // Self::Geoclue2(t) => t.get(),
         }
     }
@@ -517,11 +519,12 @@ impl Provider for LocationProvider {
 
 impl AdjustmentMethod {
     fn restore(&self, dry_run: bool) -> Result<()> {
-        match self {
-            Self::Dummy(t) => t.restore(),
-            Self::Randr(t) => t.restore(),
-            Self::Drm(t) => t.restore(),
-            Self::Vidmode(t) => t.restore(),
+        match (dry_run, self) {
+            (false, Self::Dummy(t)) => t.restore(),
+            (false, Self::Randr(t)) => t.restore(),
+            (false, Self::Drm(t)) => t.restore(),
+            (false, Self::Vidmode(t)) => t.restore(),
+            (true, _) => Ok(()),
         }
     }
 
@@ -531,11 +534,12 @@ impl AdjustmentMethod {
         reset_ramps: bool,
         cs: &ColorSettings,
     ) -> Result<()> {
-        match self {
-            Self::Dummy(t) => t.set(reset_ramps, cs),
-            Self::Randr(t) => t.set(reset_ramps, cs),
-            Self::Drm(t) => t.set(reset_ramps, cs),
-            Self::Vidmode(t) => t.set(reset_ramps, cs),
+        match (dry_run, self) {
+            (false, Self::Dummy(t)) => t.set(reset_ramps, cs),
+            (false, Self::Randr(t)) => t.set(reset_ramps, cs),
+            (false, Self::Drm(t)) => t.set(reset_ramps, cs),
+            (false, Self::Vidmode(t)) => t.set(reset_ramps, cs),
+            (true, _) => Ok(()),
         }
 
         // // In Quartz (macOS) the gamma adjustments will

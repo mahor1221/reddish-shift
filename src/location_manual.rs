@@ -20,7 +20,10 @@
 
 use std::io::Write;
 
-use crate::{config::Location, Provider};
+use crate::{
+    config::{Location, Verbosity},
+    Provider,
+};
 use anyhow::Result;
 
 // TODO:
@@ -40,7 +43,7 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get(&self, _w: &mut impl Write) -> Result<Location> {
+    fn get(&self, _v: &mut Verbosity<impl Write>) -> Result<Location> {
         Ok(self.location)
     }
 }

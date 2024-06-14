@@ -33,10 +33,11 @@ use clap::{Args, Parser, Subcommand};
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
 use std::{
-    default, env,
+    cmp::Ordering,
+    env,
     fmt::Display,
     fs::File,
-    io::Read,
+    io::{Read, Result as IoResult, Write},
     marker::PhantomData,
     ops::Deref,
     path::{Path, PathBuf},
@@ -242,7 +243,6 @@ Please report bugs to <{PKG_BUGREPORT}>"
 #[derive(Debug)]
 pub struct Config {
     // cli only fields
-    pub verbose: bool,
     pub dry_run: bool,
     pub mode: Mode,
 
@@ -262,7 +262,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
-    verbose: bool,
+    verbosity: VerbosityKind,
     dry_run: bool,
     mode: Mode,
 
@@ -398,12 +398,19 @@ enum AdjustmentMethodType {
     },
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-enum Verbosity {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum VerbosityKind {
     Quite,
     #[default]
     Low,
     High,
+}
+
+#[derive(Debug, Clone, Eq, Ord)]
+pub enum Verbosity<W: Write> {
+    Quite,
+    Low(W),
+    High(W),
 }
 
 //
@@ -451,7 +458,16 @@ struct CliArgs {
     config: Option<PathBuf>,
     #[arg(long, global = true, display_order(100))]
     dry_run: bool,
-    #[arg(short, long, global = true, display_order(100))]
+    #[command(flatten)]
+    verbosity: VerbosityArgs,
+}
+
+#[derive(Debug, Args)]
+#[group(multiple = false)]
+struct VerbosityArgs {
+    #[arg(long, short, global = true, display_order(100))]
+    quite: bool,
+    #[arg(long, short, global = true, display_order(100))]
     verbose: bool,
 }
 
@@ -551,9 +567,9 @@ impl ConfigBuilder {
         Ok(cfg)
     }
 
-    pub fn build(self) -> Result<Config> {
+    pub fn build<W: Write>(self, w: W) -> Result<(Config, Verbosity<W>)> {
         let Self {
-            verbose: verbosity,
+            verbosity,
             dry_run,
             mode,
             day,
@@ -597,8 +613,7 @@ impl ConfigBuilder {
             // }
         };
 
-        Ok(Config {
-            verbose: verbosity,
+        let c = Config {
             dry_run,
             mode,
             day,
@@ -611,18 +626,33 @@ impl ConfigBuilder {
             location,
             method,
             time,
-        })
+        };
+
+        let v = match verbosity {
+            VerbosityKind::Quite => Verbosity::Quite,
+            VerbosityKind::Low => Verbosity::Low(w),
+            VerbosityKind::High => Verbosity::High(w),
+        };
+
+        Ok((c, v))
     }
 
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
         let CliArgs {
             config: _,
-            verbose,
+            verbosity: VerbosityArgs { quite, verbose },
             dry_run,
             mode,
         } = cli_args;
 
-        self.verbose = verbose;
+        let verbosity = match (quite, verbose) {
+            (true, false) => VerbosityKind::Quite,
+            (false, false) => VerbosityKind::Low,
+            (false, true) => VerbosityKind::High,
+            (true, true) => unreachable!(), // clap returns error
+        };
+
+        self.verbosity = verbosity;
         self.dry_run = dry_run;
         match mode {
             Some(ModeArgs::Daemon {
@@ -940,7 +970,7 @@ impl Default for ConfigBuilder {
             day: ColorSettings::default_day(),
             night: ColorSettings::default_night(),
             mode: Default::default(),
-            verbose: Default::default(),
+            verbosity: Default::default(),
             dry_run: Default::default(),
             reset_ramps: Default::default(),
             scheme: Default::default(),
@@ -954,16 +984,17 @@ impl Default for ConfigBuilder {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        ConfigBuilder {
-            method: Some(AdjustmentMethodType::Dummy),
-            ..Default::default()
-        }
-        .build()
-        .unwrap_or_else(|_| unreachable!())
-    }
-}
+// impl Default for Config {
+//     fn default() -> Self {
+//         ConfigBuilder {
+//             method: Some(AdjustmentMethodType::Dummy),
+//             ..Default::default()
+//         }
+//         .build()
+//         .unwrap_or_else(|_| unreachable!())
+//         .0
+//     }
+// }
 
 //
 // Parse strings and numbers to strong types
@@ -1561,6 +1592,75 @@ impl PartialEq for Gamma {
     }
 }
 
+impl<W: Write> PartialEq for Verbosity<W> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Verbosity::Quite, Verbosity::Quite)
+            | (Verbosity::Low(_), Verbosity::Low(_))
+            | (Verbosity::High(_), Verbosity::High(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<W: Write> PartialOrd for Verbosity<W> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Verbosity::Quite, Verbosity::Quite) => Some(Ordering::Equal),
+            (Verbosity::Quite, Verbosity::Low(_)) => Some(Ordering::Less),
+            (Verbosity::Quite, Verbosity::High(_)) => Some(Ordering::Less),
+            (Verbosity::Low(_), Verbosity::Quite) => Some(Ordering::Greater),
+            (Verbosity::Low(_), Verbosity::Low(_)) => Some(Ordering::Equal),
+            (Verbosity::Low(_), Verbosity::High(_)) => Some(Ordering::Less),
+            (Verbosity::High(_), Verbosity::Quite) => Some(Ordering::Greater),
+            (Verbosity::High(_), Verbosity::Low(_)) => Some(Ordering::Greater),
+            (Verbosity::High(_), Verbosity::High(_)) => Some(Ordering::Equal),
+        }
+    }
+}
+
+//
+
+#[macro_export]
+macro_rules! write_verbose {
+    ($dst:expr, $($arg:tt)*) => {
+        match $dst {
+            crate::config::Verbosity::Quite
+            | crate::config::Verbosity::Low(_) => Ok(()),
+            crate::config::Verbosity::High(w) => write!(w, $($arg)*),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! writeln_verbose {
+    ($dst:expr, $($arg:tt)*) => {
+        match $dst {
+            crate::config::Verbosity::Quite
+            | crate::config::Verbosity::Low(_) => Ok(()),
+            crate::config::Verbosity::High(w) => writeln!(w, $($arg)*),
+        }
+    };
+}
+
+impl<W: Write> Write for Verbosity<W> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        match self {
+            Verbosity::Quite => Ok(buf.len()),
+            Verbosity::Low(w) => w.write(buf),
+            Verbosity::High(w) => w.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Verbosity::Quite => Ok(()),
+            Verbosity::Low(w) => w.flush(),
+            Verbosity::High(w) => w.flush(),
+        }
+    }
+}
+
 impl Elevation {
     pub fn new(secs_from_epoch: f64, loc: Location) -> Self {
         Self(solar_elevation(secs_from_epoch, *loc.lat, *loc.lon))
@@ -1613,10 +1713,10 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_config_default() {
-        Config::default();
-    }
+    // #[test]
+    // fn test_config_default() {
+    //     Config::default();
+    // }
 
     // TODO: assert_eq default config with config.toml
 
