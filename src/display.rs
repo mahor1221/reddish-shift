@@ -152,29 +152,39 @@ impl Config {
         writeln!(w, "Reset ramps: {reset_ramps}")?;
         writeln!(w, "Disable fade: {disable_fade}")?;
 
-        let ColorSettings { temp, gamma, brght } = day;
         writeln!(w, "Daytime:")?;
-        writeln!(w, "{temp}")?;
-        writeln!(w, "{gamma}")?;
-        writeln!(w, "{brght}")?;
-
-        let ColorSettings { temp, gamma, brght } = night;
-        writeln!(w, "Night:")?;
-        writeln!(w, "{temp}")?;
-        writeln!(w, "{gamma}")?;
-        writeln!(w, "{brght}")?;
-
-        writeln!(w, "Transition Scheme:")?;
         match scheme {
-            TransitionScheme::Time(TimeRanges { dawn, dusk }) => {
-                writeln!(w, "    Dawn: {dawn}")?;
-                writeln!(w, "    Dusk: {dusk}")?;
+            TransitionScheme::Time(TimeRanges {
+                dawn: TimeRange { end, .. },
+                dusk: TimeRange { start, .. },
+            }) => {
+                writeln!(w, "    Time: from {end} to {start}")?;
             }
-            TransitionScheme::Elevation(ElevationRange { high, low }) => {
-                writeln!(w, "    Elevation high: {:.2}°", **high)?;
-                writeln!(w, "    Elevation low: {:.2}°", **low)?;
+            TransitionScheme::Elevation(ElevationRange { high, .. }) => {
+                writeln!(w, "    Solar elevation: above {:.2}°", **high)?;
             }
         }
+        let ColorSettings { temp, gamma, brght } = day;
+        writeln!(w, "{temp}")?;
+        writeln!(w, "{gamma}")?;
+        writeln!(w, "{brght}")?;
+
+        writeln!(w, "Night:")?;
+        match scheme {
+            TransitionScheme::Time(TimeRanges {
+                dawn: TimeRange { start, .. },
+                dusk: TimeRange { end, .. },
+            }) => {
+                writeln!(w, "    Time: from {end} to {start}")?;
+            }
+            TransitionScheme::Elevation(ElevationRange { low, .. }) => {
+                writeln!(w, "    Solar elevation: below {:.2}°", **low)?;
+            }
+        }
+        let ColorSettings { temp, gamma, brght } = night;
+        writeln!(w, "{temp}")?;
+        writeln!(w, "{gamma}")?;
+        writeln!(w, "{brght}")?;
 
         Ok(())
     }
@@ -190,30 +200,30 @@ impl DaemonMode<'_, '_> {
             _ => return Ok(()),
         };
 
-        let ColorSettings { temp, gamma, brght } = &self.interp;
+        if Some(&self.period) != self.prev_period.as_ref() {
+            writeln!(w, "{}", self.period)?;
+        }
+        match (&self.info, &self.prev_info) {
+            (PeriodInfo::Elevation { .. }, None) => {
+                write!(w, "{}", self.info)?;
+            }
+            (
+                PeriodInfo::Elevation { elev: e1, .. },
+                Some(PeriodInfo::Elevation { elev: e2, .. }),
+            ) if e1 != e2 => {
+                writeln!(w, "{e1}")?;
+            }
+            (
+                PeriodInfo::Elevation { loc: l1, .. },
+                Some(PeriodInfo::Elevation { loc: l2, .. }),
+            ) if l1 != l2 => {
+                writeln!(w, "{l1}")?;
+            }
+            _ => {}
+        }
 
+        let ColorSettings { temp, gamma, brght } = &self.interp;
         if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
-            if Some(&self.period) != self.prev_period.as_ref() {
-                writeln!(w, "{}", self.period)?;
-            }
-            match (&self.info, &self.prev_info) {
-                (PeriodInfo::Elevation { .. }, None) => {
-                    write!(w, "{}", self.info)?;
-                }
-                (
-                    PeriodInfo::Elevation { elev: e1, .. },
-                    Some(PeriodInfo::Elevation { elev: e2, .. }),
-                ) if e1 != e2 => {
-                    writeln!(w, "{e1}")?;
-                }
-                (
-                    PeriodInfo::Elevation { loc: l1, .. },
-                    Some(PeriodInfo::Elevation { loc: l2, .. }),
-                ) if l1 != l2 => {
-                    writeln!(w, "{l1}")?;
-                }
-                _ => {}
-            }
             if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
                 writeln!(w, "{temp}")?;
             }
