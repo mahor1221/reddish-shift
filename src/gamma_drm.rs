@@ -1,4 +1,4 @@
-/*  gamma-drm.rs -- DRM gamma adjustment
+/*  gamma-drm.rs -- Direct Rendering Manager gamma adjustment
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
     Ported from Redshift <https://github.com/jonls/redshift>.

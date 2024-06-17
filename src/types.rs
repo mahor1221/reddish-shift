@@ -29,13 +29,13 @@ use anyhow::{anyhow, Result};
 use chrono::{NaiveTime, Timelike};
 use std::{cmp::Ordering, io::Write, ops::Deref};
 
-// Angular elevation of the sun at which the color temperature
-// transition period starts and ends (in degrees).
-// Transition during twilight, and while the sun is lower than
-// 3.0 degrees above the horizon.
+/// Angular elevation of the sun at which the color temperature transition
+/// period starts and ends (in degrees).
+/// Transition during twilight, and while the sun is lower than 3.0 degrees
+/// above the horizon.
 pub const DEFAULT_ELEVATION_LOW: f64 = SOLAR_CIVIL_TWILIGHT_ELEV;
 pub const DEFAULT_ELEVATION_HIGH: f64 = 3.0;
-pub const DEFAULT_LATITUDE: f64 = 0.0; // Null Island
+pub const DEFAULT_LATITUDE: f64 = 0.0;
 pub const DEFAULT_LONGITUDE: f64 = 0.0;
 pub const DEFAULT_BRIGHTNESS: f64 = 1.0;
 pub const DEFAULT_GAMMA: f64 = 1.0;

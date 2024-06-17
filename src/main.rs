@@ -18,14 +18,11 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// TODO: improve help
+// TODO: use snafu for error handling: https://github.com/shepmaster/snafu
+// TODO: add tldr page: https://github.com/tldr-pages/tldr
+// TODO: benchmark: https://github.com/nvzqz/divan
 // TODO: add setting screen brightness, a percentage of the current brightness
 //       See: https://github.com/qualiaa/redshift-hooks
-// TODO: color?
-// TODO: add tldr examples
-// TODO: use snafu for error handling: https://github.com/shepmaster/snafu
-// TODO: map cities or countries to locations
-// TODO: benchmark: https://github.com/nvzqz/divan
 
 mod calc_colorramp;
 mod calc_solar;
@@ -67,8 +64,15 @@ fn main() -> Result<()> {
     ) = (&c.mode, &c.scheme, &c.location)
     {
         if l.get(&mut v)?.is_default() {
+            // TODO: eprint
             writeln!(v, "Warning: using default location")?;
         }
+    }
+
+    if let AdjustmentMethod::Dummy(_) = c.method {
+        // TODO: eprint
+        let s = "Warning: Using dummy method! Display will not be affected";
+        writeln!(v, "{s}")?;
     }
 
     let (tx, rx) = mpsc::channel();

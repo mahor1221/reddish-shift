@@ -17,7 +17,10 @@
 */
 
 use crate::{
-    cli::{CliArgs, CmdArgs, CmdInnerArgs, ModeArgs, VerbosityArgs},
+    cli::{
+        CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, ModeArgs,
+        VerbosityArgs,
+    },
     gamma_drm::Drm,
     gamma_randr::Randr,
     gamma_vidmode::Vidmode,
@@ -44,15 +47,18 @@ use std::{
 };
 use toml::Value;
 
-const PKG_NAME: &str = env!("CARGO_PKG_NAME");
-
+pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 // Length of fade in numbers of fade's sleep durations
 pub const FADE_STEPS: u8 = 40;
 // Duration of sleep between screen updates (milliseconds)
 pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
 pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
-/// Merge of cli arguments and config files
+/// Merge of cli arguments and config files from highest priority to lowest:
+/// 1. CLI arguments
+/// 2. User config file
+/// 3. System config file (Unix-like OS's only)
+/// 4. Default values
 #[derive(Debug)]
 pub struct Config {
     pub mode: Mode,
@@ -110,14 +116,6 @@ struct Either<U: TryInto<T>, T> {
     p: PhantomData<U>,
 }
 
-//
-// Merge from highest priority to lowest:
-// 1. cli arguments
-// 2. user config file
-// 3. system config file
-// 4. default options
-//
-
 impl ConfigBuilder {
     pub fn new() -> Result<Self> {
         let cli_args = CliArgs::parse();
@@ -160,7 +158,7 @@ impl ConfigBuilder {
 
         let method = match mode {
             Mode::Print => AdjustmentMethodType::Dummy,
-            _ => method.ok_or(anyhow!("TODO"))?,
+            _ => method.ok_or(anyhow!("WIP"))?,
         };
 
         let method = match method {
@@ -460,6 +458,8 @@ impl ConfigFile {
     }
 }
 
+//
+
 impl Default for ConfigBuilder {
     fn default() -> Self {
         Self {
@@ -482,8 +482,6 @@ impl Default for ConfigBuilder {
     }
 }
 
-//
-
 impl<'de, T, U> Deserialize<'de> for Either<U, T>
 where
     T: Deserialize<'de>,
@@ -501,6 +499,27 @@ where
         };
 
         Ok(Self { t, p: PhantomData })
+    }
+}
+
+impl From<ColorSettingsArgs> for ColorSettings {
+    fn from(t: ColorSettingsArgs) -> Self {
+        let mut color_settings = Self::default();
+        let ColorSettingsArgs {
+            temperature,
+            gamma,
+            brightness,
+        } = t;
+        if let Some(t) = temperature {
+            color_settings.temp = t;
+        }
+        if let Some(t) = brightness {
+            color_settings.brght = t;
+        }
+        if let Some(t) = gamma {
+            color_settings.gamma = t;
+        }
+        color_settings
     }
 }
 
@@ -547,15 +566,4 @@ mod test {
         assert_eq!(config, ConfigBuilder::default());
         Ok(())
     }
-
-    // #[test]
-    // fn test_config_default() {
-    //     Config::default();
-    // }
-
-    // TODO: assert_eq default config with config.toml
-
-    // TODO: add conversion tests
-
-    // TODO: test help for possible values of enums
 }
