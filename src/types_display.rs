@@ -26,43 +26,27 @@ use crate::{
     DaemonMode, FadeStatus, Period, PeriodInfo,
 };
 use anyhow::Result;
+use indoc::writedoc;
 use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     io::Write as IoWrite,
 };
 
-impl Display for TimeOffset {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&Time::from(*self), f)
-    }
-}
-
-impl Display for ColorSettings {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let ColorSettings { temp, gamma, brght } = self;
-        write!(f, "{temp}\n{brght}\n{gamma}")
-    }
-}
-
 impl Display for Temperature {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "    Temperature: {}K", **self)
+        write!(f, "{}K", **self)
     }
 }
 
 impl Display for Brightness {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "    Brightness: {}%", **self as u8 * 100)
+        write!(f, "{}%", **self as u8 * 100)
     }
 }
 
 impl Display for Gamma {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "    Gamma: {:.2}, {:.2}, {:.2}",
-            self[0], self[1], self[2]
-        )
+        write!(f, "{:.2}, {:.2}, {:.2}", self[0], self[1], self[2])
     }
 }
 
@@ -73,20 +57,33 @@ impl Display for Time {
     }
 }
 
+impl Display for TimeOffset {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&Time::from(*self), f)
+    }
+}
+
+impl Display for TimeRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let Self { start, end } = self;
+        write!(f, "from {start} to {end}")
+    }
+}
+
 impl Display for Elevation {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         //// TRANSLATORS: Append degree symbol if possible
-        write!(f, "    Solar elevation: {:.2}°", **self)
+        write!(f, "{:.2}°", **self)
     }
 }
 
 impl Display for Period {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Period::Daytime => f.write_str("    Period: Daytime"),
-            Period::Night => f.write_str("    Period: Night"),
+            Period::Daytime => f.write_str("Daytime"),
+            Period::Night => f.write_str("Night"),
             Period::Transition { progress } => {
-                write!(f, "    Period: Transition ({progress}% day)")
+                write!(f, "Transition ({progress}% day)")
             }
         }
     }
@@ -106,29 +103,35 @@ impl Display for Location {
         let b1 = b as u8;
         let b2 = (b.fract() * 100.0) as u8;
         let b3 = ((b * 100.0).fract() * 100.0) as u8;
-        write!(f, "    Location: {a1}°{a2}′{a3}″{ns}, {b1}°{b2}′{b3}″{ew}")
+        write!(f, "{a1}°{a2}′{a3}″{ns}, {b1}°{b2}′{b3}″{ew}")
     }
 }
+
+//
 
 impl Display for PeriodInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             PeriodInfo::Time => Ok(()),
             PeriodInfo::Elevation { elev, loc } => {
-                write!(f, "{elev}\n{loc}\n")
+                write!(f, "    Solar elevation: {elev}\n    Location: {loc}\n")
             }
         }
     }
 }
 
-impl Display for TimeRange {
+impl Display for ColorSettings {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let Self { start, end } = self;
-        write!(f, "from {start} to {end}")
+        let ColorSettings { temp, gamma, brght } = self;
+        writedoc!(
+            f,
+            "
+    Temperature: {temp}
+    Brightness: {brght}
+    Gamma: {gamma}"
+        )
     }
 }
-
-//
 
 impl Config {
     #[allow(clippy::too_many_lines)]
@@ -184,9 +187,9 @@ impl Config {
             }
         }
         let ColorSettings { temp, gamma, brght } = day;
-        writeln!(w, "{temp}")?;
-        writeln!(w, "{gamma}")?;
-        writeln!(w, "{brght}")?;
+        writeln!(w, "    Temperature: {temp}")?;
+        writeln!(w, "    Gamma: {gamma}")?;
+        writeln!(w, "    Brightness: {brght}")?;
 
         writeln!(w, "Night:")?;
         match scheme {
@@ -201,9 +204,9 @@ impl Config {
             }
         }
         let ColorSettings { temp, gamma, brght } = night;
-        writeln!(w, "{temp}")?;
-        writeln!(w, "{gamma}")?;
-        writeln!(w, "{brght}")?;
+        writeln!(w, "    Temperature: {temp}")?;
+        writeln!(w, "    Gamma: {gamma}")?;
+        writeln!(w, "    Brightness: {brght}")?;
 
         Ok(())
     }
@@ -219,7 +222,7 @@ impl DaemonMode<'_, '_> {
         };
 
         if Some(&self.period) != self.prev_period.as_ref() {
-            writeln!(w, "{}", self.period)?;
+            writeln!(w, "    Period: {}", self.period)?;
         }
         match (&self.info, &self.prev_info) {
             (PeriodInfo::Elevation { .. }, None) => {
@@ -229,13 +232,13 @@ impl DaemonMode<'_, '_> {
                 PeriodInfo::Elevation { elev: e1, .. },
                 Some(PeriodInfo::Elevation { elev: e2, .. }),
             ) if e1 != e2 => {
-                writeln!(w, "{e1}")?;
+                writeln!(w, "    Solar elevation: {e1}")?;
             }
             (
                 PeriodInfo::Elevation { loc: l1, .. },
                 Some(PeriodInfo::Elevation { loc: l2, .. }),
             ) if l1 != l2 => {
-                writeln!(w, "{l1}")?;
+                writeln!(w, "    Location: {l1}")?;
             }
             _ => {}
         }
@@ -243,13 +246,13 @@ impl DaemonMode<'_, '_> {
         let ColorSettings { temp, gamma, brght } = &self.interp;
         if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
             if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                writeln!(w, "{temp}")?;
+                writeln!(w, "    Temperature: {temp}")?;
             }
             if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
-                writeln!(w, "{gamma}")?;
+                writeln!(w, "    Gamma: {gamma}")?;
             }
             if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
-                writeln!(w, "{brght}")?;
+                writeln!(w, "    Brightness: {brght}")?;
             }
         } else if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
             writeln!(w, "{temp}")?;

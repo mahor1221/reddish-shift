@@ -67,8 +67,9 @@ fn main() -> Result<()> {
         LocationProvider::Manual(l),
     ) = (&c.mode, &c.scheme, &c.location)
     {
-        if l.get(&mut v)?.is_default() {
-            ewriteln!(&mut v, "Warning: using default location")?;
+        let loc = l.get(&mut v)?;
+        if loc.is_default() {
+            ewriteln!(&mut v, "Warning: Using default location ({loc})")?;
         }
     }
 
