@@ -241,6 +241,7 @@ impl ConfigBuilder {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
         let CliArgs { mode, color } = cli_args;
         if let Some(t) = color {
@@ -261,8 +262,10 @@ impl ConfigBuilder {
                     self.sleep_duration_short =
                         Duration::from_millis(t as u64);
                 }
+                if let Some(t) = disable_fade {
+                    self.disable_fade = t;
+                }
                 self.merge_with_cmd_args(c);
-                self.disable_fade = disable_fade;
                 self.mode = Mode::Daemon;
             }
             ModeArgs::Oneshot { c } => {
@@ -327,7 +330,9 @@ impl ConfigBuilder {
 
         self.verbose = verbose;
         self.quite = quite;
-        self.reset_ramps = reset_ramps;
+        if let Some(t) = reset_ramps {
+            self.reset_ramps = t;
+        }
         if let Some(t) = method {
             self.method = Some(t);
         }

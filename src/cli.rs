@@ -24,7 +24,7 @@ use crate::{
         MAX_TEMPERATURE, MIN_TEMPERATURE,
     },
 };
-use clap::{Args, ColorChoice, Parser, Subcommand};
+use clap::{ArgAction, Args, ColorChoice, Parser, Subcommand};
 use const_format::formatcp;
 use std::{path::PathBuf, str::FromStr};
 
@@ -74,8 +74,8 @@ pub enum ModeArgs {
         c: CmdArgs,
 
         /// Disable fading between color temperatures
-        #[arg(long)]
-        disable_fade: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        disable_fade: Option<bool>,
 
         #[arg(help = formatcp!("Duration of sleep between screen updates [default: {DEFAULT_SLEEP_DURATION}]"))]
         #[arg(long, value_name = "MILLISECONDS")]
@@ -174,12 +174,12 @@ pub struct CmdInnerArgs {
     ///       randr$DISPLAY:62,63 (apply to $DISPLAY with crtcs 62 and 63)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = AdjustmentMethodType::from_str)]
-    #[arg(value_name = "METHOD[:DISPLAY_NUM|CARD_NUM[:CRTC1,CRTC2,...]]")]
+    #[arg(value_name = "METHOD [:DISPLAY_NUM | CARD_NUM [:CRTC1,CRTC2,...]]")]
     pub method: Option<AdjustmentMethodType>,
 
     /// Reset existing gamma ramps before applying new color settings
-    #[arg(long)]
-    pub reset_ramps: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub reset_ramps: Option<bool>,
 
     /// Path of config file
     #[arg(long, short, value_name = "FILE", display_order(99))]
