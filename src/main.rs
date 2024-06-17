@@ -18,11 +18,12 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// TODO: use snafu for error handling: https://github.com/shepmaster/snafu
+// TODO: https://doc.rust-lang.org/std/backtrace/
 // TODO: add tldr page: https://github.com/tldr-pages/tldr
 // TODO: benchmark: https://github.com/nvzqz/divan
 // TODO: add setting screen brightness, a percentage of the current brightness
 //       See: https://github.com/qualiaa/redshift-hooks
+// TODO: #[instrument]: https://docs.rs//latest/tracing/index.html mod
 
 mod calc_colorramp;
 mod calc_solar;
@@ -36,31 +37,41 @@ mod location_manual;
 mod types;
 mod types_display;
 mod types_parse;
-mod utils;
 
 use crate::{
-    config::{Config, ConfigBuilder, FADE_STEPS},
+    config::{ClapColorExt, Config, ConfigBuilder, FADE_STEPS, HEADER, WARN},
     types::{
         AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
         LocationProvider, Mode, Period, TimeOffset, TimeRanges,
         TransitionScheme,
     },
-    utils::IsDefault,
 };
+
+use anstream::AutoStream;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, SubsecRound, TimeDelta};
 use std::{
-    fmt::{Debug, Write as FmtWrite},
-    io::Write as IoWrite,
+    borrow::BorrowMut,
+    cell::RefMut,
+    fmt::{Debug, Write},
+    io::{self, Stderr, StderrLock, Stdout, StdoutLock},
+    rc::Rc,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
-use utils::{Verbosity, Write, HEADER, WARN};
+use tracing::{info, warn, Level, Metadata, Subscriber};
+use tracing_subscriber::{
+    fmt::{writer::MakeWriterExt, MakeWriter},
+    Layer,
+};
+
+pub struct StdErrLayer {}
+impl<S: Subscriber> Layer<S> for StdErrLayer {}
+pub struct StdOutLayer {}
+impl<S: Subscriber> Layer<S> for StdOutLayer {}
 
 fn main() -> Result<()> {
-    let stdout = std::io::stdout();
-    let stderr = std::io::stderr();
-    let (c, mut v) =
-        ConfigBuilder::new()?.build(stdout.lock(), stderr.lock())?;
+    let c = ConfigBuilder::new()?.build()?;
+    // tracing_init(&c);
 
     if let (
         Mode::Daemon | Mode::Oneshot,
@@ -68,16 +79,15 @@ fn main() -> Result<()> {
         LocationProvider::Manual(l),
     ) = (&c.mode, &c.scheme, &c.location)
     {
-        let loc = l.get(&mut v)?;
+        let loc = l.get()?;
         if loc.is_default() {
-            let s = "Using default location";
-            ewriteln!(&mut v, "{WARN}Warning{WARN:#}: {s} ({loc})")?;
+            warn!("{WARN}Warning{WARN:#}: Using default location ({loc})");
         }
     }
 
     if let AdjustmentMethod::Dummy(_) = c.method {
         let s = "Using dummy method! Display will not be affected";
-        ewriteln!(&mut v, "{WARN}Warning{WARN:#}: {s}")?;
+        warn!("{WARN}Warning{WARN:#}: {s}");
     }
 
     let (tx, rx) = mpsc::channel();
@@ -86,26 +96,38 @@ fn main() -> Result<()> {
         tx.send(()).expect("Could not send signal on channel")
     })?;
 
-    run(&c, &rx, &mut v)
+    run(&c, &rx)
 }
 
-fn run(
-    c: &Config,
-    sig: &Receiver<()>,
-    v: &mut Verbosity<impl Write, impl Write>,
-) -> Result<()> {
+// fn tracing_init(c: &Config) {
+//     let stdout = c.color.to_auto_stream(std::io::stdout()).lock();
+//     let stderr = c.color.to_auto_stream(std::io::stderr()).lock();
+//     let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
+
+//     let (non_blocking, _stdout_guard) = tracing_appender::non_blocking(w);
+
+//     racing_subscriber::fmt()
+//         .with_writer(stdio)
+//         .with_level(false)
+//         .with_target(false)
+//         .with_max_level(c.verbosity.level_filter())
+//         .without_time()
+//         .init();
+// }
+
+fn run(c: &Config, sig: &Receiver<()>) -> Result<()> {
     match c.mode {
         Mode::Daemon => {
-            c.vwrite(v)?;
-            DaemonMode::new(c, sig).run_loop(v)?;
+            c.log()?;
+            DaemonMode::new(c, sig).run_loop()?;
             c.method.restore()?;
         }
         Mode::Oneshot => {
             // Use period and transition progress to set color temperature
-            let (p, i) = Period::from(&c.scheme, &c.location, c.time, v)?;
+            let (p, i) = Period::from(&c.scheme, &c.location, c.time)?;
             let interp = c.night.interpolate_with(&c.day, p.into());
-            c.vwrite(v)?;
-            vwriteln!(v, "{HEADER}Current{HEADER:#}:\n{p}\n{i}{interp}")?;
+            c.log()?;
+            info!("{HEADER}Current{HEADER:#}:\n{p}\n{i}{interp}");
             c.method.set(c.reset_ramps, &interp)?;
         }
         Mode::Set => {
@@ -115,16 +137,13 @@ fn run(
         Mode::Reset => {
             c.method.set(true, &ColorSettings::default())?;
         }
-        Mode::Print => run_print_mode(c, v)?,
+        Mode::Print => run_print_mode(c)?,
     }
 
     Ok(())
 }
 
-fn run_print_mode(
-    c: &Config,
-    v: &mut Verbosity<impl Write, impl Write>,
-) -> Result<()> {
+fn run_print_mode(c: &Config) -> Result<()> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
     let mut buf = String::from("Time     | Degree\n---------+-------\n");
@@ -132,7 +151,7 @@ fn run_print_mode(
         let time = (now + d).time().trunc_subsecs(0);
         let elev = Elevation::new(
             (delta + d).num_seconds() as f64,
-            c.location.get(v)?,
+            c.location.get()?,
         );
         writeln!(&mut buf, "{time} | {:6.2}", *elev)?;
     }
@@ -178,16 +197,13 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// This is the main loop of the daemon mode which keeps track of the
     /// current time and continuously updates the screen to the appropriate
     /// color temperature
-    fn run_loop(
-        &mut self,
-        v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<()> {
+    fn run_loop(&mut self) -> Result<()> {
         let c = self.cfg;
-        vwriteln!(v, "{HEADER}Current{HEADER:#}:")?;
+        info!("{HEADER}Current{HEADER:#}:");
 
         loop {
             (self.period, self.info) =
-                Period::from(&c.scheme, &c.location, c.time, v)?;
+                Period::from(&c.scheme, &c.location, c.time)?;
 
             let target = match self.signal {
                 Signal::None => {
@@ -198,7 +214,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 
             (self.interp, self.fade) = self.next_interpolate(target);
 
-            self.vwrite(v)?;
+            self.log()?;
 
             // // Activate hooks if period changed
             // if period != prev_period {
@@ -364,13 +380,12 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-        v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
                 let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
                     .num_seconds() as f64;
-                let here = location.get(v)?;
+                let here = location.get()?;
                 let elev = Elevation::new(now, here);
                 let period = Period::from_elevation(elev, *elev_range);
                 let info = PeriodInfo::Elevation { elev, loc: here };
@@ -389,10 +404,7 @@ impl Period {
 //
 
 pub trait Provider {
-    fn get(
-        &self,
-        _v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<Location> {
+    fn get(&self) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
 }
@@ -404,10 +416,7 @@ pub trait Adjuster {
     }
 
     /// Set a specific temperature
-    #[allow(unused_variables)]
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed"))
-    }
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -416,10 +425,7 @@ impl Provider for Geoclue2 {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(
-        &self,
-        _v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<Location> {
+    fn get(&self) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
         // Wait for location provider
@@ -430,13 +436,10 @@ impl Provider for Geoclue2 {
 }
 
 impl Provider for LocationProvider {
-    fn get(
-        &self,
-        v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<Location> {
+    fn get(&self) -> Result<Location> {
         match self {
-            Self::Manual(t) => t.get(v),
-            Self::Geoclue2(t) => t.get(v),
+            Self::Manual(t) => t.get(),
+            Self::Geoclue2(t) => t.get(),
         }
     }
 }
@@ -466,5 +469,77 @@ impl Adjuster for AdjustmentMethod {
         //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
         //     pause();
         // }
+    }
+}
+
+//
+
+pub struct StdioMakeWriter<'a> {
+    stdout: Rc<RefCell<AutoStream<StdoutLock<'a>>>>,
+    stderr: Rc<RefCell<AutoStream<StderrLock<'a>>>>,
+}
+
+/// A lock on either stdout or stderr, depending on the verbosity level of the
+/// event being written.
+// pub enum StdioLock<'a> {
+//     Stdout(Rc<RefCell<AutoStream<StdoutLock<'a>>>>),
+//     Stderr(Rc<RefCell<AutoStream<StderrLock<'a>>>>),
+// }
+
+// impl<'a> io::Write for StdioLock<'a> {
+//     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+//         match self {
+//             StdioLock::Stdout(_) => todo!(),
+//             StdioLock::Stderr(_) => todo!(),
+//         }
+//         // match self {
+//         //     StdioLock::Stdout(lock) => lock.as_ref().borrow_mut().write(buf),
+//         //     StdioLock::Stderr(lock) => lock.as_ref().borrow_mut().write(buf),
+//         // }
+//     }
+
+//     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+//         match self {
+//             StdioLock::Stdout(lock) => lock.write_all(buf),
+//             StdioLock::Stderr(lock) => lock.write_all(buf),
+//         }
+//     }
+
+//     fn flush(&mut self) -> io::Result<()> {
+//         match self {
+//             StdioLock::Stdout(lock) => lock.flush(),
+//             StdioLock::Stderr(lock) => lock.flush(),
+//         }
+//     }
+// }
+
+// impl<'a> MakeWriter<'a> for StdioMakeWriter<'a> {
+//     type Writer = StdioLock<'a>;
+
+//     fn make_writer(&'a self) -> Self::Writer {
+//         // just return stdout in that case.
+//         StdioLock::Stdout(self.stdout.clone())
+//     }
+
+//     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
+//         // Here's where we can implement our special behavior. We'll
+//         // check if the metadata's verbosity level is WARN or ERROR,
+//         // and return stderr in that cwith .
+//         if meta.level() <= &Level::WARN {
+//             return StdioLock::Stderr(self.stderr.clone());
+//         }
+
+//         // Otherwise, we'll return stdout.
+//         StdioLock::Stdout(self.stdout.clone())
+//     }
+// }
+
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        *self == T::default()
     }
 }

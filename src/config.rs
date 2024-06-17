@@ -19,7 +19,7 @@
 use crate::{
     cli::{
         CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, ModeArgs,
-        VerbosityArgs,
+        Verbosity, WarnLevel,
     },
     gamma_drm::Drm,
     gamma_randr::Randr,
@@ -29,9 +29,9 @@ use crate::{
         ColorSettings, DayNight, GammaRange, LocationProvider,
         LocationProviderType, Mode, TemperatureRange, TransitionScheme,
     },
-    utils::{Verbosity, Write},
 };
 use anstream::{stream::RawStream, AutoStream, ColorChoice};
+use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
 use clap::ColorChoice as ClapColor;
@@ -51,6 +51,12 @@ pub const FADE_STEPS: u8 = 40;
 pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
 pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
+pub const WARN: Style = Style::new()
+    .bold()
+    .fg_color(Some(Color::Ansi(AnsiColor::Yellow)));
+pub const HEADER: Style = Style::new().bold().underline();
+pub const BODY: Style = Style::new().bold();
+
 /// Merge of cli arguments and config files from highest priority to lowest:
 /// 1. CLI arguments
 /// 2. User config file
@@ -59,6 +65,8 @@ pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 #[derive(Debug)]
 pub struct Config {
     pub mode: Mode,
+    pub verbosity: Verbosity<WarnLevel>,
+    pub color: ClapColor,
 
     pub day: ColorSettings,
     pub night: ColorSettings,
@@ -75,10 +83,9 @@ pub struct Config {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
-    verbose: bool,
-    quite: bool,
-    color: ClapColor,
     mode: Mode,
+    verbosity: Verbosity<WarnLevel>,
+    color: ClapColor,
 
     day: ColorSettings,
     night: ColorSettings,
@@ -129,16 +136,11 @@ impl ConfigBuilder {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn build<O: Write, E: Write>(
-        self,
-        out: O,
-        err: E,
-    ) -> Result<(Config, Verbosity<O, E>)> {
+    pub fn build(self) -> Result<Config> {
         let Self {
-            quite,
-            verbose,
-            color,
             mode,
+            verbosity,
+            color,
             day,
             night,
             reset_ramps,
@@ -150,9 +152,6 @@ impl ConfigBuilder {
             method,
             time,
         } = self;
-
-        let err = color.to_auto_stream(err);
-        let out = color.to_auto_stream(out);
 
         // try all methods until one that works is found.
         // Gamma adjustment not needed for print mode
@@ -189,15 +188,10 @@ impl ConfigBuilder {
             }
         };
 
-        let v = match (quite, verbose) {
-            (true, false) => Verbosity::Quite,
-            (false, false) => Verbosity::Low { out, err },
-            (false, true) => Verbosity::High { out, err },
-            (true, true) => unreachable!(), // clap will return error
-        };
-
         let c = Config {
             mode,
+            color,
+            verbosity,
             day,
             night,
             reset_ramps,
@@ -210,7 +204,7 @@ impl ConfigBuilder {
             time,
         };
 
-        Ok((c, v))
+        Ok(c)
     }
 
     fn config_path_from_mode(mode: &ModeArgs) -> Option<Option<&Path>> {
@@ -243,7 +237,12 @@ impl ConfigBuilder {
 
     #[allow(clippy::too_many_lines)]
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
-        let CliArgs { mode, color } = cli_args;
+        let CliArgs {
+            mode,
+            verbosity,
+            color,
+        } = cli_args;
+        self.verbosity = verbosity;
         if let Some(t) = color {
             self.color = t;
         }
@@ -323,13 +322,10 @@ impl ConfigBuilder {
     fn merge_with_inner_cmd_args(&mut self, args: CmdInnerArgs) {
         let CmdInnerArgs {
             config: _,
-            verbosity: VerbosityArgs { quite, verbose },
             reset_ramps,
             method,
         } = args;
 
-        self.verbose = verbose;
-        self.quite = quite;
         if let Some(t) = reset_ramps {
             self.reset_ramps = t;
         }
@@ -474,29 +470,14 @@ impl ConfigFile {
 
 //
 
-trait ClapColorExt {
-    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S>;
-}
-
-impl ClapColorExt for ClapColor {
-    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S> {
-        match self {
-            ClapColor::Auto => AutoStream::new(raw, ColorChoice::Auto),
-            ClapColor::Always => AutoStream::new(raw, ColorChoice::Always),
-            ClapColor::Never => AutoStream::new(raw, ColorChoice::Never),
-        }
-    }
-}
-
 impl Default for ConfigBuilder {
     fn default() -> Self {
         Self {
-            quite: Default::default(),
-            verbose: Default::default(),
-            color: Default::default(),
             day: ColorSettings::default_day(),
             night: ColorSettings::default_night(),
             mode: Default::default(),
+            verbosity: Default::default(),
+            color: Default::default(),
             reset_ramps: Default::default(),
             scheme: Default::default(),
             disable_fade: Default::default(),
@@ -507,6 +488,20 @@ impl Default for ConfigBuilder {
             method: Default::default(),
             location: Default::default(),
             time: Local::now,
+        }
+    }
+}
+
+pub trait ClapColorExt {
+    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S>;
+}
+
+impl ClapColorExt for ClapColor {
+    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S> {
+        match self {
+            ClapColor::Auto => AutoStream::new(raw, ColorChoice::Auto),
+            ClapColor::Always => AutoStream::new(raw, ColorChoice::Always),
+            ClapColor::Never => AutoStream::new(raw, ColorChoice::Never),
         }
     }
 }
@@ -578,8 +573,6 @@ impl<'de> Deserialize<'de> for AdjustmentMethodType {
         String::deserialize(d)?.parse().map_err(de::Error::custom)
     }
 }
-
-//
 
 #[cfg(test)]
 mod test {

@@ -26,7 +26,8 @@ use crate::{
 };
 use clap::{ArgAction, Args, ColorChoice, Parser, Subcommand};
 use const_format::formatcp;
-use std::{path::PathBuf, str::FromStr};
+use std::{cmp::Ordering, marker::PhantomData, path::PathBuf, str::FromStr};
+use tracing::{level_filters::LevelFilter, Level};
 
 const VERSION: &str = {
     const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -63,6 +64,9 @@ pub struct CliArgs {
     #[arg(long, value_name = "WHEN", value_parser = ColorChoice::from_str)]
     #[arg(global = true, display_order(100))]
     pub color: Option<ColorChoice>,
+
+    #[command(flatten)]
+    pub verbosity: Verbosity<WarnLevel>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -184,20 +188,6 @@ pub struct CmdInnerArgs {
     /// Path of config file
     #[arg(long, short, value_name = "FILE", display_order(99))]
     pub config: Option<PathBuf>,
-    #[command(flatten)]
-    pub verbosity: VerbosityArgs,
-}
-
-#[derive(Debug, Args)]
-#[group(multiple = false)]
-pub struct VerbosityArgs {
-    /// Suppress all output
-    #[arg(long, short, display_order(99))]
-    pub quite: bool,
-
-    /// Use verbose output
-    #[arg(long, short, display_order(99))]
-    pub verbose: bool,
 }
 
 #[derive(Debug, Args)]
@@ -256,4 +246,85 @@ pub struct CmdArgs {
 
     #[command(flatten)]
     pub i: CmdInnerArgs,
+}
+
+//
+
+pub trait DefaultLevel {
+    fn default() -> Option<Level>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WarnLevel;
+impl DefaultLevel for WarnLevel {
+    fn default() -> Option<Level> {
+        Some(Level::WARN)
+    }
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct Verbosity<L: DefaultLevel = WarnLevel> {
+    /// Increase verbosity
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(global = true, display_order(100))]
+    verbose: u8,
+
+    /// Decrease verbosity
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    #[arg(global = true, display_order(100), conflicts_with = "verbose")]
+    quiet: u8,
+
+    #[arg(skip)]
+    phantom: PhantomData<L>,
+}
+
+impl<L: DefaultLevel> Verbosity<L> {
+    /// [None] means all output is disabled.
+    pub fn level(&self) -> Option<Level> {
+        match self.verbosity() {
+            i8::MIN..=-1 => None,
+            0 => Some(Level::ERROR),
+            1 => Some(Level::WARN),
+            2 => Some(Level::INFO),
+            3 => Some(Level::DEBUG),
+            4..=i8::MAX => Some(Level::TRACE),
+        }
+    }
+
+    pub fn level_filter(&self) -> LevelFilter {
+        self.level().into()
+    }
+
+    fn verbosity(&self) -> i8 {
+        i8_from_level(L::default()) - (self.quiet as i8) + (self.verbose as i8)
+    }
+}
+
+fn i8_from_level(level: Option<Level>) -> i8 {
+    match level {
+        None => -1,
+        Some(Level::ERROR) => 0,
+        Some(Level::WARN) => 1,
+        Some(Level::INFO) => 2,
+        Some(Level::DEBUG) => 3,
+        Some(Level::TRACE) => 4,
+    }
+}
+
+impl<L: DefaultLevel> Eq for Verbosity<L> {}
+impl<L: DefaultLevel> PartialEq for Verbosity<L> {
+    fn eq(&self, other: &Self) -> bool {
+        self.level() == other.level()
+    }
+}
+
+impl<L: DefaultLevel> Ord for Verbosity<L> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.level().cmp(&other.level())
+    }
+}
+impl<L: DefaultLevel> PartialOrd for Verbosity<L> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }

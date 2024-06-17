@@ -18,11 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{
-    types::Location,
-    utils::{Verbosity, Write},
-    Provider,
-};
+use crate::{types::Location, Provider};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -37,10 +33,7 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get(
-        &self,
-        _v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<Location> {
+    fn get(&self) -> Result<Location> {
         Ok(self.location)
     }
 }

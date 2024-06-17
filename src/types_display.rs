@@ -17,68 +17,65 @@
 */
 
 use crate::{
-    config::Config,
+    config::{Config, BODY, HEADER},
     types::{
         AdjustmentMethod, Brightness, ColorSettings, Elevation,
         ElevationRange, Gamma, Location, LocationProvider, Temperature, Time,
         TimeOffset, TimeRange, TimeRanges, TransitionScheme,
     },
-    utils::{Verbosity, Write, BODY, HEADER},
     DaemonMode, FadeStatus, Period, PeriodInfo,
 };
 use anyhow::Result;
-use std::{
-    fmt::{Display, Formatter, Result as FmtResult},
-    io::Write as IoWrite,
-};
+use std::fmt::{self, Display, Formatter};
+use tracing::info;
 
 impl Display for Temperature {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}K", **self)
     }
 }
 
 impl Display for Brightness {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}%", **self as u8 * 100)
     }
 }
 
 impl Display for Gamma {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:.2}, {:.2}, {:.2}", self[0], self[1], self[2])
     }
 }
 
 impl Display for Time {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Time { hour: h, minute: m } = self;
         write!(f, "{h:02}:{m:02}")
     }
 }
 
 impl Display for TimeOffset {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&Time::from(*self), f)
     }
 }
 
 impl Display for TimeRange {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Self { start, end } = self;
         write!(f, "from {start} to {end}")
     }
 }
 
 impl Display for Elevation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         //// TRANSLATORS: Append degree symbol if possible
         write!(f, "{:.2}°", **self)
     }
 }
 
 impl Display for Period {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Period::Night => write!(f, "    {BODY}Period{BODY:#}: night"),
             Period::Daytime => write!(f, "    {BODY}Period{BODY:#}: daytime"),
@@ -93,7 +90,7 @@ impl Display for Period {
 }
 
 impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let a = *self.lat;
         let b = *self.lon;
         let ns = if a >= 0.0 { "N" } else { "S" };
@@ -113,7 +110,7 @@ impl Display for Location {
 //
 
 impl Display for PeriodInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             PeriodInfo::Time => Ok(()),
             PeriodInfo::Elevation { elev, loc } => {
@@ -128,7 +125,7 @@ impl Display for PeriodInfo {
 }
 
 impl Display for ColorSettings {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let ColorSettings { temp, gamma, brght } = self;
         write!(
             f,
@@ -141,10 +138,7 @@ impl Display for ColorSettings {
 
 impl Config {
     #[allow(clippy::too_many_lines)]
-    pub fn vwrite(
-        &self,
-        v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<()> {
+    pub fn log(&self) -> Result<()> {
         let Config {
             day,
             night,
@@ -156,66 +150,55 @@ impl Config {
             sleep_duration_short: _,
             sleep_duration: _,
             mode: _,
+            verbosity: _,
+            color: _,
             time: _,
         } = self;
 
-        let Verbosity::High { out: w, err: _ } = v else {
-            return Ok(());
+        let l = match location {
+            LocationProvider::Manual(_) => "manual",
+            LocationProvider::Geoclue2(_) => "geoclue2",
         };
+        info!("{BODY}Location provider{BODY:#}: {l}");
 
-        write!(w, "{BODY}Location provider{BODY:#}: ")?;
-        match location {
-            LocationProvider::Manual(_) => writeln!(w, "manual")?,
-            LocationProvider::Geoclue2(_) => writeln!(w, "geoclue2")?,
-        }
+        let m = match method {
+            AdjustmentMethod::Dummy(_) => "dummy",
+            AdjustmentMethod::Randr(_) => "randr",
+            AdjustmentMethod::Drm(_) => "drm",
+            AdjustmentMethod::Vidmode(_) => "vidmode",
+        };
+        info!("{BODY}Adjustment method{BODY:#}: {m}");
 
-        write!(w, "{BODY}Adjustment method{BODY:#}: ")?;
-        match method {
-            AdjustmentMethod::Dummy(_) => writeln!(w, "dummy")?,
-            AdjustmentMethod::Randr(_) => writeln!(w, "randr")?,
-            AdjustmentMethod::Drm(_) => writeln!(w, "drm")?,
-            AdjustmentMethod::Vidmode(_) => writeln!(w, "vidmode")?,
-        }
+        info!("{BODY}Reset ramps{BODY:#}: {reset_ramps}");
+        info!("{BODY}Disable fade{BODY:#}: {disable_fade}");
 
-        writeln!(w, "{BODY}Reset ramps{BODY:#}: {reset_ramps}")?;
-        writeln!(w, "{BODY}Disable fade{BODY:#}: {disable_fade}")?;
-
-        writeln!(w, "{HEADER}Daytime{HEADER:#}:")?;
+        info!("{HEADER}Daytime{HEADER:#}:");
         match scheme {
             TransitionScheme::Time(TimeRanges {
                 dawn: TimeRange { end, .. },
                 dusk: TimeRange { start, .. },
             }) => {
-                writeln!(w, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
+                info!("    {BODY}Time{BODY:#}: from {end} to {start}");
             }
             TransitionScheme::Elevation(ElevationRange { high, .. }) => {
-                writeln!(
-                    w,
-                    "    {BODY}Solar elevation{BODY:#}: above {high}"
-                )?;
+                info!("    {BODY}Solar elevation{BODY:#}: above {high}");
             }
         }
-        let ColorSettings { temp, gamma, brght } = day;
-        writeln!(w, "    {BODY}Temperature{BODY:#}: {temp}")?;
-        writeln!(w, "    {BODY}Gamma{BODY:#}: {gamma}")?;
-        writeln!(w, "    {BODY}Brightness{BODY:#}: {brght}")?;
+        info!("{day}");
 
-        writeln!(w, "{HEADER}Night{HEADER:#}:")?;
+        info!("{HEADER}Night{HEADER:#}:");
         match scheme {
             TransitionScheme::Time(TimeRanges {
                 dawn: TimeRange { start, .. },
                 dusk: TimeRange { end, .. },
             }) => {
-                writeln!(w, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
+                info!("    {BODY}Time{BODY:#}: from {end} to {start}");
             }
             TransitionScheme::Elevation(ElevationRange { low, .. }) => {
-                writeln!(w, "    {BODY}Solar elevation{BODY:#}: below {low}")?;
+                info!("    {BODY}Solar elevation{BODY:#}: below {low}");
             }
         }
-        let ColorSettings { temp, gamma, brght } = night;
-        writeln!(w, "    {BODY}Temperature{BODY:#}: {temp}")?;
-        writeln!(w, "    {BODY}Gamma{BODY:#}: {gamma}")?;
-        writeln!(w, "    {BODY}Brightness{BODY:#}: {brght}")?;
+        info!("{night}");
 
         Ok(())
     }
@@ -223,38 +206,31 @@ impl Config {
 
 impl DaemonMode<'_, '_> {
     #[allow(clippy::too_many_lines)]
-    pub fn vwrite(
-        &self,
-        v: &mut Verbosity<impl Write, impl Write>,
-    ) -> Result<()> {
-        let Verbosity::High { out: w, err: _ } = v else {
-            return Ok(());
-        };
-
+    pub fn log(&self) -> Result<()> {
         if Some(&self.period) != self.prev_period.as_ref() {
-            writeln!(w, "{}", self.period)?;
+            info!("{}", self.period);
         }
         match (&self.info, &self.prev_info) {
             (
                 PeriodInfo::Elevation { elev: e1, .. },
                 Some(PeriodInfo::Elevation { elev: e2, .. }),
             ) if e1 != e2 => {
-                writeln!(w, "    {BODY}Solar elevation{BODY:#}: {e1}")?;
+                info!("    {BODY}Solar elevation{BODY:#}: {e1}");
             }
             (
                 PeriodInfo::Elevation { loc: l1, .. },
                 Some(PeriodInfo::Elevation { loc: l2, .. }),
             ) if l1 != l2 => {
-                writeln!(w, "    {BODY}Location{BODY:#}: {l1}")?;
+                info!("    {BODY}Location{BODY:#}: {l1}");
             }
             (PeriodInfo::Elevation { .. }, None) => {
-                write!(w, "{}", self.info)?;
+                info!("{}", self.info);
             }
             (
                 i1 @ PeriodInfo::Elevation { .. },
                 Some(i2 @ PeriodInfo::Elevation { .. }),
             ) if i1 != i2 => {
-                write!(w, "{}", self.info)?;
+                info!("{}", self.info);
             }
             _ => {}
         }
@@ -262,19 +238,18 @@ impl DaemonMode<'_, '_> {
         let ColorSettings { temp, gamma, brght } = &self.interp;
         if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
             if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                writeln!(w, "    {BODY}Temperature{BODY:#}: {temp}")?;
+                info!("    {BODY}Temperature{BODY:#}: {temp}");
             }
             if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
-                writeln!(w, "    {BODY}Gamma{BODY:#}: {gamma}")?;
+                info!("    {BODY}Gamma{BODY:#}: {gamma}");
             }
             if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
-                writeln!(w, "    {BODY}Brightness{BODY:#}: {brght}")?;
+                info!("    {BODY}Brightness{BODY:#}: {brght}");
             }
         } else if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-            writeln!(w, "    {BODY}Temperature{BODY:#}")?;
+            info!("    {BODY}Temperature{BODY:#}: {temp}");
         }
 
-        w.flush()?;
         Ok(())
     }
 }
