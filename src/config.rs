@@ -46,11 +46,11 @@ use toml::Value;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
-// Duration of sleep between screen updates (milliseconds)
-const SLEEP_DURATION: Duration = Duration::from_millis(5000);
-const FADE_SLEEP_DURATION: Duration = Duration::from_millis(100);
 // Length of fade in numbers of fade's sleep durations
 pub const FADE_STEPS: u8 = 40;
+// Duration of sleep between screen updates (milliseconds)
+pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
+pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
 /// Merge of cli arguments and config files
 #[derive(Debug)]
@@ -62,8 +62,8 @@ pub struct Config {
     pub reset_ramps: bool,
     pub scheme: TransitionScheme,
     pub disable_fade: bool,
-    pub fade_sleep_duration: Duration,
     pub sleep_duration: Duration,
+    pub sleep_duration_short: Duration,
 
     pub location: LocationProvider,
     pub method: AdjustmentMethod,
@@ -82,7 +82,7 @@ pub struct ConfigBuilder {
     disable_fade: bool,
     scheme: TransitionScheme,
     sleep_duration: Duration,
-    fade_sleep_duration: Duration,
+    sleep_duration_short: Duration,
 
     location: LocationProviderType,
     method: Option<AdjustmentMethodType>,
@@ -98,7 +98,7 @@ struct ConfigFile {
     reset_ramps: Option<bool>,
     scheme: Option<TransitionScheme>,
     disable_fade: Option<bool>,
-    fade_sleep_duration: Option<u16>,
+    sleep_duration_short: Option<u16>,
     sleep_duration: Option<u16>,
     location: Option<LocationProviderType>,
     method: Option<AdjustmentMethodType>,
@@ -144,7 +144,7 @@ impl ConfigBuilder {
             disable_fade,
             scheme,
             sleep_duration,
-            fade_sleep_duration,
+            sleep_duration_short,
             location,
             method,
             time,
@@ -199,7 +199,7 @@ impl ConfigBuilder {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_sleep_duration,
+            sleep_duration_short,
             sleep_duration,
             location,
             method,
@@ -244,11 +244,12 @@ impl ConfigBuilder {
             ModeArgs::Daemon {
                 c,
                 disable_fade,
-                fade_sleep_duration,
                 sleep_duration,
+                sleep_duration_short,
             } => {
-                if let Some(t) = fade_sleep_duration {
-                    self.fade_sleep_duration = Duration::from_millis(t as u64);
+                if let Some(t) = sleep_duration_short {
+                    self.sleep_duration_short =
+                        Duration::from_millis(t as u64);
                 }
                 if let Some(t) = sleep_duration {
                     self.sleep_duration = Duration::from_millis(t as u64);
@@ -334,7 +335,7 @@ impl ConfigBuilder {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_sleep_duration,
+            sleep_duration_short,
             sleep_duration,
             method,
             location,
@@ -363,8 +364,8 @@ impl ConfigBuilder {
             self.disable_fade = t;
         }
 
-        if let Some(t) = fade_sleep_duration {
-            self.fade_sleep_duration = Duration::from_millis(t as u64);
+        if let Some(t) = sleep_duration_short {
+            self.sleep_duration_short = Duration::from_millis(t as u64);
         }
         if let Some(t) = sleep_duration {
             self.sleep_duration = Duration::from_millis(t as u64);
@@ -422,7 +423,7 @@ impl ConfigFile {
             reset_ramps,
             scheme,
             disable_fade,
-            fade_sleep_duration,
+            sleep_duration_short,
             sleep_duration,
             method,
             location,
@@ -446,8 +447,8 @@ impl ConfigFile {
         if let Some(t) = sleep_duration {
             self.sleep_duration = Some(t);
         }
-        if let Some(t) = fade_sleep_duration {
-            self.fade_sleep_duration = Some(t);
+        if let Some(t) = sleep_duration_short {
+            self.sleep_duration_short = Some(t);
         }
 
         if let Some(t) = location {
@@ -470,8 +471,10 @@ impl Default for ConfigBuilder {
             reset_ramps: Default::default(),
             scheme: Default::default(),
             disable_fade: Default::default(),
-            fade_sleep_duration: FADE_SLEEP_DURATION,
-            sleep_duration: SLEEP_DURATION,
+            sleep_duration_short: Duration::from_millis(
+                DEFAULT_SLEEP_DURATION_SHORT,
+            ),
+            sleep_duration: Duration::from_millis(DEFAULT_SLEEP_DURATION),
             method: Default::default(),
             location: Default::default(),
             time: Local::now,

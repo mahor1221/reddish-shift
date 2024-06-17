@@ -27,19 +27,19 @@
 // TODO: map cities or countries to locations
 // TODO: benchmark: https://github.com/nvzqz/divan
 
-pub mod calc_colorramp;
-pub mod calc_solar;
-pub mod cli;
-pub mod config;
-pub mod gamma_drm;
-pub mod gamma_dummy;
-pub mod gamma_randr;
-pub mod gamma_vidmode;
-pub mod location_manual;
-pub mod types;
-pub mod types_display;
-pub mod types_parse;
-pub mod utils;
+mod calc_colorramp;
+mod calc_solar;
+mod cli;
+mod config;
+mod gamma_drm;
+mod gamma_dummy;
+mod gamma_randr;
+mod gamma_vidmode;
+mod location_manual;
+mod types;
+mod types_display;
+mod types_parse;
+mod utils;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, SubsecRound, TimeDelta};
@@ -73,9 +73,9 @@ fn main() -> Result<()> {
 
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || {
+        #[allow(clippy::expect_used)]
         tx.send(()).expect("Could not send signal on channel")
-    })
-    .expect("Error setting Ctrl-C handler");
+    })?;
 
     run(&c, &rx, &mut v)
 }
@@ -115,36 +115,36 @@ fn run(
 fn run_print_mode(c: &Config, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
-    let mut buf = String::from("------------------\n");
+    let mut buf = String::from("Time     | Degree\n---------+-------\n");
     for d in (0..24).map(TimeDelta::hours) {
         let time = (now + d).time().trunc_subsecs(0);
         let elev = Elevation::new(
             (delta + d).num_seconds() as f64,
             c.location.get(v)?,
         );
-        writeln!(&mut buf, "{time} | {:6.2}°", *elev)?;
+        writeln!(&mut buf, "{time} | {:6.2}", *elev)?;
     }
 
     Ok(print!("{buf}"))
 }
 
 #[derive(Debug)]
-pub struct DaemonMode<'a, 'b> {
-    pub cfg: &'a Config,
-    pub sig: &'b Receiver<()>,
+struct DaemonMode<'a, 'b> {
+    cfg: &'a Config,
+    sig: &'b Receiver<()>,
 
-    pub signal: Signal,
-    pub fade: FadeStatus,
+    signal: Signal,
+    fade: FadeStatus,
 
-    pub period: Period,
-    pub info: PeriodInfo,
-    pub interp: ColorSettings,
+    period: Period,
+    info: PeriodInfo,
+    interp: ColorSettings,
 
     // Save previous parameters so we can avoid printing status updates if the
     // values did not change
-    pub prev_period: Option<Period>,
-    pub prev_info: Option<PeriodInfo>,
-    pub prev_interp: Option<ColorSettings>,
+    prev_period: Option<Period>,
+    prev_info: Option<PeriodInfo>,
+    prev_interp: Option<ColorSettings>,
 }
 
 impl<'a, 'b> DaemonMode<'a, 'b> {
@@ -203,7 +203,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
             // or break the loop on the second ctrl-c immediately
             let sleep_duration = match (self.signal, self.fade) {
                 (Signal::None, FadeStatus::Completed) => c.sleep_duration,
-                (_, FadeStatus::Ungoing { .. }) => c.fade_sleep_duration,
+                (_, FadeStatus::Ungoing { .. }) => c.sleep_duration_short,
                 (Signal::Interrupt, FadeStatus::Completed) => break Ok(()),
             };
 
@@ -274,14 +274,14 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Signal {
+enum Signal {
     #[default]
     None,
     Interrupt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FadeStatus {
+enum FadeStatus {
     Completed,
     Ungoing { step: u8 },
 }
@@ -293,7 +293,7 @@ impl Default for FadeStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PeriodInfo {
+enum PeriodInfo {
     Elevation { elev: Elevation, loc: Location },
     Time,
 }

@@ -144,7 +144,7 @@ impl Config {
             method,
             reset_ramps,
             disable_fade,
-            fade_sleep_duration: _,
+            sleep_duration_short: _,
             sleep_duration: _,
             mode: _,
             time: _,

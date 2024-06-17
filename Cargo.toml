@@ -4,15 +4,15 @@ version = "0.0.0"
 edition = "2021"
 authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
 license = "GPL-3.0-or-later"
+description = "Set color temperature of display according to time of day"
+repository = "https://github.com/mahor1221/reddish-shift"
 build = "build.rs"
-
-[[bin]]
-path = "src/reddish-shift.rs"
-name = "reddish-shift"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
 const_format = "0.2"
+indoc = "2.0"
 
 dirs = "5.0"
 clap = { version = "4.5", features = ["derive"] }
@@ -25,8 +25,8 @@ chrono = "0.4"
 x11rb = { version = "0.13", features = ["xf86vidmode", "randr"] }
 drm = "0.12.0"
 
-# location_geoclue2.rs
-libc = "0.2"
+# required for location_geoclue2.rs
+#libc = "0.2"
 #gio-sys = "0.18.1"
 #glib-sys = "0.18.1"
 #gobject-sys = "0.18.0"
@@ -52,16 +52,16 @@ inherits = "release"
 strip = false
 debug = 1
 
-# [lints.rust]
-# unsafe_code = "forbid"
+[lints.rust]
+unsafe_code = "forbid"
 [lints.rustdoc]
 private-doc-tests = "warn"
 unescaped-backticks = "warn"
 [lints.clippy]
-# panic = "deny"
+panic = "deny"
 dbg-macro = "warn"
 decimal-literal-representation = "warn"
-# expect-used = "deny"
+expect-used = "deny"
 explicit-auto-deref = "warn"
 get-unwrap = "warn"
 manual-let-else = "warn"
@@ -70,7 +70,7 @@ obfuscated-if-else = "warn"
 semicolon-outside-block = "warn"
 todo = "warn"
 too-many-lines = "warn"
-# undocumented-unsafe-blocks = "deny"
+undocumented-unsafe-blocks = "deny"
 unimplemented = "warn"
 uninlined-format-args = "warn"
 unnested-or-patterns = "warn"

@@ -17,12 +17,12 @@
 */
 
 use crate::{
+    calc_solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
     gamma_drm::Drm,
     gamma_dummy::Dummy,
     gamma_randr::Randr,
     gamma_vidmode::Vidmode,
     location_manual::Manual,
-    solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
     Geoclue2,
 };
 use anyhow::{anyhow, Result};
@@ -37,24 +37,24 @@ pub const DEFAULT_ELEVATION_LOW: f64 = SOLAR_CIVIL_TWILIGHT_ELEV;
 pub const DEFAULT_ELEVATION_HIGH: f64 = 3.0;
 pub const DEFAULT_LATITUDE: f64 = 0.0; // Null Island
 pub const DEFAULT_LONGITUDE: f64 = 0.0;
+pub const DEFAULT_BRIGHTNESS: f64 = 1.0;
+pub const DEFAULT_GAMMA: f64 = 1.0;
 pub const DEFAULT_TEMPERATURE: u16 = 6500;
 pub const DEFAULT_TEMPERATURE_DAY: u16 = 6500;
 pub const DEFAULT_TEMPERATURE_NIGHT: u16 = 4500;
-pub const DEFAULT_BRIGHTNESS: f64 = 1.0;
-pub const DEFAULT_GAMMA: f64 = 1.0;
 
-const MIN_TEMPERATURE: u16 = 1000;
-const MAX_TEMPERATURE: u16 = 25000;
-const MIN_BRIGHTNESS: f64 = 0.1;
-const MAX_BRIGHTNESS: f64 = 1.0;
-const MIN_GAMMA: f64 = 0.1;
-const MAX_GAMMA: f64 = 10.0;
-const MIN_LATITUDE: f64 = -90.0;
-const MAX_LATITUDE: f64 = 90.0;
-const MIN_LONGITUDE: f64 = -180.0;
-const MAX_LONGITUDE: f64 = 180.0;
-const MIN_ELEVATION: f64 = -90.0;
-const MAX_ELEVATION: f64 = 90.0;
+pub const MIN_TEMPERATURE: u16 = 1000;
+pub const MAX_TEMPERATURE: u16 = 25000;
+pub const MIN_BRIGHTNESS: f64 = 0.1;
+pub const MAX_BRIGHTNESS: f64 = 1.0;
+pub const MIN_GAMMA: f64 = 0.1;
+pub const MAX_GAMMA: f64 = 10.0;
+pub const MIN_LATITUDE: f64 = -90.0;
+pub const MAX_LATITUDE: f64 = 90.0;
+pub const MIN_LONGITUDE: f64 = -180.0;
+pub const MAX_LONGITUDE: f64 = 180.0;
+pub const MIN_ELEVATION: f64 = -90.0;
+pub const MAX_ELEVATION: f64 = 90.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Temperature(u16);
