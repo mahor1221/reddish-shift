@@ -19,11 +19,11 @@
 */
 
 use crate::{
-    types::{Location, Verbosity},
+    types::Location,
+    utils::{Verbosity, Write},
     Provider,
 };
 use anyhow::Result;
-use std::io::Write;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Manual {

@@ -27,7 +27,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use chrono::{NaiveTime, Timelike};
-use std::{cmp::Ordering, io::Write, ops::Deref};
+use std::ops::Deref;
 
 /// Angular elevation of the sun at which the color temperature transition
 /// period starts and ends (in degrees).
@@ -164,13 +164,6 @@ pub enum AdjustmentMethodType {
     Vidmode {
         screen_num: Option<usize>,
     },
-}
-
-#[derive(Debug, Clone)]
-pub enum Verbosity<O: Write, E: Write> {
-    Quite,
-    Low { out: O, err: E },
-    High { out: O, err: E },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -571,44 +564,6 @@ impl PartialEq for Longitude {
 impl PartialEq for Gamma {
     fn eq(&self, other: &Self) -> bool {
         eq(self[0], other[0]) && eq(self[1], other[1]) && eq(self[2], other[2])
-    }
-}
-
-impl<O: Write, E: Write> Eq for Verbosity<O, E> {}
-impl<O: Write, E: Write> PartialEq for Verbosity<O, E> {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (Verbosity::Quite, Verbosity::Quite)
-                | (Verbosity::Low { .. }, Verbosity::Low { .. })
-                | (Verbosity::High { .. }, Verbosity::High { .. })
-        )
-    }
-}
-
-impl<O: Write, E: Write> Ord for Verbosity<O, E> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Verbosity::Quite, Verbosity::Quite) => Ordering::Equal,
-            (Verbosity::Quite, Verbosity::Low { .. }) => Ordering::Less,
-            (Verbosity::Quite, Verbosity::High { .. }) => Ordering::Less,
-            (Verbosity::Low { .. }, Verbosity::Quite) => Ordering::Greater,
-            (Verbosity::Low { .. }, Verbosity::Low { .. }) => Ordering::Equal,
-            (Verbosity::Low { .. }, Verbosity::High { .. }) => Ordering::Less,
-            (Verbosity::High { .. }, Verbosity::Quite) => Ordering::Greater,
-            (Verbosity::High { .. }, Verbosity::Low { .. }) => {
-                Ordering::Greater
-            }
-            (Verbosity::High { .. }, Verbosity::High { .. }) => {
-                Ordering::Equal
-            }
-        }
-    }
-}
-
-impl<O: Write, E: Write> PartialOrd for Verbosity<O, E> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 

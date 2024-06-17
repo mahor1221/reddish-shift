@@ -43,7 +43,7 @@ use crate::{
     types::{
         AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
         LocationProvider, Mode, Period, TimeOffset, TimeRanges,
-        TransitionScheme, Verbosity,
+        TransitionScheme,
     },
     utils::IsDefault,
 };
@@ -54,6 +54,7 @@ use std::{
     io::Write as IoWrite,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
+use utils::{Verbosity, Write, HEADER, WARN};
 
 fn main() -> Result<()> {
     let stdout = std::io::stdout();
@@ -69,13 +70,14 @@ fn main() -> Result<()> {
     {
         let loc = l.get(&mut v)?;
         if loc.is_default() {
-            ewriteln!(&mut v, "Warning: Using default location ({loc})")?;
+            let s = "Using default location";
+            ewriteln!(&mut v, "{WARN}Warning{WARN:#}: {s} ({loc})")?;
         }
     }
 
     if let AdjustmentMethod::Dummy(_) = c.method {
-        let s = "Warning: Using dummy method! Display will not be affected";
-        ewriteln!(&mut v, "{s}")?;
+        let s = "Using dummy method! Display will not be affected";
+        ewriteln!(&mut v, "{WARN}Warning{WARN:#}: {s}")?;
     }
 
     let (tx, rx) = mpsc::channel();
@@ -90,11 +92,11 @@ fn main() -> Result<()> {
 fn run(
     c: &Config,
     sig: &Receiver<()>,
-    v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    v: &mut Verbosity<impl Write, impl Write>,
 ) -> Result<()> {
     match c.mode {
         Mode::Daemon => {
-            c.write_verbose(v)?;
+            c.vwrite(v)?;
             DaemonMode::new(c, sig).run_loop(v)?;
             c.method.restore()?;
         }
@@ -102,8 +104,8 @@ fn run(
             // Use period and transition progress to set color temperature
             let (p, i) = Period::from(&c.scheme, &c.location, c.time, v)?;
             let interp = c.night.interpolate_with(&c.day, p.into());
-            c.write_verbose(v)?;
-            writeln_verbose!(v, "Current:\n{p}\n{i}{interp}")?;
+            c.vwrite(v)?;
+            vwriteln!(v, "{HEADER}Current{HEADER:#}:\n{p}\n{i}{interp}")?;
             c.method.set(c.reset_ramps, &interp)?;
         }
         Mode::Set => {
@@ -121,7 +123,7 @@ fn run(
 
 fn run_print_mode(
     c: &Config,
-    v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    v: &mut Verbosity<impl Write, impl Write>,
 ) -> Result<()> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
@@ -178,10 +180,10 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// color temperature
     fn run_loop(
         &mut self,
-        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+        v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<()> {
         let c = self.cfg;
-        writeln_verbose!(v, "Current:")?;
+        vwriteln!(v, "{HEADER}Current{HEADER:#}:")?;
 
         loop {
             (self.period, self.info) =
@@ -196,7 +198,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 
             (self.interp, self.fade) = self.next_interpolate(target);
 
-            self.write_verbose(v)?;
+            self.vwrite(v)?;
 
             // // Activate hooks if period changed
             // if period != prev_period {
@@ -362,7 +364,7 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+        v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
@@ -389,7 +391,7 @@ impl Period {
 pub trait Provider {
     fn get(
         &self,
-        _v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+        _v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
@@ -416,7 +418,7 @@ impl Provider for Geoclue2 {
 
     fn get(
         &self,
-        _v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+        _v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
@@ -430,7 +432,7 @@ impl Provider for Geoclue2 {
 impl Provider for LocationProvider {
     fn get(
         &self,
-        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+        v: &mut Verbosity<impl Write, impl Write>,
     ) -> Result<Location> {
         match self {
             Self::Manual(t) => t.get(v),

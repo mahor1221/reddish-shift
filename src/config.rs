@@ -28,22 +28,19 @@ use crate::{
         AdjustmentMethod, AdjustmentMethodType, BrightnessRange,
         ColorSettings, DayNight, GammaRange, LocationProvider,
         LocationProviderType, Mode, TemperatureRange, TransitionScheme,
-        Verbosity,
     },
+    utils::{Verbosity, Write},
 };
+use anstream::{stream::RawStream, AutoStream, ColorChoice};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
+use clap::ColorChoice as ClapColor;
 use clap::Parser;
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
 use std::{
-    fmt::Display,
-    fs::File,
-    io::{Read, Write},
-    marker::PhantomData,
-    path::Path,
-    str::FromStr,
-    time::Duration,
+    fmt::Display, fs::File, io::Read, marker::PhantomData, path::Path,
+    str::FromStr, time::Duration,
 };
 use toml::Value;
 
@@ -80,6 +77,7 @@ pub struct Config {
 pub struct ConfigBuilder {
     verbose: bool,
     quite: bool,
+    color: ClapColor,
     mode: Mode,
 
     day: ColorSettings,
@@ -139,6 +137,7 @@ impl ConfigBuilder {
         let Self {
             quite,
             verbose,
+            color,
             mode,
             day,
             night,
@@ -151,6 +150,9 @@ impl ConfigBuilder {
             method,
             time,
         } = self;
+
+        let err = color.to_auto_stream(err);
+        let out = color.to_auto_stream(out);
 
         // try all methods until one that works is found.
         // Gamma adjustment not needed for print mode
@@ -240,7 +242,10 @@ impl ConfigBuilder {
     }
 
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
-        let CliArgs { mode } = cli_args;
+        let CliArgs { mode, color } = cli_args;
+        if let Some(t) = color {
+            self.color = t;
+        }
 
         match mode {
             ModeArgs::Daemon {
@@ -249,12 +254,12 @@ impl ConfigBuilder {
                 sleep_duration,
                 sleep_duration_short,
             } => {
+                if let Some(t) = sleep_duration {
+                    self.sleep_duration = Duration::from_millis(t as u64);
+                }
                 if let Some(t) = sleep_duration_short {
                     self.sleep_duration_short =
                         Duration::from_millis(t as u64);
-                }
-                if let Some(t) = sleep_duration {
-                    self.sleep_duration = Duration::from_millis(t as u64);
                 }
                 self.merge_with_cmd_args(c);
                 self.disable_fade = disable_fade;
@@ -464,11 +469,26 @@ impl ConfigFile {
 
 //
 
+trait ClapColorExt {
+    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S>;
+}
+
+impl ClapColorExt for ClapColor {
+    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S> {
+        match self {
+            ClapColor::Auto => AutoStream::new(raw, ColorChoice::Auto),
+            ClapColor::Always => AutoStream::new(raw, ColorChoice::Always),
+            ClapColor::Never => AutoStream::new(raw, ColorChoice::Never),
+        }
+    }
+}
+
 impl Default for ConfigBuilder {
     fn default() -> Self {
         Self {
             quite: Default::default(),
             verbose: Default::default(),
+            color: Default::default(),
             day: ColorSettings::default_day(),
             night: ColorSettings::default_night(),
             mode: Default::default(),
