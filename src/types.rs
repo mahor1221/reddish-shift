@@ -167,10 +167,10 @@ pub enum AdjustmentMethodType {
 }
 
 #[derive(Debug, Clone)]
-pub enum Verbosity<W: Write> {
+pub enum Verbosity<O: Write, E: Write> {
     Quite,
-    Low(W),
-    High(W),
+    Low { out: O, err: E },
+    High { out: O, err: E },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -574,35 +574,39 @@ impl PartialEq for Gamma {
     }
 }
 
-impl<W: Write> Eq for Verbosity<W> {}
-impl<W: Write> PartialEq for Verbosity<W> {
+impl<O: Write, E: Write> Eq for Verbosity<O, E> {}
+impl<O: Write, E: Write> PartialEq for Verbosity<O, E> {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
             (Verbosity::Quite, Verbosity::Quite)
-                | (Verbosity::Low(_), Verbosity::Low(_))
-                | (Verbosity::High(_), Verbosity::High(_))
+                | (Verbosity::Low { .. }, Verbosity::Low { .. })
+                | (Verbosity::High { .. }, Verbosity::High { .. })
         )
     }
 }
 
-impl<W: Write> Ord for Verbosity<W> {
+impl<O: Write, E: Write> Ord for Verbosity<O, E> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Verbosity::Quite, Verbosity::Quite) => Ordering::Equal,
-            (Verbosity::Quite, Verbosity::Low(_)) => Ordering::Less,
-            (Verbosity::Quite, Verbosity::High(_)) => Ordering::Less,
-            (Verbosity::Low(_), Verbosity::Quite) => Ordering::Greater,
-            (Verbosity::Low(_), Verbosity::Low(_)) => Ordering::Equal,
-            (Verbosity::Low(_), Verbosity::High(_)) => Ordering::Less,
-            (Verbosity::High(_), Verbosity::Quite) => Ordering::Greater,
-            (Verbosity::High(_), Verbosity::Low(_)) => Ordering::Greater,
-            (Verbosity::High(_), Verbosity::High(_)) => Ordering::Equal,
+            (Verbosity::Quite, Verbosity::Low { .. }) => Ordering::Less,
+            (Verbosity::Quite, Verbosity::High { .. }) => Ordering::Less,
+            (Verbosity::Low { .. }, Verbosity::Quite) => Ordering::Greater,
+            (Verbosity::Low { .. }, Verbosity::Low { .. }) => Ordering::Equal,
+            (Verbosity::Low { .. }, Verbosity::High { .. }) => Ordering::Less,
+            (Verbosity::High { .. }, Verbosity::Quite) => Ordering::Greater,
+            (Verbosity::High { .. }, Verbosity::Low { .. }) => {
+                Ordering::Greater
+            }
+            (Verbosity::High { .. }, Verbosity::High { .. }) => {
+                Ordering::Equal
+            }
         }
     }
 }
 
-impl<W: Write> PartialOrd for Verbosity<W> {
+impl<O: Write, E: Write> PartialOrd for Verbosity<O, E> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }

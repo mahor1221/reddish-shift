@@ -19,13 +19,31 @@
 use crate::types::Verbosity;
 use std::io::{Result as IoResult, Write};
 
+impl<O: Write, E: Write> Write for Verbosity<O, E> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        match self {
+            Verbosity::Quite => Ok(buf.len()),
+            Verbosity::Low { out, err: _ } => out.write(buf),
+            Verbosity::High { out, err: _ } => out.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Verbosity::Quite => Ok(()),
+            Verbosity::Low { out, err: _ } => out.flush(),
+            Verbosity::High { out, err: _ } => out.flush(),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! write_verbose {
     ($dst:expr, $($arg:tt)*) => {
         match $dst {
             $crate::types::Verbosity::Quite
-            | $crate::types::Verbosity::Low(_) => Ok(()),
-            $crate::types::Verbosity::High(w) => write!(w, $($arg)*),
+            | $crate::types::Verbosity::Low { .. } => Ok(()),
+            $crate::types::Verbosity::High { out, err: _ } => write!(out, $($arg)*),
         }
     };
 }
@@ -38,28 +56,35 @@ macro_rules! writeln_verbose {
     ($dst:expr, $($arg:tt)*) => {
         match $dst {
             $crate::types::Verbosity::Quite
-            | $crate::types::Verbosity::Low(_) => Ok(()),
-            $crate::types::Verbosity::High(w) => writeln!(w, $($arg)*),
+            | $crate::types::Verbosity::Low { .. } => Ok(()),
+            $crate::types::Verbosity::High { out, err: _ } => writeln!(out, $($arg)*),
         }
     };
 }
 
-impl<W: Write> Write for Verbosity<W> {
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        match self {
-            Verbosity::Quite => Ok(buf.len()),
-            Verbosity::Low(w) => w.write(buf),
-            Verbosity::High(w) => w.write(buf),
+#[macro_export]
+macro_rules! ewrite {
+    ($dst:expr, $($arg:tt)*) => {
+        match $dst {
+            $crate::types::Verbosity::Quite => Ok(()),
+            $crate::types::Verbosity::Low { out: _, err }
+            | $crate::types::Verbosity::High { out: _, err } => write!(err, $($arg)*),
         }
-    }
+    };
+}
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Verbosity::Quite => Ok(()),
-            Verbosity::Low(w) => w.flush(),
-            Verbosity::High(w) => w.flush(),
+#[macro_export]
+macro_rules! ewriteln {
+    ($dst:expr $(,)?) => {
+        $crate::ewrite!($dst, "\n")
+    };
+    ($dst:expr, $($arg:tt)*) => {
+        match $dst {
+            $crate::types::Verbosity::Quite => Ok(()),
+            $crate::types::Verbosity::Low { out: _, err }
+            | $crate::types::Verbosity::High { out: _, err } => writeln!(err, $($arg)*),
         }
-    }
+    };
 }
 
 // is_default

@@ -131,7 +131,11 @@ impl ConfigBuilder {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn build<W: Write>(self, w: W) -> Result<(Config, Verbosity<W>)> {
+    pub fn build<O: Write, E: Write>(
+        self,
+        out: O,
+        err: E,
+    ) -> Result<(Config, Verbosity<O, E>)> {
         let Self {
             quite,
             verbose,
@@ -185,8 +189,8 @@ impl ConfigBuilder {
 
         let v = match (quite, verbose) {
             (true, false) => Verbosity::Quite,
-            (false, false) => Verbosity::Low(w),
-            (false, true) => Verbosity::High(w),
+            (false, false) => Verbosity::Low { out, err },
+            (false, true) => Verbosity::High { out, err },
             (true, true) => unreachable!(), // clap will return error
         };
 

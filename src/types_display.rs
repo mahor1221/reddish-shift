@@ -134,7 +134,7 @@ impl Config {
     #[allow(clippy::too_many_lines)]
     pub fn write_verbose(
         &self,
-        v: &mut Verbosity<impl IoWrite>,
+        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
     ) -> Result<()> {
         let Config {
             day,
@@ -150,7 +150,9 @@ impl Config {
             time: _,
         } = self;
 
-        let Verbosity::High(w) = v else { return Ok(()) };
+        let Verbosity::High { out: w, err: _ } = v else {
+            return Ok(());
+        };
 
         write!(w, "Location provider: ")?;
         match location {
@@ -210,9 +212,11 @@ impl Config {
 impl DaemonMode<'_, '_> {
     pub fn write_verbose(
         &self,
-        v: &mut Verbosity<impl IoWrite>,
+        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
     ) -> Result<()> {
-        let Verbosity::High(w) = v else { return Ok(()) };
+        let Verbosity::High { out: w, err: _ } = v else {
+            return Ok(());
+        };
 
         if Some(&self.period) != self.prev_period.as_ref() {
             writeln!(w, "{}", self.period)?;

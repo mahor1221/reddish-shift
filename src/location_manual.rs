@@ -37,7 +37,10 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get(&self, _v: &mut Verbosity<impl Write>) -> Result<Location> {
+    fn get(
+        &self,
+        _v: &mut Verbosity<impl Write, impl Write>,
+    ) -> Result<Location> {
         Ok(self.location)
     }
 }

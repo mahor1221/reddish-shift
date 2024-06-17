@@ -38,24 +38,28 @@ mod types_display;
 mod types_parse;
 mod utils;
 
+use crate::{
+    config::{Config, ConfigBuilder, FADE_STEPS},
+    types::{
+        AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
+        LocationProvider, Mode, Period, TimeOffset, TimeRanges,
+        TransitionScheme, Verbosity,
+    },
+    utils::IsDefault,
+};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, SubsecRound, TimeDelta};
-use config::{Config, ConfigBuilder, FADE_STEPS};
 use std::{
     fmt::{Debug, Write as FmtWrite},
     io::Write as IoWrite,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
-use types::{
-    AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
-    LocationProvider, Mode, Period, TimeOffset, TimeRanges, TransitionScheme,
-    Verbosity,
-};
-use utils::IsDefault;
 
 fn main() -> Result<()> {
     let stdout = std::io::stdout();
-    let (c, mut v) = ConfigBuilder::new()?.build(stdout.lock())?;
+    let stderr = std::io::stderr();
+    let (c, mut v) =
+        ConfigBuilder::new()?.build(stdout.lock(), stderr.lock())?;
 
     if let (
         Mode::Daemon | Mode::Oneshot,
@@ -64,15 +68,13 @@ fn main() -> Result<()> {
     ) = (&c.mode, &c.scheme, &c.location)
     {
         if l.get(&mut v)?.is_default() {
-            // TODO: eprint
-            writeln!(v, "Warning: using default location")?;
+            ewriteln!(&mut v, "Warning: using default location")?;
         }
     }
 
     if let AdjustmentMethod::Dummy(_) = c.method {
-        // TODO: eprint
         let s = "Warning: Using dummy method! Display will not be affected";
-        writeln!(v, "{s}")?;
+        ewriteln!(&mut v, "{s}")?;
     }
 
     let (tx, rx) = mpsc::channel();
@@ -87,7 +89,7 @@ fn main() -> Result<()> {
 fn run(
     c: &Config,
     sig: &Receiver<()>,
-    v: &mut Verbosity<impl IoWrite>,
+    v: &mut Verbosity<impl IoWrite, impl IoWrite>,
 ) -> Result<()> {
     match c.mode {
         Mode::Daemon => {
@@ -116,7 +118,10 @@ fn run(
     Ok(())
 }
 
-fn run_print_mode(c: &Config, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
+fn run_print_mode(
+    c: &Config,
+    v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+) -> Result<()> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
     let mut buf = String::from("Time     | Degree\n---------+-------\n");
@@ -170,7 +175,10 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// This is the main loop of the daemon mode which keeps track of the
     /// current time and continuously updates the screen to the appropriate
     /// color temperature
-    fn run_loop(&mut self, v: &mut Verbosity<impl IoWrite>) -> Result<()> {
+    fn run_loop(
+        &mut self,
+        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    ) -> Result<()> {
         let c = self.cfg;
         writeln_verbose!(v, "Current:")?;
 
@@ -353,7 +361,7 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-        v: &mut Verbosity<impl IoWrite>,
+        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
     ) -> Result<(Self, PeriodInfo)> {
         match scheme {
             TransitionScheme::Elevation(elev_range) => {
@@ -378,7 +386,10 @@ impl Period {
 //
 
 pub trait Provider {
-    fn get(&self, _v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
+    fn get(
+        &self,
+        _v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    ) -> Result<Location> {
         Err(anyhow!("Unable to get location from provider"))
     }
 }
@@ -402,7 +413,10 @@ impl Provider for Geoclue2 {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self, _v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
+    fn get(
+        &self,
+        _v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    ) -> Result<Location> {
         // b"Waiting for current location to become available...\n\0" as *const u8
 
         // Wait for location provider
@@ -413,7 +427,10 @@ impl Provider for Geoclue2 {
 }
 
 impl Provider for LocationProvider {
-    fn get(&self, v: &mut Verbosity<impl IoWrite>) -> Result<Location> {
+    fn get(
+        &self,
+        v: &mut Verbosity<impl IoWrite, impl IoWrite>,
+    ) -> Result<Location> {
         match self {
             Self::Manual(t) => t.get(v),
             Self::Geoclue2(t) => t.get(v),
