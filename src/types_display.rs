@@ -114,7 +114,7 @@ impl Display for PeriodInfo {
         match self {
             PeriodInfo::Time => Ok(()),
             PeriodInfo::Elevation { elev, loc } => {
-                writeln!(
+                write!(
                     f,
                     "    {BODY}Solar elevation{BODY:#}: {elev}
     {BODY}Location{BODY:#}: {loc}"
@@ -136,9 +136,9 @@ impl Display for ColorSettings {
     }
 }
 
-impl Config {
+impl Display for Config {
     #[allow(clippy::too_many_lines)]
-    pub fn log(&self) -> Result<()> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Config {
             day,
             night,
@@ -159,7 +159,7 @@ impl Config {
             LocationProvider::Manual(_) => "manual",
             LocationProvider::Geoclue2(_) => "geoclue2",
         };
-        info!("{BODY}Location provider{BODY:#}: {l}");
+        writeln!(f, "{BODY}Location provider{BODY:#}: {l}")?;
 
         let m = match method {
             AdjustmentMethod::Dummy(_) => "dummy",
@@ -167,39 +167,41 @@ impl Config {
             AdjustmentMethod::Drm(_) => "drm",
             AdjustmentMethod::Vidmode(_) => "vidmode",
         };
-        info!("{BODY}Adjustment method{BODY:#}: {m}");
+        writeln!(f, "{BODY}Adjustment method{BODY:#}: {m}")?;
 
-        info!("{BODY}Reset ramps{BODY:#}: {reset_ramps}");
-        info!("{BODY}Disable fade{BODY:#}: {disable_fade}");
+        writeln!(f, "{BODY}Reset ramps{BODY:#}: {reset_ramps}")?;
+        writeln!(f, "{BODY}Disable fade{BODY:#}: {disable_fade}")?;
 
-        info!("{HEADER}Daytime{HEADER:#}:");
+        writeln!(f, "{HEADER}Daytime{HEADER:#}:")?;
         match scheme {
             TransitionScheme::Time(TimeRanges {
                 dawn: TimeRange { end, .. },
                 dusk: TimeRange { start, .. },
             }) => {
-                info!("    {BODY}Time{BODY:#}: from {end} to {start}");
+                writeln!(f, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
             }
             TransitionScheme::Elevation(ElevationRange { high, .. }) => {
-                info!("    {BODY}Solar elevation{BODY:#}: above {high}");
+                writeln!(
+                    f,
+                    "    {BODY}Solar elevation{BODY:#}: above {high}"
+                )?;
             }
         }
-        info!("{day}");
+        writeln!(f, "{day}")?;
 
-        info!("{HEADER}Night{HEADER:#}:");
+        writeln!(f, "{HEADER}Night{HEADER:#}:")?;
         match scheme {
             TransitionScheme::Time(TimeRanges {
                 dawn: TimeRange { start, .. },
                 dusk: TimeRange { end, .. },
             }) => {
-                info!("    {BODY}Time{BODY:#}: from {end} to {start}");
+                writeln!(f, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
             }
             TransitionScheme::Elevation(ElevationRange { low, .. }) => {
-                info!("    {BODY}Solar elevation{BODY:#}: below {low}");
+                writeln!(f, "    {BODY}Solar elevation{BODY:#}: below {low}")?;
             }
         }
-        info!("{night}");
-
+        writeln!(f, "{night}")?;
         Ok(())
     }
 }

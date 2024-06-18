@@ -24,7 +24,10 @@ use crate::{
         MAX_TEMPERATURE, MIN_TEMPERATURE,
     },
 };
-use clap::{ArgAction, Args, ColorChoice, Parser, Subcommand};
+use anstream::ColorChoice;
+use clap::{
+    ArgAction, Args, ColorChoice as ClapColorChoice, Parser, Subcommand,
+};
 use const_format::formatcp;
 use std::{cmp::Ordering, marker::PhantomData, path::PathBuf, str::FromStr};
 use tracing::{level_filters::LevelFilter, Level};
@@ -61,9 +64,9 @@ pub struct CliArgs {
     pub mode: ModeArgs,
 
     /// When to use color: auto, always, never [default: auto]
-    #[arg(long, value_name = "WHEN", value_parser = ColorChoice::from_str)]
+    #[arg(long, value_name = "WHEN", value_parser = ClapColorChoice::from_str)]
     #[arg(global = true, display_order(100))]
-    pub color: Option<ColorChoice>,
+    pub color: Option<ClapColorChoice>,
 
     #[command(flatten)]
     pub verbosity: Verbosity<WarnLevel>,
@@ -279,6 +282,10 @@ pub struct Verbosity<L: DefaultLevel = WarnLevel> {
 }
 
 impl<L: DefaultLevel> Verbosity<L> {
+    pub fn level_filter(&self) -> LevelFilter {
+        self.level().into()
+    }
+
     /// [None] means all output is disabled.
     pub fn level(&self) -> Option<Level> {
         match self.verbosity() {
@@ -291,23 +298,20 @@ impl<L: DefaultLevel> Verbosity<L> {
         }
     }
 
-    pub fn level_filter(&self) -> LevelFilter {
-        self.level().into()
-    }
-
     fn verbosity(&self) -> i8 {
-        i8_from_level(L::default()) - (self.quiet as i8) + (self.verbose as i8)
+        Self::level_i8(L::default()) - (self.quiet as i8)
+            + (self.verbose as i8)
     }
-}
 
-fn i8_from_level(level: Option<Level>) -> i8 {
-    match level {
-        None => -1,
-        Some(Level::ERROR) => 0,
-        Some(Level::WARN) => 1,
-        Some(Level::INFO) => 2,
-        Some(Level::DEBUG) => 3,
-        Some(Level::TRACE) => 4,
+    fn level_i8(level: Option<Level>) -> i8 {
+        match level {
+            None => -1,
+            Some(Level::ERROR) => 0,
+            Some(Level::WARN) => 1,
+            Some(Level::INFO) => 2,
+            Some(Level::DEBUG) => 3,
+            Some(Level::TRACE) => 4,
+        }
     }
 }
 
@@ -326,5 +330,19 @@ impl<L: DefaultLevel> Ord for Verbosity<L> {
 impl<L: DefaultLevel> PartialOrd for Verbosity<L> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+pub trait ClapColorChoiceExt {
+    fn to_choice(&self) -> ColorChoice;
+}
+
+impl ClapColorChoiceExt for ClapColorChoice {
+    fn to_choice(&self) -> ColorChoice {
+        match self {
+            ClapColorChoice::Auto => ColorChoice::Auto,
+            ClapColorChoice::Always => ColorChoice::Always,
+            ClapColorChoice::Never => ColorChoice::Never,
+        }
     }
 }

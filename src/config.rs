@@ -30,11 +30,10 @@ use crate::{
         LocationProviderType, Mode, TemperatureRange, TransitionScheme,
     },
 };
-use anstream::{stream::RawStream, AutoStream, ColorChoice};
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
-use clap::ColorChoice as ClapColor;
+use clap::ColorChoice;
 use clap::Parser;
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
@@ -66,7 +65,7 @@ pub const BODY: Style = Style::new().bold();
 pub struct Config {
     pub mode: Mode,
     pub verbosity: Verbosity<WarnLevel>,
-    pub color: ClapColor,
+    pub color: ColorChoice,
 
     pub day: ColorSettings,
     pub night: ColorSettings,
@@ -85,7 +84,7 @@ pub struct Config {
 pub struct ConfigBuilder {
     mode: Mode,
     verbosity: Verbosity<WarnLevel>,
-    color: ClapColor,
+    color: ColorChoice,
 
     day: ColorSettings,
     night: ColorSettings,
@@ -488,20 +487,6 @@ impl Default for ConfigBuilder {
             method: Default::default(),
             location: Default::default(),
             time: Local::now,
-        }
-    }
-}
-
-pub trait ClapColorExt {
-    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S>;
-}
-
-impl ClapColorExt for ClapColor {
-    fn to_auto_stream<S: RawStream>(&self, raw: S) -> AutoStream<S> {
-        match self {
-            ClapColor::Auto => AutoStream::new(raw, ColorChoice::Auto),
-            ClapColor::Always => AutoStream::new(raw, ColorChoice::Always),
-            ClapColor::Never => AutoStream::new(raw, ColorChoice::Never),
         }
     }
 }

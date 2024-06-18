@@ -39,39 +39,28 @@ mod types_display;
 mod types_parse;
 
 use crate::{
-    config::{ClapColorExt, Config, ConfigBuilder, FADE_STEPS, HEADER, WARN},
+    config::{Config, ConfigBuilder, FADE_STEPS, HEADER, WARN},
     types::{
         AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
         LocationProvider, Mode, Period, TimeOffset, TimeRanges,
         TransitionScheme,
     },
 };
-
 use anstream::AutoStream;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, SubsecRound, TimeDelta};
+use cli::ClapColorChoiceExt;
 use std::{
-    borrow::BorrowMut,
-    cell::RefMut,
     fmt::{Debug, Write},
-    io::{self, Stderr, StderrLock, Stdout, StdoutLock},
-    rc::Rc,
+    io::{self},
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
-use tracing::{info, warn, Level, Metadata, Subscriber};
-use tracing_subscriber::{
-    fmt::{writer::MakeWriterExt, MakeWriter},
-    Layer,
-};
-
-pub struct StdErrLayer {}
-impl<S: Subscriber> Layer<S> for StdErrLayer {}
-pub struct StdOutLayer {}
-impl<S: Subscriber> Layer<S> for StdOutLayer {}
+use tracing::{info, warn, Level};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 fn main() -> Result<()> {
     let c = ConfigBuilder::new()?.build()?;
-    // tracing_init(&c);
+    logging_init(&c);
 
     if let (
         Mode::Daemon | Mode::Oneshot,
@@ -99,26 +88,25 @@ fn main() -> Result<()> {
     run(&c, &rx)
 }
 
-// fn tracing_init(c: &Config) {
-//     let stdout = c.color.to_auto_stream(std::io::stdout()).lock();
-//     let stderr = c.color.to_auto_stream(std::io::stderr()).lock();
-//     let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
+fn logging_init(c: &Config) {
+    let choice = c.color.to_choice();
+    let stdout = move || AutoStream::new(io::stdout(), choice);
+    let stderr = move || AutoStream::new(io::stderr(), choice).lock();
+    let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
 
-//     let (non_blocking, _stdout_guard) = tracing_appender::non_blocking(w);
-
-//     racing_subscriber::fmt()
-//         .with_writer(stdio)
-//         .with_level(false)
-//         .with_target(false)
-//         .with_max_level(c.verbosity.level_filter())
-//         .without_time()
-//         .init();
-// }
+    tracing_subscriber::fmt()
+        .with_writer(stdio)
+        .with_max_level(c.verbosity.level_filter())
+        .without_time()
+        .with_level(false)
+        .with_target(false)
+        .init();
+}
 
 fn run(c: &Config, sig: &Receiver<()>) -> Result<()> {
     match c.mode {
         Mode::Daemon => {
-            c.log()?;
+            info!("{c}\n{HEADER}Current{HEADER:#}:");
             DaemonMode::new(c, sig).run_loop()?;
             c.method.restore()?;
         }
@@ -126,8 +114,7 @@ fn run(c: &Config, sig: &Receiver<()>) -> Result<()> {
             // Use period and transition progress to set color temperature
             let (p, i) = Period::from(&c.scheme, &c.location, c.time)?;
             let interp = c.night.interpolate_with(&c.day, p.into());
-            c.log()?;
-            info!("{HEADER}Current{HEADER:#}:\n{p}\n{i}{interp}");
+            info!("{c}\n{HEADER}Current{HEADER:#}:\n{p}\n{i}\n{interp}");
             c.method.set(c.reset_ramps, &interp)?;
         }
         Mode::Set => {
@@ -199,8 +186,6 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// color temperature
     fn run_loop(&mut self) -> Result<()> {
         let c = self.cfg;
-        info!("{HEADER}Current{HEADER:#}:");
-
         loop {
             (self.period, self.info) =
                 Period::from(&c.scheme, &c.location, c.time)?;
@@ -473,66 +458,6 @@ impl Adjuster for AdjustmentMethod {
 }
 
 //
-
-pub struct StdioMakeWriter<'a> {
-    stdout: Rc<RefCell<AutoStream<StdoutLock<'a>>>>,
-    stderr: Rc<RefCell<AutoStream<StderrLock<'a>>>>,
-}
-
-/// A lock on either stdout or stderr, depending on the verbosity level of the
-/// event being written.
-// pub enum StdioLock<'a> {
-//     Stdout(Rc<RefCell<AutoStream<StdoutLock<'a>>>>),
-//     Stderr(Rc<RefCell<AutoStream<StderrLock<'a>>>>),
-// }
-
-// impl<'a> io::Write for StdioLock<'a> {
-//     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-//         match self {
-//             StdioLock::Stdout(_) => todo!(),
-//             StdioLock::Stderr(_) => todo!(),
-//         }
-//         // match self {
-//         //     StdioLock::Stdout(lock) => lock.as_ref().borrow_mut().write(buf),
-//         //     StdioLock::Stderr(lock) => lock.as_ref().borrow_mut().write(buf),
-//         // }
-//     }
-
-//     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-//         match self {
-//             StdioLock::Stdout(lock) => lock.write_all(buf),
-//             StdioLock::Stderr(lock) => lock.write_all(buf),
-//         }
-//     }
-
-//     fn flush(&mut self) -> io::Result<()> {
-//         match self {
-//             StdioLock::Stdout(lock) => lock.flush(),
-//             StdioLock::Stderr(lock) => lock.flush(),
-//         }
-//     }
-// }
-
-// impl<'a> MakeWriter<'a> for StdioMakeWriter<'a> {
-//     type Writer = StdioLock<'a>;
-
-//     fn make_writer(&'a self) -> Self::Writer {
-//         // just return stdout in that case.
-//         StdioLock::Stdout(self.stdout.clone())
-//     }
-
-//     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
-//         // Here's where we can implement our special behavior. We'll
-//         // check if the metadata's verbosity level is WARN or ERROR,
-//         // and return stderr in that cwith .
-//         if meta.level() <= &Level::WARN {
-//             return StdioLock::Stderr(self.stderr.clone());
-//         }
-
-//         // Otherwise, we'll return stdout.
-//         StdioLock::Stdout(self.stdout.clone())
-//     }
-// }
 
 pub trait IsDefault {
     fn is_default(&self) -> bool;

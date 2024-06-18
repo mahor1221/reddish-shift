@@ -58,7 +58,7 @@ impl GammaRamps {
 }
 
 impl GammaRampsFloat {
-    #[allow(unused)]
+    #![allow(dead_code)]
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
         let white_point = approximate_white_point(setting);
         let f = |y: f64, c: usize| -> f64 {
