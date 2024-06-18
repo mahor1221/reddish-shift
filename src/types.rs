@@ -18,15 +18,10 @@
 
 use crate::{
     calc_solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
-    gamma_drm::Drm,
-    gamma_dummy::Dummy,
-    gamma_randr::Randr,
-    gamma_vidmode::Vidmode,
-    location_manual::Manual,
-    Geoclue2,
+    LocationProvider, Provider,
 };
 use anyhow::{anyhow, Result};
-use chrono::{NaiveTime, Timelike};
+use chrono::{DateTime, Local, NaiveTime, Timelike};
 use std::ops::Deref;
 
 /// Angular elevation of the sun at which the color temperature transition
@@ -114,14 +109,6 @@ pub struct Location {
     pub lon: Longitude,
 }
 
-#[derive(Debug)]
-pub enum AdjustmentMethod {
-    Dummy(Dummy),
-    Randr(Randr),
-    Drm(Drm),
-    Vidmode(Vidmode),
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Mode {
     #[default]
@@ -138,15 +125,9 @@ pub enum TransitionScheme {
     Elevation(ElevationRange),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum LocationProvider {
-    Manual(Manual),
-    Geoclue2(Geoclue2),
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocationProviderType {
-    Manual(Manual),
+    Manual(Location),
     Geoclue2,
 }
 
@@ -254,18 +235,6 @@ impl ColorSettings {
 impl Default for TransitionScheme {
     fn default() -> Self {
         Self::Elevation(Default::default())
-    }
-}
-
-impl Default for AdjustmentMethod {
-    fn default() -> Self {
-        Self::Dummy(Default::default())
-    }
-}
-
-impl Default for LocationProvider {
-    fn default() -> Self {
-        Self::Manual(Default::default())
     }
 }
 
@@ -581,6 +550,87 @@ impl From<Period> for Alpha {
             Period::Daytime => Self(1.0),
             Period::Night => Self(0.0),
             Period::Transition { progress } => Self(progress as f64 / 100.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PeriodInfo {
+    Elevation { elev: Elevation, loc: Location },
+    Time,
+}
+
+impl Default for PeriodInfo {
+    fn default() -> Self {
+        Self::Elevation {
+            elev: Default::default(),
+            loc: Default::default(),
+        }
+    }
+}
+
+impl Period {
+    pub fn from(
+        scheme: &TransitionScheme,
+        location: &LocationProvider,
+        datetime: impl Fn() -> DateTime<Local>,
+    ) -> Result<(Self, PeriodInfo)> {
+        match scheme {
+            TransitionScheme::Elevation(elev_range) => {
+                let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
+                    .num_seconds() as f64;
+                let here = location.get()?;
+                let elev = Elevation::new(now, here);
+                let period = Period::from_elevation(elev, *elev_range);
+                let info = PeriodInfo::Elevation { elev, loc: here };
+                Ok((period, info))
+            }
+
+            TransitionScheme::Time(time_ranges) => {
+                let time = datetime().time().into();
+                let period = Period::from_time(time, *time_ranges);
+                Ok((period, PeriodInfo::Time))
+            }
+        }
+    }
+
+    /// Determine which period we are currently in based on time offset
+    pub fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
+        let TimeRanges { dawn, dusk } = time_ranges;
+        let sub =
+            |a: TimeOffset, b: TimeOffset| (*a as i32 - *b as i32) as f64;
+
+        if time < dawn.start || time >= dusk.end {
+            Self::Night
+        } else if time < dawn.end {
+            let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
+            let progress = (progress * 100.0) as u8;
+            Self::Transition { progress }
+        } else if time > dusk.start {
+            let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
+            let progress = (progress * 100.0) as u8;
+            Self::Transition { progress }
+        } else {
+            Self::Daytime
+        }
+    }
+
+    /// Determine which period we are currently in based on solar elevation
+    pub fn from_elevation(
+        elev: Elevation,
+        elev_range: ElevationRange,
+    ) -> Self {
+        let ElevationRange { high, low } = elev_range;
+        let sub = |a: Elevation, b: Elevation| (*a - *b);
+
+        if elev < low {
+            Self::Night
+        } else if elev < high {
+            let progress = sub(low, elev) / sub(low, high);
+            let progress = (progress * 100.0) as u8;
+            Self::Transition { progress }
+        } else {
+            Self::Daytime
         }
     }
 }

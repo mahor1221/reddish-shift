@@ -6,8 +6,8 @@ authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
 license = "GPL-3.0-or-later"
 description = "Set color temperature of display according to time of day"
 repository = "https://github.com/mahor1221/reddish-shift"
-build = "build.rs"
 readme = "README.md"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -16,11 +16,16 @@ const_format = "0.2"
 chrono = "0.4"
 x11rb = { version = "0.13", features = ["xf86vidmode", "randr"] }
 drm = "0.12"
+# required for location_geoclue2.rs
+#libc = "0.2"
+#gio-sys = "0.18.1"
+#glib-sys = "0.18.1"
+#gobject-sys = "0.18.0"
 
 # cli
+clap = { version = "4.5", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
-clap = { version = "4.5", features = ["derive"] }
 anstream = "0.6"
 anstyle = "1.0"
 exitcode = "1.1"
@@ -31,16 +36,9 @@ dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 
-# required for location_geoclue2.rs
-#libc = "0.2"
-#gio-sys = "0.18.1"
-#glib-sys = "0.18.1"
-#gobject-sys = "0.18.0"
-
 [build-dependencies]
 anyhow = "1.0"
 vergen = { version = "8.3", features = ["cargo", "git", "gitcl", "rustc"] }
-
 [dev-dependencies]
 insta = "1.39.0"
 
@@ -48,11 +46,9 @@ insta = "1.39.0"
 lto = true
 strip = true
 codegen-units = 1
-
 [profile.ci]
 inherits = "dev"
 debug = false
-
 [profile.perf]
 inherits = "release"
 strip = false

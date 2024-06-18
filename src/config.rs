@@ -18,19 +18,16 @@
 
 use crate::{
     cli::{
-        CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, ModeArgs,
-        Verbosity, WarnLevel,
+        CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, InfoLevel,
+        ModeArgs, Verbosity,
     },
-    gamma_drm::Drm,
-    gamma_randr::Randr,
-    gamma_vidmode::Vidmode,
     types::{
-        AdjustmentMethod, AdjustmentMethodType, BrightnessRange,
-        ColorSettings, DayNight, GammaRange, LocationProvider,
-        LocationProviderType, Mode, TemperatureRange, TransitionScheme,
+        AdjustmentMethodType, BrightnessRange, ColorSettings, DayNight,
+        GammaRange, LocationProviderType, Mode, TemperatureRange,
+        TransitionScheme,
     },
+    AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode,
 };
-use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
@@ -50,12 +47,6 @@ pub const FADE_STEPS: u8 = 40;
 pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
 pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
-pub const WARN: Style = Style::new()
-    .bold()
-    .fg_color(Some(Color::Ansi(AnsiColor::Yellow)));
-pub const HEADER: Style = Style::new().bold().underline();
-pub const BODY: Style = Style::new().bold();
-
 /// Merge of cli arguments and config files from highest priority to lowest:
 /// 1. CLI arguments
 /// 2. User config file
@@ -64,7 +55,7 @@ pub const BODY: Style = Style::new().bold();
 #[derive(Debug)]
 pub struct Config {
     pub mode: Mode,
-    pub verbosity: Verbosity<WarnLevel>,
+    pub verbosity: Verbosity<InfoLevel>,
     pub color: ColorChoice,
 
     pub day: ColorSettings,
@@ -83,7 +74,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
     mode: Mode,
-    verbosity: Verbosity<WarnLevel>,
+    verbosity: Verbosity<InfoLevel>,
     color: ColorChoice,
 
     day: ColorSettings,
@@ -181,7 +172,9 @@ impl ConfigBuilder {
         };
 
         let location = match location {
-            LocationProviderType::Manual(m) => LocationProvider::Manual(m),
+            LocationProviderType::Manual(l) => {
+                LocationProvider::Manual(Manual::new(l))
+            }
             LocationProviderType::Geoclue2 => {
                 LocationProvider::Geoclue2(Default::default())
             }
@@ -491,26 +484,6 @@ impl Default for ConfigBuilder {
     }
 }
 
-impl<'de, T, U> Deserialize<'de> for Either<U, T>
-where
-    T: Deserialize<'de>,
-    U: Deserialize<'de> + TryInto<T>,
-    U::Error: Display,
-{
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let v = Value::deserialize(d)?;
-        let t = match U::deserialize(v.clone()) {
-            Ok(u) => u.try_into().map_err(de::Error::custom)?,
-            Err(_) => match T::deserialize(v) {
-                Ok(t) => t,
-                Err(e) => Err(de::Error::custom(e))?,
-            },
-        };
-
-        Ok(Self { t, p: PhantomData })
-    }
-}
-
 impl From<ColorSettingsArgs> for ColorSettings {
     fn from(t: ColorSettingsArgs) -> Self {
         let mut color_settings = Self::default();
@@ -529,6 +502,26 @@ impl From<ColorSettingsArgs> for ColorSettings {
             color_settings.gamma = t;
         }
         color_settings
+    }
+}
+
+impl<'de, T, U> Deserialize<'de> for Either<U, T>
+where
+    T: Deserialize<'de>,
+    U: Deserialize<'de> + TryInto<T>,
+    U::Error: Display,
+{
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(d)?;
+        let t = match U::deserialize(v.clone()) {
+            Ok(u) => u.try_into().map_err(de::Error::custom)?,
+            Err(_) => match T::deserialize(v) {
+                Ok(t) => t,
+                Err(e) => Err(de::Error::custom(e))?,
+            },
+        };
+
+        Ok(Self { t, p: PhantomData })
     }
 }
 

@@ -1,4 +1,4 @@
-/*  types_parse.rs -- FromStr implementation for common types
+/*  types_parse.rs -- FromStr implementation for types
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
 
@@ -16,18 +16,13 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use crate::types::{
+    AdjustmentMethodType, Brightness, DayNight, Elevation, ElevationRange,
+    Gamma, Latitude, Location, LocationProviderType, Longitude, Temperature,
+    Time, TimeOffset, TimeRange, TimeRanges, TransitionScheme,
+};
 use anyhow::{anyhow, Result};
 use std::str::FromStr;
-
-use crate::{
-    location_manual::Manual,
-    types::{
-        AdjustmentMethodType, Brightness, DayNight, Elevation, ElevationRange,
-        Gamma, Latitude, Location, LocationProviderType, Longitude,
-        Temperature, Time, TimeOffset, TimeRange, TimeRanges,
-        TransitionScheme,
-    },
-};
 
 //
 
@@ -198,7 +193,7 @@ impl FromStr for LocationProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "geoclue2" => Ok(Self::Geoclue2),
-            _ => s.parse().map(|l| Self::Manual(Manual::new(l))),
+            _ => s.parse().map(Self::Manual),
         }
         .map_err(|_| anyhow!("asdf"))
     }

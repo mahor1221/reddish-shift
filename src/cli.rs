@@ -69,7 +69,7 @@ pub struct CliArgs {
     pub color: Option<ClapColorChoice>,
 
     #[command(flatten)]
-    pub verbosity: Verbosity<WarnLevel>,
+    pub verbosity: Verbosity<InfoLevel>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -258,23 +258,24 @@ pub trait DefaultLevel {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct WarnLevel;
-impl DefaultLevel for WarnLevel {
+pub struct InfoLevel;
+impl DefaultLevel for InfoLevel {
     fn default() -> Option<Level> {
-        Some(Level::WARN)
+        Some(Level::INFO)
     }
 }
 
 #[derive(Args, Debug, Clone, Default)]
-pub struct Verbosity<L: DefaultLevel = WarnLevel> {
+pub struct Verbosity<L: DefaultLevel = InfoLevel> {
     /// Increase verbosity
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    #[arg(global = true, display_order(100))]
+    // #[arg(short, long, action = clap::ArgAction::Count)]
+    // #[arg(global = true, display_order(100), conflicts_with = "quite")]
+    #[arg(skip)]
     verbose: u8,
 
     /// Decrease verbosity
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
-    #[arg(global = true, display_order(100), conflicts_with = "verbose")]
+    #[arg(global = true, display_order(100))]
     quiet: u8,
 
     #[arg(skip)]

@@ -18,12 +18,12 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// TODO: https://doc.rust-lang.org/std/backtrace/
 // TODO: add tldr page: https://github.com/tldr-pages/tldr
-// TODO: benchmark: https://github.com/nvzqz/divan
 // TODO: add setting screen brightness, a percentage of the current brightness
 //       See: https://github.com/qualiaa/redshift-hooks
-// TODO: #[instrument]: https://docs.rs//latest/tracing/index.html mod
+// TODO: ? benchmark: https://github.com/nvzqz/divan
+// TODO: ? https://doc.rust-lang.org/std/backtrace/
+// TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html ?
 
 mod calc_colorramp;
 mod calc_solar;
@@ -38,18 +38,24 @@ mod types;
 mod types_display;
 mod types_parse;
 
+pub use gamma_drm::Drm;
+pub use gamma_dummy::Dummy;
+pub use gamma_randr::Randr;
+pub use gamma_vidmode::Vidmode;
+pub use location_manual::Manual;
+use types::Location;
+
 use crate::{
-    config::{Config, ConfigBuilder, FADE_STEPS, HEADER, WARN},
+    cli::ClapColorChoiceExt,
+    config::{Config, ConfigBuilder, FADE_STEPS},
     types::{
-        AdjustmentMethod, ColorSettings, Elevation, ElevationRange, Location,
-        LocationProvider, Mode, Period, TimeOffset, TimeRanges,
-        TransitionScheme,
+        ColorSettings, Elevation, Mode, Period, PeriodInfo, TransitionScheme,
     },
+    types_display::{HEADER, WARN},
 };
 use anstream::AutoStream;
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Local, SubsecRound, TimeDelta};
-use cli::ClapColorChoiceExt;
+use chrono::{DateTime, SubsecRound, TimeDelta};
 use std::{
     fmt::{Debug, Write},
     io::{self},
@@ -90,7 +96,7 @@ fn main() -> Result<()> {
 
 fn logging_init(c: &Config) {
     let choice = c.color.to_choice();
-    let stdout = move || AutoStream::new(io::stdout(), choice);
+    let stdout = move || AutoStream::new(io::stdout(), choice).lock();
     let stderr = move || AutoStream::new(io::stderr(), choice).lock();
     let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
 
@@ -289,6 +295,22 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     }
 }
 
+trait Provider {
+    fn get(&self) -> Result<Location> {
+        Err(anyhow!("Unable to get location from provider"))
+    }
+}
+
+trait Adjuster {
+    /// Restore the adjustment to the state before the Adjuster object was created
+    fn restore(&self) -> Result<()> {
+        Err(anyhow!("Temperature adjustment failed"))
+    }
+
+    /// Set a specific temperature
+    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()>;
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum Signal {
     #[default]
@@ -308,104 +330,23 @@ impl Default for FadeStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum PeriodInfo {
-    Elevation { elev: Elevation, loc: Location },
-    Time,
+#[derive(Debug, PartialEq)]
+enum LocationProvider {
+    Manual(Manual),
+    Geoclue2(Geoclue2),
 }
 
-impl Default for PeriodInfo {
-    fn default() -> Self {
-        Self::Elevation {
-            elev: Default::default(),
-            loc: Default::default(),
-        }
-    }
-}
-
-impl Period {
-    /// Determine which period we are currently in based on time offset
-    fn from_time(time: TimeOffset, time_ranges: TimeRanges) -> Self {
-        let TimeRanges { dawn, dusk } = time_ranges;
-        let sub =
-            |a: TimeOffset, b: TimeOffset| (*a as i32 - *b as i32) as f64;
-
-        if time < dawn.start || time >= dusk.end {
-            Self::Night
-        } else if time < dawn.end {
-            let progress = sub(dawn.start, time) / sub(dawn.start, dawn.end);
-            let progress = (progress * 100.0) as u8;
-            Self::Transition { progress }
-        } else if time > dusk.start {
-            let progress = sub(dusk.end, time) / sub(dusk.end, dusk.start);
-            let progress = (progress * 100.0) as u8;
-            Self::Transition { progress }
-        } else {
-            Self::Daytime
-        }
-    }
-
-    /// Determine which period we are currently in based on solar elevation
-    fn from_elevation(elev: Elevation, elev_range: ElevationRange) -> Self {
-        let ElevationRange { high, low } = elev_range;
-        let sub = |a: Elevation, b: Elevation| (*a - *b);
-
-        if elev < low {
-            Self::Night
-        } else if elev < high {
-            let progress = sub(low, elev) / sub(low, high);
-            let progress = (progress * 100.0) as u8;
-            Self::Transition { progress }
-        } else {
-            Self::Daytime
-        }
-    }
-
-    fn from(
-        scheme: &TransitionScheme,
-        location: &LocationProvider,
-        datetime: impl Fn() -> DateTime<Local>,
-    ) -> Result<(Self, PeriodInfo)> {
-        match scheme {
-            TransitionScheme::Elevation(elev_range) => {
-                let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
-                    .num_seconds() as f64;
-                let here = location.get()?;
-                let elev = Elevation::new(now, here);
-                let period = Period::from_elevation(elev, *elev_range);
-                let info = PeriodInfo::Elevation { elev, loc: here };
-                Ok((period, info))
-            }
-
-            TransitionScheme::Time(time_ranges) => {
-                let time = datetime().time().into();
-                let period = Period::from_time(time, *time_ranges);
-                Ok((period, PeriodInfo::Time))
-            }
-        }
-    }
-}
-
-//
-
-pub trait Provider {
-    fn get(&self) -> Result<Location> {
-        Err(anyhow!("Unable to get location from provider"))
-    }
-}
-
-pub trait Adjuster {
-    /// Restore the adjustment to the state before the Adjuster object was created
-    fn restore(&self) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed"))
-    }
-
-    /// Set a specific temperature
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()>;
+#[derive(Debug)]
+enum AdjustmentMethod {
+    Dummy(Dummy),
+    Randr(Randr),
+    Drm(Drm),
+    Vidmode(Vidmode),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Geoclue2;
+struct Geoclue2;
+
 impl Provider for Geoclue2 {
     // Listen and handle location updates
     // fn fd() -> c_int;
@@ -447,6 +388,7 @@ impl Adjuster for AdjustmentMethod {
             Self::Vidmode(t) => t.set(reset_ramps, cs),
         }
 
+        // TODO: MacOS support
         // // In Quartz (macOS) the gamma adjustments will
         // // automatically revert when the process exits
         // // Therefore, we have to loop until CTRL-C is received
@@ -459,7 +401,7 @@ impl Adjuster for AdjustmentMethod {
 
 //
 
-pub trait IsDefault {
+trait IsDefault {
     fn is_default(&self) -> bool;
 }
 

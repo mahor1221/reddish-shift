@@ -19,9 +19,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use crate::types::ColorSettings;
 use std::ops::{Deref, DerefMut};
-
-use crate::ColorSettings;
 
 #[derive(Debug, Clone)]
 pub struct GammaRamps(pub [Vec<u16>; 3]);

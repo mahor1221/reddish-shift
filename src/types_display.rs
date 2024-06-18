@@ -1,4 +1,4 @@
-/*  types_display.rs -- Display implementation for common types
+/*  types_display.rs -- Display implementation for types
     This file is part of <https://github.com/mahor1221/reddish-shift>.
     Copyright (C) 2024 Mahor Foruzesh <mahor1221@gmail.com>
 
@@ -17,17 +17,24 @@
 */
 
 use crate::{
-    config::{Config, BODY, HEADER},
+    config::Config,
     types::{
-        AdjustmentMethod, Brightness, ColorSettings, Elevation,
-        ElevationRange, Gamma, Location, LocationProvider, Temperature, Time,
-        TimeOffset, TimeRange, TimeRanges, TransitionScheme,
+        Brightness, ColorSettings, Elevation, ElevationRange, Gamma, Location,
+        Period, PeriodInfo, Temperature, Time, TimeOffset, TimeRange,
+        TimeRanges, TransitionScheme,
     },
-    DaemonMode, FadeStatus, Period, PeriodInfo,
+    AdjustmentMethod, DaemonMode, FadeStatus, LocationProvider,
 };
+use anstyle::{AnsiColor, Color, Style};
 use anyhow::Result;
 use std::fmt::{self, Display, Formatter};
 use tracing::info;
+
+pub const WARN: Style = Style::new()
+    .bold()
+    .fg_color(Some(Color::Ansi(AnsiColor::Yellow)));
+pub const HEADER: Style = Style::new().bold().underline();
+pub const BODY: Style = Style::new().bold();
 
 impl Display for Temperature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -74,21 +81,6 @@ impl Display for Elevation {
     }
 }
 
-impl Display for Period {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Period::Night => write!(f, "    {BODY}Period{BODY:#}: night"),
-            Period::Daytime => write!(f, "    {BODY}Period{BODY:#}: daytime"),
-            Period::Transition { progress } => {
-                write!(
-                    f,
-                    "    {BODY}Period{BODY:#}: transition ({progress}% day)"
-                )
-            }
-        }
-    }
-}
-
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let a = *self.lat;
@@ -109,6 +101,33 @@ impl Display for Location {
 
 //
 
+impl Display for ColorSettings {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let ColorSettings { temp, gamma, brght } = self;
+        write!(
+            f,
+            "    {BODY}Temperature{BODY:#}: {temp}
+    {BODY}Brightness{BODY:#}: {brght}
+    {BODY}Gamma{BODY:#}: {gamma}"
+        )
+    }
+}
+
+impl Display for Period {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Period::Night => write!(f, "    {BODY}Period{BODY:#}: night"),
+            Period::Daytime => write!(f, "    {BODY}Period{BODY:#}: daytime"),
+            Period::Transition { progress } => {
+                write!(
+                    f,
+                    "    {BODY}Period{BODY:#}: transition ({progress}% day)"
+                )
+            }
+        }
+    }
+}
+
 impl Display for PeriodInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -121,18 +140,6 @@ impl Display for PeriodInfo {
                 )
             }
         }
-    }
-}
-
-impl Display for ColorSettings {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let ColorSettings { temp, gamma, brght } = self;
-        write!(
-            f,
-            "    {BODY}Temperature{BODY:#}: {temp}
-    {BODY}Brightness{BODY:#}: {brght}
-    {BODY}Gamma{BODY:#}: {gamma}"
-        )
     }
 }
 
@@ -201,7 +208,7 @@ impl Display for Config {
                 writeln!(f, "    {BODY}Solar elevation{BODY:#}: below {low}")?;
             }
         }
-        writeln!(f, "{night}")?;
+        write!(f, "{night}")?;
         Ok(())
     }
 }
