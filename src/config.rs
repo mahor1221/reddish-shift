@@ -21,7 +21,10 @@ use crate::{
         CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, InfoLevel,
         ModeArgs, Verbosity,
     },
-    error::{parse::DayNightErrorType, ConfigError, ConfigFileError},
+    error::{
+        config::{ConfigError, ConfigFileError},
+        parse::DayNightErrorType,
+    },
     types::{
         AdjustmentMethodType, BrightnessRange, ColorSettings, DayNight,
         GammaRange, LocationProviderType, Mode, TemperatureRange,
@@ -157,7 +160,7 @@ impl ConfigBuilder {
 
         let method = match mode {
             Mode::Print => AdjustmentMethodType::Dummy,
-            _ => method.ok_or(ConfigError::WIP)?,
+            _ => method.ok_or(ConfigError::Wip)?,
         };
 
         let method = match method {

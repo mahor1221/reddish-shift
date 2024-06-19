@@ -40,7 +40,7 @@ mod types_display;
 mod types_parse;
 mod utils;
 
-use error::{AdjusterErrorRestore, AdjusterErrorSet};
+use error::ReddishError;
 pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
@@ -68,7 +68,7 @@ use std::{
 use tracing::{info, warn, Level};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), ReddishError> {
     let c = ConfigBuilder::new()?.build()?;
     logging_init(&c);
 
@@ -93,6 +93,10 @@ fn main() -> Result<()> {
     ctrlc::set_handler(move || {
         #[allow(clippy::expect_used)]
         tx.send(()).expect("Could not send signal on channel")
+    })
+    .or_else(|e| match c.mode {
+        Mode::Oneshot | Mode::Set | Mode::Reset | Mode::Print => Ok(()),
+        Mode::Daemon => Err(e),
     })?;
 
     run(&c, &rx)
@@ -113,7 +117,7 @@ fn logging_init(c: &Config) {
         .init();
 }
 
-fn run(c: &Config, sig: &Receiver<()>) -> Result<()> {
+fn run(c: &Config, sig: &Receiver<()>) -> Result<(), ReddishError> {
     match c.mode {
         Mode::Daemon => {
             info!("{c}\n{HEADER}Current{HEADER:#}:");
@@ -140,7 +144,7 @@ fn run(c: &Config, sig: &Receiver<()>) -> Result<()> {
     Ok(())
 }
 
-fn run_print_mode(c: &Config) -> Result<()> {
+fn run_print_mode(c: &Config) -> Result<(), ReddishError> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
     let mut buf = String::from("Time     | Degree\n---------+-------\n");
@@ -153,7 +157,7 @@ fn run_print_mode(c: &Config) -> Result<()> {
         writeln!(&mut buf, "{time} | {:6.2}", *elev)?;
     }
 
-    Ok(print!("{buf}"))
+    Ok(info!("{buf}"))
 }
 
 #[derive(Debug)]
@@ -194,7 +198,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
     /// This is the main loop of the daemon mode which keeps track of the
     /// current time and continuously updates the screen to the appropriate
     /// color temperature
-    fn run_loop(&mut self) -> Result<()> {
+    fn run_loop(&mut self) -> Result<(), ReddishError> {
         let c = self.cfg;
         loop {
             (self.period, self.info) =
@@ -305,13 +309,13 @@ trait Provider {
 
 trait Adjuster {
     /// Restore the adjustment to the state before the Adjuster object was created
-    fn restore(&self) -> Result<(), AdjusterErrorRestore>;
+    fn restore(&self) -> Result<(), AdjusterError>;
     /// Set a specific temperature
     fn set(
         &self,
         reset_ramps: bool,
         cs: &ColorSettings,
-    ) -> Result<(), AdjusterErrorSet>;
+    ) -> Result<(), AdjusterError>;
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -371,7 +375,7 @@ impl Provider for LocationProvider {
 }
 
 impl Adjuster for AdjustmentMethod {
-    fn restore(&self) -> Result<()> {
+    fn restore(&self) -> Result<(), AdjusterError> {
         match self {
             Self::Dummy(t) => t.restore(),
             Self::Randr(t) => t.restore(),
@@ -380,7 +384,11 @@ impl Adjuster for AdjustmentMethod {
         }
     }
 
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
+    fn set(
+        &self,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<(), AdjusterError> {
         match self {
             Self::Dummy(t) => t.set(reset_ramps, cs),
             Self::Randr(t) => t.set(reset_ramps, cs),

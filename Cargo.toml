@@ -12,9 +12,9 @@ build = "build.rs"
 [dependencies]
 thiserror = "1.0.61"
 const_format = "0.2.32"
+itertools = "0.13.0"
 frunk = "0.4.2"
 frunk_core = "0.4.2"
-itertools = "0.13.0"
 
 chrono = "0.4.38"
 x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }

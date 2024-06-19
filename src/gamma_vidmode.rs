@@ -18,8 +18,13 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{calc_colorramp::GammaRamps, types::ColorSettings, Adjuster};
-use anyhow::{anyhow, Result};
+use crate::{
+    calc_colorramp::GammaRamps,
+    error::{gamma::VidmodeError, AdjusterError, AdjusterErrorInner},
+    types::ColorSettings,
+    utils::InjectMapErr,
+    Adjuster,
+};
 use x11rb::{
     protocol::xf86vidmode::ConnectionExt,
     rust_connection::RustConnection as X11Connection,
@@ -34,28 +39,34 @@ pub struct Vidmode {
 }
 
 impl Vidmode {
-    pub fn new(screen_num: Option<usize>) -> Result<Self> {
+    pub fn new(screen_num: Option<usize>) -> Result<Self, VidmodeError> {
         // it uses the DISPLAY environment variable if screen_num is None
         let screen_num = screen_num.map(|n| ":".to_string() + &n.to_string());
         let (conn, screen_num) = x11rb::connect(screen_num.as_deref())?;
         let screen_num = screen_num as u16;
 
         // check connection
-        conn.xf86vidmode_query_version()?.reply()?;
-        // eprintln!("X request failed: XF86VidModeQueryVersion");
+        conn.xf86vidmode_query_version()
+            .inject_map_err(VidmodeError::GetVersionFailed)?
+            .reply()
+            .inject_map_err(VidmodeError::GetVersionFailed)?;
 
         let ramp_size = conn
-            .xf86vidmode_get_gamma_ramp_size(screen_num)?
-            .reply()?
+            .xf86vidmode_get_gamma_ramp_size(screen_num)
+            .inject_map_err(VidmodeError::GetRampSizeFailed)?
+            .reply()
+            .inject_map_err(VidmodeError::GetRampSizeFailed)?
             .size;
-        // eprintln!("X request failed: XF86VidModeGetGammaRampSize");
+
         if ramp_size == 0 {
-            Err(anyhow!("Gamma ramp size too small: {ramp_size}"))?
+            Err(VidmodeError::InvalidRampSize(ramp_size))?
         }
 
         let ramp = conn
-            .xf86vidmode_get_gamma_ramp(screen_num, ramp_size)?
-            .reply()?;
+            .xf86vidmode_get_gamma_ramp(screen_num, ramp_size)
+            .inject_map_err(VidmodeError::GetRampSizeFailed)?
+            .reply()
+            .inject_map_err(VidmodeError::GetRampSizeFailed)?;
         // eprintln!("X request failed: XF86VidModeGetGammaRamp");
         let saved_ramps = GammaRamps([ramp.red, ramp.green, ramp.blue]);
 
@@ -67,7 +78,10 @@ impl Vidmode {
         })
     }
 
-    fn set_gamma_ramps(&self, ramps: &GammaRamps) -> Result<()> {
+    fn set_gamma_ramps(
+        &self,
+        ramps: &GammaRamps,
+    ) -> Result<(), AdjusterErrorInner> {
         self.conn
             .xf86vidmode_set_gamma_ramp(
                 self.screen_num,
@@ -75,19 +89,25 @@ impl Vidmode {
                 &ramps[0],
                 &ramps[1],
                 &ramps[2],
-            )?
-            .check()?;
-        // eprintln!("X request failed: XF86VidModeSetGammaRamp")
+            )
+            .inject_map_err(AdjusterErrorInner::Vidmode)?
+            .check()
+            .inject_map_err(AdjusterErrorInner::Vidmode)?;
         Ok(())
     }
 }
 
 impl Adjuster for Vidmode {
-    fn restore(&self) -> Result<()> {
+    fn restore(&self) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(&self.saved_ramps)
+            .map_err(AdjusterError::Restore)
     }
 
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
+    fn set(
+        &self,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<(), AdjusterError> {
         let mut ramps = if reset_ramps {
             GammaRamps::new(self.ramp_size as u32)
         } else {
@@ -95,6 +115,6 @@ impl Adjuster for Vidmode {
         };
 
         ramps.colorramp_fill(cs);
-        self.set_gamma_ramps(&ramps)
+        self.set_gamma_ramps(&ramps).map_err(AdjusterError::Set)
     }
 }

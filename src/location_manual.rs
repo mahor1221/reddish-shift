@@ -19,7 +19,6 @@
 */
 
 use crate::{error::ProviderError, types::Location, Provider};
-use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Manual {

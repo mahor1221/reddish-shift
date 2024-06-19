@@ -170,7 +170,7 @@ impl Drm {
         //
         // FIX: Error: Invalid argument (os error 22)
         card.get_gamma(handle, &mut r, &mut g, &mut b)
-            .map_err(DrmErrorCrtc::GetRampFailed);
+            .map_err(DrmErrorCrtc::GetRampFailed)?;
         let saved_ramps = GammaRamps([r, g, b]);
         // _("DRM could not read gamma ramps on CRTC %i on\n"
         // "graphics card %i, ignoring device.\n"),
@@ -186,11 +186,7 @@ impl Drm {
         &self,
         f: impl Fn(&Crtc) -> io::Result<()>,
     ) -> Result<(), AdjusterErrorInner> {
-        self.crtcs
-            .iter()
-            .map(f)
-            .collect_result()
-            .map_err(AdjusterErrorInner::Drm)?;
+        self.crtcs.iter().map(f).collect_result()?;
         Ok(())
     }
 }

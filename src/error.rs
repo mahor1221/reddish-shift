@@ -1,11 +1,14 @@
 use crate::Coprod;
-use core::fmt;
+use config::ConfigError;
 use std::{
     error::Error,
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
     io,
+    sync::mpsc::RecvTimeoutError,
 };
 use thiserror::Error;
+
+// TODO: Box large errors
 
 #[derive(Debug, Error)]
 pub struct VecError<E>(pub Vec<E>);
@@ -19,23 +22,14 @@ impl<E: Display> Display for VecError<E> {
 }
 
 #[derive(Debug, Error)]
-pub enum ConfigError {
-    #[error("WIP")]
-    WIP,
-    #[error("{0}")]
-    File(#[from] ConfigFileError),
-}
-
-#[derive(Debug, Error)]
-pub enum ConfigFileError {
-    #[error("")]
-    PathNotFile,
-    #[error("")]
-    ConfigDirNotFound,
-    #[error("{0}")]
-    OpenFailed(io::Error),
-    #[error("{0}")]
-    DeserializeFailed(toml::de::Error),
+#[error("{0}")]
+pub enum ReddishError {
+    Config(#[from] ConfigError),
+    Adjuster(#[from] AdjusterError),
+    Provider(#[from] ProviderError),
+    Ctrlc(#[from] ctrlc::Error),
+    Mpsc(#[from] RecvTimeoutError),
+    Fmt(#[from] std::fmt::Error),
 }
 
 #[derive(Debug, Error)]
@@ -43,31 +37,138 @@ pub enum ConfigFileError {
 // #[error("Unable to get location from provider")]
 pub struct ProviderError;
 
+#[derive(Debug, Error)]
+pub enum AdjusterError {
+    #[error("Temperature adjustment failed:\n{0}")]
+    Set(AdjusterErrorInner),
+    #[error("Unable to restore gamma ramps:\n{0}")]
+    Restore(AdjusterErrorInner),
+}
+
+#[derive(Debug, Error)]
+pub enum AdjusterErrorInner {
+    #[error("{0}")]
+    Vidmode(#[from] X11Error),
+    #[error("{0}")]
+    Randr(#[from] AdjusterErrorInnerRandr),
+    #[error("{0}")]
+    Drm(#[from] VecError<io::Error>),
+}
+
+type X11Error =
+    Coprod!(x11rb::errors::ConnectionError, x11rb::errors::ReplyError);
+
 type AdjusterErrorInnerRandr = Coprod!(
     VecError<x11rb::errors::ConnectionError>,
     VecError<x11rb::errors::ReplyError>
 );
 
-#[derive(Debug, Error)]
-pub enum AdjusterErrorInner {
-    #[error("")]
-    Dummy,
-    #[error("{0}")]
-    Drm(VecError<io::Error>),
-    #[error("{0}")]
-    Randr(AdjusterErrorInnerRandr),
-}
+pub mod config {
+    use gamma::{AdjustmentMethodError, DrmError, RandrError, VidmodeError};
 
-#[derive(Debug, Error)]
-pub enum AdjusterError {
-    #[error("Temperature adjustment failed:\n{0}")]
-    Set(AdjusterErrorInner),
-    #[error("Unable to restore CRTC %i:\n{0}")]
-    Restore(AdjusterErrorInner),
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub enum ConfigError {
+        #[error("WIP")]
+        Wip,
+        #[error("{0}")]
+        Method(#[from] AdjustmentMethodError),
+        #[error("{0}")]
+        File(#[from] ConfigFileError),
+    }
+
+    #[derive(Debug, Error)]
+    pub enum ConfigFileError {
+        #[error("")]
+        PathNotFile,
+        #[error("")]
+        ConfigDirNotFound,
+        #[error("{0}")]
+        OpenFailed(io::Error),
+        #[error("{0}")]
+        DeserializeFailed(toml::de::Error),
+    }
+
+    impl From<DrmError> for ConfigError {
+        fn from(e: DrmError) -> Self {
+            Self::Method(AdjustmentMethodError::Drm(e))
+        }
+    }
+
+    impl From<RandrError> for ConfigError {
+        fn from(e: RandrError) -> Self {
+            Self::Method(AdjustmentMethodError::Randr(e))
+        }
+    }
+
+    impl From<VidmodeError> for ConfigError {
+        fn from(e: VidmodeError) -> Self {
+            Self::Method(AdjustmentMethodError::Vidmode(e))
+        }
+    }
 }
 
 pub mod gamma {
     use super::*;
+
+    #[derive(Debug, Error)]
+    pub enum AdjustmentMethodError {
+        #[error("{0}")]
+        Vidmode(#[from] VidmodeError),
+        #[error("{0}")]
+        Randr(#[from] RandrError),
+        #[error("{0}")]
+        Drm(#[from] DrmError),
+    }
+    //
+
+    #[derive(Debug, Error)]
+    pub enum VidmodeError {
+        #[error("Failed to open DRM device: %s")]
+        ConnectFailed(#[from] x11rb::errors::ConnectError),
+        #[error("{0}")]
+        GetVersionFailed(X11Error),
+        #[error("{0}")]
+        GetRampSizeFailed(X11Error),
+        // eprintln!("X request failed: XF86VidModeGetGammaRampSize");
+        #[error("Gamma ramp size too small: {0}")]
+        InvalidRampSize(u16),
+        #[error("{0}")]
+        GetRampFailed(X11Error),
+    }
+
+    #[derive(Debug, Error)]
+    pub enum RandrError {
+        #[error("{0}")]
+        ConnectFailed(#[from] x11rb::errors::ConnectError),
+        #[error("{0}")]
+        GetVersionFailed(X11Error),
+        #[error("{0}")]
+        GetResourcesFailed(X11Error),
+        #[error("Unsupported RANDR version ({major}.{minor})")]
+        UnsupportedVersion { major: u32, minor: u32 },
+        #[error("Crtc numbers must be unique")]
+        NonUniqueCrtc,
+        #[error("Valid CRTCs are: {0:?}")]
+        InvalidCrtc(Vec<u32>),
+        #[error("{0}")]
+        SendRequestFailed(VecError<x11rb::errors::ConnectionError>),
+        #[error("{0}")]
+        Crtcs(#[from] VecError<RandrErrorCrtc>),
+    }
+
+    #[derive(Debug, Error)]
+    pub enum RandrErrorCrtc {
+        #[error("{0}")]
+        GetRampSizeFailed(x11rb::errors::ReplyError),
+        #[error("Gamma ramp size too small: {0}")]
+        InvalidRampSize(u16),
+        #[error("{0}")]
+        GetRampFailed(x11rb::errors::ReplyError),
+    }
+
+    //
 
     #[derive(Debug, Error)]
     pub enum DrmError {
@@ -93,41 +194,6 @@ pub mod gamma {
         InvalidRampSize(u32),
         #[error("{0}")]
         GetRampFailed(io::Error),
-    }
-
-    //
-
-    pub type RandrReplyError =
-        Coprod!(x11rb::errors::ConnectionError, x11rb::errors::ReplyError);
-
-    #[derive(Debug, Error)]
-    pub enum RandrError {
-        #[error("{0}")]
-        ConnectFailed(x11rb::errors::ConnectError),
-        #[error("{0}")]
-        GetVersionFailed(RandrReplyError),
-        #[error("{0}")]
-        GetResourcesFailed(RandrReplyError),
-        #[error("Unsupported RANDR version ({major}.{minor})")]
-        UnsupportedVersion { major: u32, minor: u32 },
-        #[error("Crtc numbers must be unique")]
-        NonUniqueCrtc,
-        #[error("Valid CRTCs are: {0:?}")]
-        InvalidCrtc(Vec<u32>),
-        #[error("{0}")]
-        SendRequestFailed(VecError<x11rb::errors::ConnectionError>),
-        #[error("{0}")]
-        Crtcs(#[from] VecError<RandrErrorCrtc>),
-    }
-
-    #[derive(Debug, Error)]
-    pub enum RandrErrorCrtc {
-        #[error("{0}")]
-        GetRampSizeFailed(x11rb::errors::ReplyError),
-        #[error("Gamma ramp size too small: {0}")]
-        InvalidRampSize(u16),
-        #[error("{0}")]
-        GetRampFailed(x11rb::errors::ReplyError),
     }
 }
 

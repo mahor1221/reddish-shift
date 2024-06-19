@@ -59,8 +59,7 @@ impl Randr {
     ) -> Result<Self, RandrError> {
         // uses the DISPLAY environment variable if screen_num is None
         let screen_num = screen_num.map(|n| ":".to_string() + &n.to_string());
-        let (conn, screen_num) = x11rb::connect(screen_num.as_deref())
-            .map_err(RandrError::ConnectFailed)?;
+        let (conn, screen_num) = x11rb::connect(screen_num.as_deref())?;
 
         // returns a lower version if 1.3 is not supported
         let r = conn
@@ -181,12 +180,12 @@ impl Randr {
 impl Adjuster for Randr {
     fn restore(&self) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(|crtc| {
-            Ok(self.conn.randr_set_crtc_gamma(
+            self.conn.randr_set_crtc_gamma(
                 crtc.id,
                 &crtc.saved_ramps[0],
                 &crtc.saved_ramps[1],
                 &crtc.saved_ramps[2],
-            )?)
+            )
         })
         .map_err(AdjusterError::Restore)
     }
@@ -204,9 +203,8 @@ impl Adjuster for Randr {
             };
 
             ramps.colorramp_fill(cs);
-            Ok(self.conn.randr_set_crtc_gamma(
-                crtc.id, &ramps[0], &ramps[1], &ramps[2],
-            )?)
+            self.conn
+                .randr_set_crtc_gamma(crtc.id, &ramps[0], &ramps[1], &ramps[2])
         })
         .map_err(AdjusterError::Restore)
     }
