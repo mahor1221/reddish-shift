@@ -16,23 +16,22 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use frunk::validated::IntoValidated;
-
 use crate::{
     coproduct::InjectErr,
-    error::*,
+    error::parse::*,
     types::{
         gamma, hour, minute, AdjustmentMethodType, Brightness, DayNight,
         Elevation, ElevationRange, Gamma, Latitude, Location,
         LocationProviderType, Longitude, Temperature, Time, TimeOffset,
         TimeRange, TimeRanges, TransitionScheme,
     },
-    utils::FromGeneric,
+    utils::{CollectResult, IntoGeneric},
 };
+use frunk::validated::IntoValidated;
 use std::str::FromStr;
 
 impl FromStr for Temperature {
-    type Err = ParseErrorTemperature;
+    type Err = TemperatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.trim().parse::<u16>()?.try_into()?)
@@ -40,7 +39,7 @@ impl FromStr for Temperature {
 }
 
 impl FromStr for Brightness {
-    type Err = ParseErrorBrightness;
+    type Err = BrightnessError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.trim().parse::<f64>()?.try_into()?)
@@ -48,27 +47,27 @@ impl FromStr for Brightness {
 }
 
 impl FromStr for Gamma {
-    type Err = ParseErrorGammaRgb;
+    type Err = GammaRgbError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let f = |s: &str| -> Result<f64, ParseErrorGamma> {
+        let f = |s: &str| -> Result<f64, GammaError> {
             gamma(s.parse::<f64>().inject_err()?).inject_err()
         };
 
         match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
             [r, g, b] => Ok((f(r).into_validated() + f(g) + f(b))
                 .into_result()?
-                .from_generic::<(f64, f64, f64)>()
+                .into_generic::<(f64, f64, f64)>()
                 .try_into()
                 .unwrap_or_else(|_| unreachable!())),
             [rbg] => Ok(f(rbg)?.try_into().unwrap_or_else(|_| unreachable!())),
-            _ => Err(ParseErrorGammaRgb::Fmt),
+            _ => Err(GammaRgbError::Fmt),
         }
     }
 }
 
 impl FromStr for Latitude {
-    type Err = ParseErrorLatitude;
+    type Err = LatitudeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.trim().parse::<f64>()?.try_into()?)
@@ -76,7 +75,7 @@ impl FromStr for Latitude {
 }
 
 impl FromStr for Longitude {
-    type Err = ParseErrorLongitude;
+    type Err = LongitudeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.trim().parse::<f64>()?.try_into()?)
@@ -84,58 +83,55 @@ impl FromStr for Longitude {
 }
 
 impl FromStr for Location {
-    type Err = ParseErrorLocation;
+    type Err = LocationError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(':').collect::<Vec<_>>().as_slice() {
             [lat, lon] => Ok((lat.parse().inject_err().into_validated()
                 + lon.parse().inject_err())
             .into_result()?
-            .from_generic()),
-            _ => Err(ParseErrorLocation::Fmt),
+            .into_generic()),
+            _ => Err(LocationError::Fmt),
         }
     }
 }
 
 impl FromStr for Time {
-    type Err = ParseErrorTime;
+    type Err = TimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let h = |s: &str| -> Result<u8, ParseErrorTimeT> {
+        let h = |s: &str| -> Result<u8, TimeErrorT> {
             hour(s.parse::<u8>().inject_err()?).inject_err()
         };
-        let m = |s: &str| -> Result<u8, ParseErrorTimeT> {
+        let m = |s: &str| -> Result<u8, TimeErrorT> {
             minute(s.parse::<u8>().inject_err()?).inject_err()
         };
         match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
             [hour, minute] => Ok((h(hour).into_validated() + m(minute))
                 .into_result()?
-                .from_generic()),
-            _ => Err(ParseErrorTime::Fmt),
+                .into_generic()),
+            _ => Err(TimeError::Fmt),
         }
     }
 }
 
 impl FromStr for TimeOffset {
-    type Err = ParseErrorTime;
+    type Err = TimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.parse::<Time>()?.into())
     }
 }
 
-fn time_range(
-    start: &str,
-    end: &str,
-) -> Result<TimeRange, ParseErrorTimeRange> {
+fn time_range(start: &str, end: &str) -> Result<TimeRange, TimeRangeError> {
     Ok((start.parse().into_validated() + end.parse())
         .into_result()?
-        .from_generic::<(TimeOffset, TimeOffset)>()
+        .into_generic::<(TimeOffset, TimeOffset)>()
         .try_into()?)
 }
 
 impl FromStr for TimeRange {
-    type Err = ParseErrorTimeRange;
+    type Err = TimeRangeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split('-').collect::<Vec<_>>().as_slice() {
@@ -144,34 +140,34 @@ impl FromStr for TimeRange {
                 let t = time.parse::<TimeOffset>()?;
                 Ok(Self { start: t, end: t })
             }
-            _ => Err(ParseErrorTimeRange::Fmt),
+            _ => Err(TimeRangeError::Fmt),
         }
     }
 }
 
 impl FromStr for TimeRanges {
-    type Err = ParseErrorTimeRanges;
+    type Err = TimeRangesError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split('-').collect::<Vec<_>>().as_slice() {
             [dawn, dusk] => Ok((dawn.parse().into_validated() + dusk.parse())
                 .into_result()?
-                .from_generic::<(TimeRange, TimeRange)>()
+                .into_generic::<(TimeRange, TimeRange)>()
                 .try_into()?),
             [dawn_start, dawn_end, dusk_start, dusk_end] => {
                 Ok((time_range(dawn_start, dawn_end).into_validated()
                     + time_range(dusk_start, dusk_end))
                 .into_result()?
-                .from_generic::<(TimeRange, TimeRange)>()
+                .into_generic::<(TimeRange, TimeRange)>()
                 .try_into()?)
             }
-            _ => Err(ParseErrorTimeRanges::Fmt),
+            _ => Err(TimeRangesError::Fmt),
         }
     }
 }
 
 impl FromStr for Elevation {
-    type Err = ParseErrorElevation;
+    type Err = ElevationError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.trim().parse::<f64>()?.try_into()?)
@@ -179,90 +175,113 @@ impl FromStr for Elevation {
 }
 
 impl FromStr for ElevationRange {
-    type Err = ParseErrorElevationRange;
+    type Err = ElevationRangeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(':').collect::<Vec<_>>().as_slice() {
             [high, low] => Ok((high.parse().into_validated() + low.parse())
                 .into_result()?
-                .from_generic::<(Elevation, Elevation)>()
+                .into_generic::<(Elevation, Elevation)>()
                 .try_into()?),
-            _ => Err(ParseErrorElevationRange::Fmt),
+            _ => Err(ElevationRangeError::Fmt),
         }
     }
 }
 
 impl FromStr for TransitionScheme {
-    type Err = TypeParseError;
+    type Err = TransitionSchemeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Err(())
-            .or_else(|_| Ok::<_, Self::Err>(Self::Time(s.parse()?)))
-            .or_else(|_| Ok::<_, Self::Err>(Self::Elevation(s.parse()?)))
-            .map_err(|_| anyhow!("asdf"))
+            .or_else(|_| Ok(Self::Time(s.parse()?)))
+            .or_else(|e1| Ok(Self::Elev(s.parse().map_err(|e2| (e1, e2))?)))
+            .map_err(|(time, elev)| TransitionSchemeError { time, elev })
     }
 }
 
 impl FromStr for LocationProviderType {
-    type Err = TypeParseError;
+    type Err = LocationProviderError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "geoclue2" => Ok(Self::Geoclue2),
-            _ => s.parse().map(Self::Manual),
+            _ => s
+                .parse()
+                .map(Self::Manual)
+                .map_err(|loc| LocationProviderError { loc }),
         }
-        .map_err(|_| anyhow!("asdf"))
     }
 }
 
 impl FromStr for AdjustmentMethodType {
-    type Err = TypeParseError;
+    type Err = AdjustmentMethodTypeError;
 
+    #[allow(clippy::too_many_lines)]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let kind = |s: &str| match s {
+            "dummy" => Ok(Self::Dummy),
+            "drm" => Ok(Self::Drm {
+                card_num: None,
+                crtcs: vec![],
+            }),
+            "vidmode" => Ok(Self::Vidmode { screen_num: None }),
+            "randr" => Ok(Self::Randr {
+                screen_num: None,
+                crtcs: vec![],
+            }),
+            _ => Err(AdjustmentMethodTypeParamError::Kind),
+        };
+
         let num = |o: Option<&str>| match o {
-            None => Ok::<_, TypeParseError>(None),
+            None => Ok(None),
             Some(s) => Ok(Some(s.parse()?)),
         };
         let crtcs = |o: Option<&str>| match o {
             None => Ok(Vec::new()),
-            Some(s) => s
-                .split(',')
-                .map(|s| Ok(s.trim().parse()?))
-                .collect::<Result<Vec<_>>>(),
+            Some(s) => {
+                Ok(s.split(',').map(|s| s.trim().parse()).collect_result()?)
+            }
         };
 
-        let drm = |n: Option<&str>, c: Option<&str>| {
-            Ok(Self::Drm {
-                card_num: num(n)?,
-                crtcs: crtcs(c)?,
-            })
-        };
-        let randr = |n: Option<&str>, c: Option<&str>| {
-            Ok(Self::Randr {
-                screen_num: num(n)?,
-                crtcs: crtcs(c)?,
-            })
+        let f = |k: &str, n: Option<&str>, c: Option<&str>| {
+            let (mut k, n, c) = (kind(k).into_validated() + num(n) + crtcs(c))
+                .into_result()?
+                .into_generic::<(_, _, _)>();
+            match &mut k {
+                AdjustmentMethodType::Dummy => {}
+                AdjustmentMethodType::Drm { card_num, crtcs } => {
+                    *card_num = n;
+                    *crtcs = c;
+                }
+                AdjustmentMethodType::Randr { screen_num, crtcs } => {
+                    *screen_num = n;
+                    *crtcs = c;
+                }
+                AdjustmentMethodType::Vidmode { screen_num } => {
+                    *screen_num = n;
+                    if !c.is_empty() {
+                        Err(AdjustmentMethodTypeError::CrtcOnVidmode)?
+                    }
+                }
+            };
+            Ok(k)
         };
 
         match s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
-            ["dummy"] => Ok(Self::Dummy),
-            ["drm"] => drm(None, None),
-            ["drm", n] => drm(Some(n), None),
-            ["drm", n, c] => drm(Some(n), Some(c)),
-            ["vidmode"] => Ok(Self::Vidmode { screen_num: None }),
-            ["vidmode", n] => Ok(Self::Vidmode {
-                screen_num: Some(n.parse()?),
-            }),
-            ["randr"] => randr(None, None),
-            ["randr", n] => randr(Some(n), None),
-            ["randr", n, c] => randr(Some(n), Some(c)),
-            _ => Err(anyhow!("method")),
+            [k] => f(k, None, None),
+            [k, n] => f(k, Some(n), None),
+            [k, n, c] => f(k, Some(n), Some(c)),
+            _ => Err(AdjustmentMethodTypeError::Fmt),
         }
     }
 }
 
-impl<T: Clone + FromStr<Err = TypeParseError>> FromStr for DayNight<T> {
-    type Err = TypeParseError;
+impl<E, T> FromStr for DayNight<T>
+where
+    E: DayNightErrorType,
+    T: Clone + FromStr<Err = E>,
+{
+    type Err = DayNightError<E>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split('-').collect::<Vec<_>>().as_slice() {
@@ -273,11 +292,10 @@ impl<T: Clone + FromStr<Err = TypeParseError>> FromStr for DayNight<T> {
                     night: day_night,
                 })
             }
-            [day, night] => Ok(Self {
-                day: day.parse()?,
-                night: night.parse()?,
-            }),
-            _ => Err(anyhow!("day_night")),
+            [day, night] => Ok((day.parse().into_validated() + night.parse())
+                .into_result()?
+                .into_generic()),
+            _ => Err(DayNightError::Fmt),
         }
     }
 }

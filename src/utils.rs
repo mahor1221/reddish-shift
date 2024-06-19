@@ -1,4 +1,5 @@
 use frunk::Generic;
+use itertools::Itertools;
 
 pub trait IsDefault {
     fn is_default(&self) -> bool;
@@ -10,13 +11,13 @@ impl<T: Default + PartialEq> IsDefault for T {
 }
 
 /// Does the same thing as [frunk::from_generic]
-pub trait FromGeneric {
-    fn from_generic<Dst>(self) -> Dst
+pub trait IntoGeneric {
+    fn into_generic<Dst>(self) -> Dst
     where
         Dst: Generic<Repr = Self>;
 }
-impl<Repr> FromGeneric for Repr {
-    fn from_generic<Dst>(self) -> Dst
+impl<Repr> IntoGeneric for Repr {
+    fn into_generic<Dst>(self) -> Dst
     where
         Dst: Generic<Repr = Self>,
     {
@@ -55,3 +56,20 @@ macro_rules! Coprod {
 //         self.map_err(|e| f(CoprodInjector::inject(e)))
 //     }
 // }
+
+pub trait CollectResult<T, E> {
+    fn collect_result(self) -> Result<Vec<T>, Vec<E>>;
+}
+impl<I, T, E> CollectResult<T, E> for I
+where
+    I: Itertools<Item = Result<T, E>>,
+{
+    fn collect_result(self) -> Result<Vec<T>, Vec<E>> {
+        let (v, e): (Vec<T>, Vec<E>) = self.partition_result();
+        if e.is_empty() {
+            Ok(v)
+        } else {
+            Err(e)
+        }
+    }
+}

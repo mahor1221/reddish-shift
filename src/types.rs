@@ -19,8 +19,8 @@
 use crate::{
     calc_solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
     coproduct::InjectErr,
-    error::*,
-    utils::FromGeneric,
+    error::{types::*, LocationProviderError},
+    utils::IntoGeneric,
     LocationProvider, Provider,
 };
 use chrono::{DateTime, Local, NaiveTime, Timelike};
@@ -125,7 +125,7 @@ pub enum Mode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransitionScheme {
     Time(TimeRanges),
-    Elevation(ElevationRange),
+    Elev(ElevationRange),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -162,7 +162,7 @@ pub enum Period {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Generic)]
 pub struct DayNight<T> {
     pub day: T,
     pub night: T,
@@ -237,7 +237,7 @@ impl ColorSettings {
 
 impl Default for TransitionScheme {
     fn default() -> Self {
-        Self::Elevation(Default::default())
+        Self::Elev(Default::default())
     }
 }
 
@@ -255,40 +255,40 @@ impl Default for Period {
 
 //
 
-pub fn gamma(n: f64) -> Result<f64, TypeErrorGamma> {
+pub fn gamma(n: f64) -> Result<f64, GammaError> {
     if (MIN_GAMMA..=MAX_GAMMA).contains(&n) {
         Ok(n)
     } else {
-        Err(TypeErrorGamma(n))
+        Err(GammaError(n))
     }
 }
 
 impl TryFrom<u16> for Temperature {
-    type Error = TypeErrorTemperature;
+    type Error = TemperatureError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
         if (MIN_TEMPERATURE..=MAX_TEMPERATURE).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorTemperature(n))
+            Err(TemperatureError(n))
         }
     }
 }
 
 impl TryFrom<f64> for Brightness {
-    type Error = TypeErrorBrightness;
+    type Error = BrightnessError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         if (MIN_BRIGHTNESS..=MAX_BRIGHTNESS).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorBrightness(n))
+            Err(BrightnessError(n))
         }
     }
 }
 
 impl TryFrom<f64> for Gamma {
-    type Error = TypeErrorGamma;
+    type Error = GammaError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         Ok(Self([gamma(n)?; 3]))
@@ -296,87 +296,87 @@ impl TryFrom<f64> for Gamma {
 }
 
 impl TryFrom<(f64, f64, f64)> for Gamma {
-    type Error = TypeErrorGammaRgb;
+    type Error = GammaRgbError;
 
     fn try_from((r, g, b): (f64, f64, f64)) -> Result<Self, Self::Error> {
         let (r, g, b) = (gamma(r).into_validated() + gamma(g) + gamma(b))
             .into_result()?
-            .from_generic();
+            .into_generic();
         Ok(Self([r, g, b]))
     }
 }
 
 impl TryFrom<f64> for Latitude {
-    type Error = TypeErrorLatitude;
+    type Error = LatitudeError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         if (MIN_LATITUDE..=MAX_LATITUDE).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorLatitude(n))
+            Err(LatitudeError(n))
         }
     }
 }
 
 impl TryFrom<f64> for Longitude {
-    type Error = TypeErrorLongitude;
+    type Error = LongitudeError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         if (MIN_LONGITUDE..=MAX_LONGITUDE).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorLongitude(n))
+            Err(LongitudeError(n))
         }
     }
 }
 
 impl TryFrom<f64> for Elevation {
-    type Error = TypeErrorElevation;
+    type Error = ElevationError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         if (MIN_ELEVATION..=MAX_ELEVATION).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorElevation(n))
+            Err(ElevationError(n))
         }
     }
 }
 
 impl TryFrom<(f64, f64)> for Location {
-    type Error = TypeErrorLocation;
+    type Error = LocationError;
 
     fn try_from((lat, lon): (f64, f64)) -> Result<Self, Self::Error> {
         Ok((lat.try_into().inject_err().into_validated()
             + lon.try_into().inject_err())
         .into_result()?
-        .from_generic())
+        .into_generic())
     }
 }
 
-pub fn hour(h: u8) -> Result<u8, TypeErrorHour> {
+pub fn hour(h: u8) -> Result<u8, HourError> {
     if h < 24 {
         Ok(h)
     } else {
-        Err(TypeErrorHour(h))
+        Err(HourError(h))
     }
 }
 
-pub fn minute(m: u8) -> Result<u8, TypeErrorMinute> {
+pub fn minute(m: u8) -> Result<u8, MinuteError> {
     if m < 24 {
         Ok(m)
     } else {
-        Err(TypeErrorMinute(m))
+        Err(MinuteError(m))
     }
 }
 
 impl TryFrom<(u8, u8)> for Time {
-    type Error = TypeErrorTime;
+    type Error = TimeError;
 
     fn try_from((h, m): (u8, u8)) -> Result<Self, Self::Error> {
         let time = (hour(h).inject_err().into_validated()
             + minute(m).inject_err())
         .into_result()?
-        .from_generic();
+        .into_generic();
         Ok(time)
     }
 }
@@ -397,7 +397,7 @@ impl From<TimeOffset> for Time {
 }
 
 impl TryFrom<(TimeOffset, TimeOffset)> for TimeRange {
-    type Error = TypeErrorTimeRange;
+    type Error = TimeRangeError;
 
     fn try_from(
         (start, end): (TimeOffset, TimeOffset),
@@ -405,13 +405,13 @@ impl TryFrom<(TimeOffset, TimeOffset)> for TimeRange {
         if start <= end {
             Ok(Self { start, end })
         } else {
-            Err(TypeErrorTimeRange { start, end })
+            Err(TimeRangeError { start, end })
         }
     }
 }
 
 impl TryFrom<(TimeRange, TimeRange)> for TimeRanges {
-    type Error = TypeErrorTimeRanges;
+    type Error = TimeRangesError;
 
     fn try_from(
         (dawn, dusk): (TimeRange, TimeRange),
@@ -419,7 +419,7 @@ impl TryFrom<(TimeRange, TimeRange)> for TimeRanges {
         if dawn.end < dusk.start {
             Ok(Self { dawn, dusk })
         } else {
-            Err(TypeErrorTimeRanges {
+            Err(TimeRangesError {
                 dawn_end: dawn.end,
                 dusk_start: dusk.start,
             })
@@ -428,7 +428,7 @@ impl TryFrom<(TimeRange, TimeRange)> for TimeRanges {
 }
 
 impl TryFrom<(Elevation, Elevation)> for ElevationRange {
-    type Error = TypeErrorElevationRange;
+    type Error = ElevationRangeError;
 
     fn try_from(
         (high, low): (Elevation, Elevation),
@@ -436,13 +436,13 @@ impl TryFrom<(Elevation, Elevation)> for ElevationRange {
         if high >= low {
             Ok(Self { high, low })
         } else {
-            Err(TypeErrorElevationRange { high, low })
+            Err(ElevationRangeError { high, low })
         }
     }
 }
 
 impl TryFrom<u16> for TemperatureRange {
-    type Error = TypeErrorTemperature;
+    type Error = TemperatureError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
         let t = Temperature::try_from(n)?;
@@ -451,7 +451,7 @@ impl TryFrom<u16> for TemperatureRange {
 }
 
 impl TryFrom<f64> for BrightnessRange {
-    type Error = TypeErrorBrightness;
+    type Error = BrightnessError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         let t = Brightness::try_from(n)?;
@@ -460,7 +460,7 @@ impl TryFrom<f64> for BrightnessRange {
 }
 
 impl TryFrom<f64> for GammaRange {
-    type Error = TypeErrorGamma;
+    type Error = GammaError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         let t = Gamma::try_from(n)?;
@@ -469,13 +469,13 @@ impl TryFrom<f64> for GammaRange {
 }
 
 impl TryFrom<f64> for Alpha {
-    type Error = TypeErrorAlpha;
+    type Error = AlphaError;
 
     fn try_from(n: f64) -> Result<Self, Self::Error> {
         if (0.0..=1.0).contains(&n) {
             Ok(Self(n))
         } else {
-            Err(TypeErrorAlpha(n))
+            Err(AlphaError(n))
         }
     }
 }
@@ -614,7 +614,7 @@ impl Period {
         datetime: impl Fn() -> DateTime<Local>,
     ) -> Result<(Self, PeriodInfo), LocationProviderError> {
         match scheme {
-            TransitionScheme::Elevation(elev_range) => {
+            TransitionScheme::Elev(elev_range) => {
                 let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)
                     .num_seconds() as f64;
                 let here = location.get()?;

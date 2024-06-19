@@ -74,7 +74,7 @@ fn main() -> Result<()> {
 
     if let (
         Mode::Daemon | Mode::Oneshot,
-        TransitionScheme::Elevation(_),
+        TransitionScheme::Elev(_),
         LocationProvider::Manual(l),
     ) = (&c.mode, &c.scheme, &c.location)
     {

@@ -187,7 +187,7 @@ impl Display for Config {
             }) => {
                 writeln!(f, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
             }
-            TransitionScheme::Elevation(ElevationRange { high, .. }) => {
+            TransitionScheme::Elev(ElevationRange { high, .. }) => {
                 writeln!(
                     f,
                     "    {BODY}Solar elevation{BODY:#}: above {high}"
@@ -204,7 +204,7 @@ impl Display for Config {
             }) => {
                 writeln!(f, "    {BODY}Time{BODY:#}: from {end} to {start}")?;
             }
-            TransitionScheme::Elevation(ElevationRange { low, .. }) => {
+            TransitionScheme::Elev(ElevationRange { low, .. }) => {
                 writeln!(f, "    {BODY}Solar elevation{BODY:#}: below {low}")?;
             }
         }

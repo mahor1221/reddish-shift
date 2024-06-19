@@ -8,194 +8,19 @@ use crate::{
     Coprod,
 };
 use core::fmt;
-use std::{
-    fmt::{Display, Formatter},
-    num::{ParseFloatError, ParseIntError},
-};
+use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-struct VecError<E>(Vec<E>);
+pub struct VecError<E>(Vec<E>);
 impl<E: Display> Display for VecError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Ok(for i in &self.0 {
+        for i in &self.0 {
             writeln!(f, "{i}")?;
-        })
+        }
+        Ok(())
     }
 }
-
-// TypeError
-
-#[rustfmt::skip]
-#[derive(Debug, Error)]
-#[error("Temperature must be between {MIN_TEMPERATURE}K and {MAX_TEMPERATURE}K")]
-pub struct TypeErrorTemperature(pub u16);
-
-#[derive(Debug, Error)]
-#[error("Brightness must be between {MIN_BRIGHTNESS} and {MAX_BRIGHTNESS}")]
-pub struct TypeErrorBrightness(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Gamma must be between {MIN_GAMMA} and {MAX_GAMMA}")]
-pub struct TypeErrorGamma(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Latitude must be between {MAX_LATITUDE}° and {MIN_LATITUDE}°")]
-pub struct TypeErrorLatitude(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Longitude must be between {MAX_LONGITUDE}° and {MIN_LONGITUDE}°")]
-pub struct TypeErrorLongitude(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Elevation must be between {MAX_ELEVATION}° and {MIN_ELEVATION}°")]
-pub struct TypeErrorElevation(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Hour must be between 0 and 23")]
-pub struct TypeErrorHour(pub u8);
-
-#[derive(Debug, Error)]
-#[error("Minute must be between 0 and 59")]
-pub struct TypeErrorMinute(pub u8);
-
-#[derive(Debug, Error)]
-#[error("Alpha must be between 0.0 and 1.0")]
-pub struct TypeErrorAlpha(pub f64);
-
-#[derive(Debug, Error)]
-#[error("Starting time must be earlier than ending time: {start}-{end}")]
-pub struct TypeErrorTimeRange {
-    pub start: TimeOffset,
-    pub end: TimeOffset,
-}
-
-#[derive(Debug, Error)]
-#[error("dawn.end < dusk.start")]
-pub struct TypeErrorTimeRanges {
-    pub dawn_end: TimeOffset,
-    pub dusk_start: TimeOffset,
-}
-
-#[derive(Debug, Error)]
-#[error("High transition elevation cannot be lower than the low transition elevation")]
-pub struct TypeErrorElevationRange {
-    pub high: Elevation,
-    pub low: Elevation,
-}
-
-type TypeErrorGammaRgbT = TypeErrorGamma;
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub struct TypeErrorGammaRgb(#[from] VecError<TypeErrorGammaRgbT>);
-
-type TypeErrorTimeT = Coprod!(TypeErrorHour, TypeErrorMinute);
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub struct TypeErrorTime(#[from] VecError<TypeErrorTimeT>);
-
-type TypeErrorLocationT = Coprod!(TypeErrorLatitude, TypeErrorLongitude);
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub struct TypeErrorLocation(#[from] VecError<TypeErrorLocationT>);
-
-// ParseError
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorTemperature {
-    Parse(#[from] ParseIntError),
-    Type(#[from] TypeErrorTemperature),
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorBrightness {
-    Parse(#[from] ParseFloatError),
-    Type(#[from] TypeErrorBrightness),
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorLatitude {
-    Parse(#[from] ParseFloatError),
-    Type(#[from] TypeErrorLatitude),
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorLongitude {
-    Parse(#[from] ParseFloatError),
-    Type(#[from] TypeErrorLongitude),
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorElevation {
-    Parse(#[from] ParseFloatError),
-    Type(#[from] TypeErrorElevation),
-}
-
-type ParseErrorLocationT = Coprod!(ParseErrorLatitude, ParseErrorLongitude);
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorLocation {
-    Vec(#[from] VecError<ParseErrorLocationT>),
-    #[error("")]
-    Fmt,
-}
-
-pub type ParseErrorGamma = Coprod!(ParseFloatError, TypeErrorGamma);
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorGammaRgb {
-    Vec(#[from] VecError<ParseErrorGamma>),
-    Single(#[from] ParseErrorGamma),
-    #[error("")]
-    Fmt,
-}
-
-pub type ParseErrorTimeT =
-    Coprod!(ParseIntError, TypeErrorHour, TypeErrorMinute);
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorTime {
-    Vec(#[from] VecError<ParseErrorTimeT>),
-    #[error("")]
-    Fmt,
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorTimeRange {
-    Vec(#[from] VecError<ParseErrorTime>),
-    Single(#[from] ParseErrorTime),
-    Type(#[from] TypeErrorTimeRange),
-    #[error("")]
-    Fmt,
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorTimeRanges {
-    Vec(#[from] VecError<ParseErrorTimeRange>),
-    Type(#[from] TypeErrorTimeRanges),
-    #[error("")]
-    Fmt,
-}
-
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ParseErrorElevationRange {
-    Vec(#[from] VecError<ParseErrorElevation>),
-    Type(#[from] TypeErrorElevationRange),
-    #[error("")]
-    Fmt,
-}
-
-pub enum ParseErrorTransitionScheme {}
-
-//
 
 #[derive(Debug, Error)]
 #[error("WIP")]
@@ -205,58 +30,299 @@ pub struct LocationProviderError;
 #[derive(Debug, Error)]
 pub enum AdjustmentMethodError {}
 
-//
+pub mod types {
+    use super::*;
 
-impl From<Vec<TypeErrorGammaRgbT>> for TypeErrorGammaRgb {
-    fn from(v: Vec<TypeErrorGammaRgbT>) -> Self {
-        Self(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("Temperature must be between {MIN_TEMPERATURE}K and {MAX_TEMPERATURE}K")]
+    pub struct TemperatureError(pub u16);
+
+    #[rustfmt::skip]
+    #[derive(Debug, Error)]
+    #[error("Brightness must be between {MIN_BRIGHTNESS} and {MAX_BRIGHTNESS}")]
+    pub struct BrightnessError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Gamma must be between {MIN_GAMMA} and {MAX_GAMMA}")]
+    pub struct GammaError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Latitude must be between {MAX_LATITUDE}° and {MIN_LATITUDE}°")]
+    pub struct LatitudeError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Longitude must be between {MAX_LONGITUDE}° and {MIN_LONGITUDE}°")]
+    pub struct LongitudeError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Elevation must be between {MAX_ELEVATION}° and {MIN_ELEVATION}°")]
+    pub struct ElevationError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Hour must be between 0 and 23")]
+    pub struct HourError(pub u8);
+
+    #[derive(Debug, Error)]
+    #[error("Minute must be between 0 and 59")]
+    pub struct MinuteError(pub u8);
+
+    #[derive(Debug, Error)]
+    #[error("Alpha must be between 0.0 and 1.0")]
+    pub struct AlphaError(pub f64);
+
+    #[derive(Debug, Error)]
+    #[error("Starting time must be earlier than ending time: {start}-{end}")]
+    pub struct TimeRangeError {
+        pub start: TimeOffset,
+        pub end: TimeOffset,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("dawn.end < dusk.start")]
+    pub struct TimeRangesError {
+        pub dawn_end: TimeOffset,
+        pub dusk_start: TimeOffset,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("High transition elevation cannot be lower than the low transition elevation")]
+    pub struct ElevationRangeError {
+        pub high: Elevation,
+        pub low: Elevation,
+    }
+
+    type GammaRgbErrorT = GammaError;
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub struct GammaRgbError(#[from] VecError<GammaRgbErrorT>);
+
+    type TimeErrorT = Coprod!(HourError, MinuteError);
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub struct TimeError(#[from] VecError<TimeErrorT>);
+
+    type LocationT = Coprod!(LatitudeError, LongitudeError);
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub struct LocationError(#[from] VecError<LocationT>);
+
+    impl From<Vec<GammaRgbErrorT>> for GammaRgbError {
+        fn from(v: Vec<GammaRgbErrorT>) -> Self {
+            Self(VecError(v))
+        }
+    }
+
+    impl From<Vec<LocationT>> for LocationError {
+        fn from(v: Vec<LocationT>) -> Self {
+            Self(VecError(v))
+        }
+    }
+
+    impl From<Vec<TimeErrorT>> for TimeError {
+        fn from(v: Vec<TimeErrorT>) -> Self {
+            Self(VecError(v))
+        }
     }
 }
 
-impl From<Vec<TypeErrorLocationT>> for TypeErrorLocation {
-    fn from(v: Vec<TypeErrorLocationT>) -> Self {
-        Self(VecError(v))
-    }
-}
+pub mod parse {
+    use super::{types, VecError};
+    use crate::Coprod;
+    use std::{
+        error::Error,
+        num::{ParseFloatError, ParseIntError},
+    };
+    use thiserror::Error;
 
-impl From<Vec<TypeErrorTimeT>> for TypeErrorTime {
-    fn from(v: Vec<TypeErrorTimeT>) -> Self {
-        Self(VecError(v))
+    pub trait DayNightErrorType: Error {}
+    #[derive(Debug, Error)]
+    #[error("")]
+    pub enum DayNightError<E: DayNightErrorType> {
+        Multiple(#[from] VecError<E>),
+        Single(#[from] E),
+        #[error("")]
+        Fmt,
     }
-}
 
-impl From<Vec<ParseErrorGamma>> for ParseErrorGammaRgb {
-    fn from(v: Vec<ParseErrorGamma>) -> Self {
-        Self::Vec(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum TemperatureError {
+        Parse(#[from] ParseIntError),
+        Type(#[from] types::TemperatureError),
     }
-}
+    impl DayNightErrorType for TemperatureError {}
 
-impl From<Vec<ParseErrorLocationT>> for ParseErrorLocation {
-    fn from(v: Vec<ParseErrorLocationT>) -> Self {
-        Self::Vec(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum BrightnessError {
+        Parse(#[from] ParseFloatError),
+        Type(#[from] types::BrightnessError),
     }
-}
+    impl DayNightErrorType for BrightnessError {}
 
-impl From<Vec<ParseErrorTimeT>> for ParseErrorTime {
-    fn from(v: Vec<ParseErrorTimeT>) -> Self {
-        Self::Vec(VecError(v))
+    pub type GammaError = Coprod!(ParseFloatError, types::GammaError);
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum GammaRgbError {
+        Multiple(#[from] VecError<GammaError>),
+        Single(#[from] GammaError),
+        #[error("")]
+        Fmt,
     }
-}
+    impl DayNightErrorType for GammaRgbError {}
 
-impl From<Vec<ParseErrorTime>> for ParseErrorTimeRange {
-    fn from(v: Vec<ParseErrorTime>) -> Self {
-        Self::Vec(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum LatitudeError {
+        Parse(#[from] ParseFloatError),
+        Type(#[from] types::LatitudeError),
     }
-}
 
-impl From<Vec<ParseErrorTimeRange>> for ParseErrorTimeRanges {
-    fn from(v: Vec<ParseErrorTimeRange>) -> Self {
-        Self::Vec(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum LongitudeError {
+        Parse(#[from] ParseFloatError),
+        Type(#[from] types::LongitudeError),
     }
-}
 
-impl From<Vec<ParseErrorElevation>> for ParseErrorElevationRange {
-    fn from(v: Vec<ParseErrorElevation>) -> Self {
-        Self::Vec(VecError(v))
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum ElevationError {
+        Parse(#[from] ParseFloatError),
+        Type(#[from] types::ElevationError),
+    }
+
+    type LocationErrorT = Coprod!(LatitudeError, LongitudeError);
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum LocationError {
+        Multiple(#[from] VecError<LocationErrorT>),
+        #[error("")]
+        Fmt,
+    }
+
+    pub type TimeErrorT =
+        Coprod!(ParseIntError, types::HourError, types::MinuteError);
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum TimeError {
+        Multiple(#[from] VecError<TimeErrorT>),
+        #[error("")]
+        Fmt,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum TimeRangeError {
+        Multiple(#[from] VecError<TimeError>),
+        Single(#[from] TimeError),
+        Type(#[from] types::TimeRangeError),
+        #[error("")]
+        Fmt,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum TimeRangesError {
+        Multiple(#[from] VecError<TimeRangeError>),
+        Type(#[from] types::TimeRangesError),
+        #[error("")]
+        Fmt,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum ElevationRangeError {
+        Multiple(#[from] VecError<ElevationError>),
+        Type(#[from] types::ElevationRangeError),
+        #[error("")]
+        Fmt,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{time}\n{elev}")]
+    pub struct TransitionSchemeError {
+        pub time: TimeRangesError,
+        pub elev: ElevationRangeError,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{loc}")]
+    pub struct LocationProviderError {
+        pub loc: LocationError,
+    }
+
+    #[derive(Debug, Error)]
+    pub enum AdjustmentMethodTypeParamError {
+        #[error("")]
+        Kind,
+        #[error("")]
+        Display(#[from] ParseIntError),
+        #[error("")]
+        Crtcs(#[from] VecError<ParseIntError>),
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum AdjustmentMethodTypeError {
+        Vec(#[from] VecError<AdjustmentMethodTypeParamError>),
+        #[error("")]
+        Fmt,
+        #[error("")]
+        CrtcOnVidmode,
+    }
+
+    impl<E: DayNightErrorType> From<Vec<E>> for DayNightError<E> {
+        fn from(v: Vec<E>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<GammaError>> for GammaRgbError {
+        fn from(v: Vec<GammaError>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<LocationErrorT>> for LocationError {
+        fn from(v: Vec<LocationErrorT>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<TimeErrorT>> for TimeError {
+        fn from(v: Vec<TimeErrorT>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<TimeError>> for TimeRangeError {
+        fn from(v: Vec<TimeError>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<TimeRangeError>> for TimeRangesError {
+        fn from(v: Vec<TimeRangeError>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<ElevationError>> for ElevationRangeError {
+        fn from(v: Vec<ElevationError>) -> Self {
+            Self::Multiple(VecError(v))
+        }
+    }
+
+    impl From<Vec<ParseIntError>> for AdjustmentMethodTypeParamError {
+        fn from(v: Vec<ParseIntError>) -> Self {
+            Self::Crtcs(VecError(v))
+        }
+    }
+
+    impl From<Vec<AdjustmentMethodTypeParamError>> for AdjustmentMethodTypeError {
+        fn from(v: Vec<AdjustmentMethodTypeParamError>) -> Self {
+            Self::Vec(VecError(v))
+        }
     }
 }

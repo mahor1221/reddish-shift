@@ -69,6 +69,9 @@
 //! # }
 //! ```
 
+#![allow(clippy::panic)]
+#![allow(clippy::too_many_lines)]
+
 use core::fmt;
 use frunk::hlist::{HCons, HNil};
 use frunk::indices::{Here, There};
@@ -1504,8 +1507,8 @@ mod tests {
             assert_eq!(
                 out_c,
                 Coproduct::Inr(Coproduct::Inr(Coproduct::Inl(C)))
-            );
-        }
+            )
+        };
 
         #[allow(clippy::upper_case_acronyms)]
         {

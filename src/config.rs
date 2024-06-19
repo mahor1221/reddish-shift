@@ -21,6 +21,7 @@ use crate::{
         CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, InfoLevel,
         ModeArgs, Verbosity,
     },
+    error::parse::DayNightErrorType,
     types::{
         AdjustmentMethodType, BrightnessRange, ColorSettings, DayNight,
         GammaRange, LocationProviderType, Mode, TemperatureRange,
@@ -525,9 +526,10 @@ where
     }
 }
 
-impl<'de, T> Deserialize<'de> for DayNight<T>
+impl<'de, E, T> Deserialize<'de> for DayNight<T>
 where
-    T: Clone + FromStr<Err = anyhow::Error>,
+    E: DayNightErrorType,
+    T: Clone + FromStr<Err = E>,
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         String::deserialize(d)?.parse().map_err(de::Error::custom)
