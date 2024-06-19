@@ -16,168 +16,184 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::types::{
-    AdjustmentMethodType, Brightness, DayNight, Elevation, ElevationRange,
-    Gamma, Latitude, Location, LocationProviderType, Longitude, Temperature,
-    Time, TimeOffset, TimeRange, TimeRanges, TransitionScheme,
+use frunk::validated::IntoValidated;
+
+use crate::{
+    coproduct::InjectErr,
+    error::*,
+    types::{
+        gamma, hour, minute, AdjustmentMethodType, Brightness, DayNight,
+        Elevation, ElevationRange, Gamma, Latitude, Location,
+        LocationProviderType, Longitude, Temperature, Time, TimeOffset,
+        TimeRange, TimeRanges, TransitionScheme,
+    },
+    utils::FromGeneric,
 };
-use anyhow::{anyhow, Result};
 use std::str::FromStr;
 
-//
-
 impl FromStr for Temperature {
-    type Err = anyhow::Error;
+    type Err = ParseErrorTemperature;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<u16>()?.try_into()
+        Ok(s.trim().parse::<u16>()?.try_into()?)
     }
 }
 
 impl FromStr for Brightness {
-    type Err = anyhow::Error;
+    type Err = ParseErrorBrightness;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f64>()?.try_into()
+        Ok(s.trim().parse::<f64>()?.try_into()?)
     }
 }
 
 impl FromStr for Gamma {
-    type Err = anyhow::Error;
+    type Err = ParseErrorGammaRgb;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let f = |s: &str| -> Result<f64, ParseErrorGamma> {
+            gamma(s.parse::<f64>().inject_err()?).inject_err()
+        };
+
         match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
-            [r, g, b] => {
-                [r.parse::<f64>()?, g.parse::<f64>()?, b.parse::<f64>()?]
-                    .try_into()
-            }
-            [rbg] => rbg.parse::<f64>()?.try_into(),
-            _ => Err(anyhow!("gamma")),
+            [r, g, b] => Ok((f(r).into_validated() + f(g) + f(b))
+                .into_result()?
+                .from_generic::<(f64, f64, f64)>()
+                .try_into()
+                .unwrap_or_else(|_| unreachable!())),
+            [rbg] => Ok(f(rbg)?.try_into().unwrap_or_else(|_| unreachable!())),
+            _ => Err(ParseErrorGammaRgb::Fmt),
         }
     }
 }
 
 impl FromStr for Latitude {
-    type Err = anyhow::Error;
+    type Err = ParseErrorLatitude;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f64>()?.try_into()
+        Ok(s.trim().parse::<f64>()?.try_into()?)
     }
 }
 
 impl FromStr for Longitude {
-    type Err = anyhow::Error;
+    type Err = ParseErrorLongitude;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f64>()?.try_into()
+        Ok(s.trim().parse::<f64>()?.try_into()?)
     }
 }
 
 impl FromStr for Location {
-    type Err = anyhow::Error;
+    type Err = ParseErrorLocation;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(':').collect::<Vec<_>>().as_slice() {
-            [lat, lon] => Ok(Self {
-                lat: lat.parse()?,
-                lon: lon.parse()?,
-            }),
-            _ => Err(anyhow!("location")),
+            [lat, lon] => Ok((lat.parse().inject_err().into_validated()
+                + lon.parse().inject_err())
+            .into_result()?
+            .from_generic()),
+            _ => Err(ParseErrorLocation::Fmt),
         }
     }
 }
 
 impl FromStr for Time {
-    type Err = anyhow::Error;
+    type Err = ParseErrorTime;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let h = |s: &str| -> Result<u8, ParseErrorTimeT> {
+            hour(s.parse::<u8>().inject_err()?).inject_err()
+        };
+        let m = |s: &str| -> Result<u8, ParseErrorTimeT> {
+            minute(s.parse::<u8>().inject_err()?).inject_err()
+        };
         match *s.split(':').map(str::trim).collect::<Vec<_>>().as_slice() {
-            [h, m] => (h.parse()?, m.parse()?).try_into(),
-            _ => Err(anyhow!("time")),
+            [hour, minute] => Ok((h(hour).into_validated() + m(minute))
+                .into_result()?
+                .from_generic()),
+            _ => Err(ParseErrorTime::Fmt),
         }
     }
 }
 
 impl FromStr for TimeOffset {
-    type Err = anyhow::Error;
+    type Err = ParseErrorTime;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(s.parse::<Time>()?.into())
     }
 }
 
-impl FromStr for Elevation {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.trim().parse::<f64>()?.try_into()
-    }
+fn time_range(
+    start: &str,
+    end: &str,
+) -> Result<TimeRange, ParseErrorTimeRange> {
+    Ok((start.parse().into_validated() + end.parse())
+        .into_result()?
+        .from_generic::<(TimeOffset, TimeOffset)>()
+        .try_into()?)
 }
 
 impl FromStr for TimeRange {
-    type Err = anyhow::Error;
+    type Err = ParseErrorTimeRange;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split('-').collect::<Vec<_>>().as_slice() {
-            [start, end] => {
-                (start.parse::<TimeOffset>()?, end.parse::<TimeOffset>()?)
-                    .try_into()
-            }
+            [start, end] => time_range(start, end),
             [time] => {
                 let t = time.parse::<TimeOffset>()?;
                 Ok(Self { start: t, end: t })
             }
-            _ => Err(anyhow!("time_range")),
+            _ => Err(ParseErrorTimeRange::Fmt),
         }
     }
 }
 
 impl FromStr for TimeRanges {
-    type Err = anyhow::Error;
+    type Err = ParseErrorTimeRanges;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let time = match *s.split('-').collect::<Vec<_>>().as_slice() {
-            [dawn, dusk] => Self {
-                dawn: dawn.parse()?,
-                dusk: dusk.parse()?,
-            },
-            [dawn_start, dawn_end, dusk_start, dusk_end] => Self {
-                dawn: (dawn_start.parse()?, dawn_end.parse()?).try_into()?,
-                dusk: (dusk_start.parse()?, dusk_end.parse()?).try_into()?,
-            },
-            _ => Err(anyhow!("time_ranges"))?,
-        };
-
-        if time.dawn.end < time.dusk.start {
-            Ok(time)
-        } else {
-            Err(anyhow!("time_ranges"))
+        match *s.split('-').collect::<Vec<_>>().as_slice() {
+            [dawn, dusk] => Ok((dawn.parse().into_validated() + dusk.parse())
+                .into_result()?
+                .from_generic::<(TimeRange, TimeRange)>()
+                .try_into()?),
+            [dawn_start, dawn_end, dusk_start, dusk_end] => {
+                Ok((time_range(dawn_start, dawn_end).into_validated()
+                    + time_range(dusk_start, dusk_end))
+                .into_result()?
+                .from_generic::<(TimeRange, TimeRange)>()
+                .try_into()?)
+            }
+            _ => Err(ParseErrorTimeRanges::Fmt),
         }
     }
 }
 
+impl FromStr for Elevation {
+    type Err = ParseErrorElevation;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(s.trim().parse::<f64>()?.try_into()?)
+    }
+}
+
 impl FromStr for ElevationRange {
-    type Err = anyhow::Error;
+    type Err = ParseErrorElevationRange;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split(':').collect::<Vec<_>>().as_slice() {
-            [high, low] => {
-                let high = high.parse()?;
-                let low = low.parse()?;
-                if high >= low {
-                    Ok(Self { high, low })
-                } else {
-                    // b"High transition elevation cannot be lower than the low transition elevation.\n\0"
-                    Err(anyhow!("elevation"))
-                }
-            }
-            _ => Err(anyhow!("elevation")),
+            [high, low] => Ok((high.parse().into_validated() + low.parse())
+                .into_result()?
+                .from_generic::<(Elevation, Elevation)>()
+                .try_into()?),
+            _ => Err(ParseErrorElevationRange::Fmt),
         }
     }
 }
 
 impl FromStr for TransitionScheme {
-    type Err = anyhow::Error;
+    type Err = TypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Err(())
@@ -188,7 +204,7 @@ impl FromStr for TransitionScheme {
 }
 
 impl FromStr for LocationProviderType {
-    type Err = anyhow::Error;
+    type Err = TypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -200,11 +216,11 @@ impl FromStr for LocationProviderType {
 }
 
 impl FromStr for AdjustmentMethodType {
-    type Err = anyhow::Error;
+    type Err = TypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let num = |o: Option<&str>| match o {
-            None => Ok::<_, anyhow::Error>(None),
+            None => Ok::<_, TypeParseError>(None),
             Some(s) => Ok(Some(s.parse()?)),
         };
         let crtcs = |o: Option<&str>| match o {
@@ -245,8 +261,8 @@ impl FromStr for AdjustmentMethodType {
     }
 }
 
-impl<T: Clone + FromStr<Err = anyhow::Error>> FromStr for DayNight<T> {
-    type Err = anyhow::Error;
+impl<T: Clone + FromStr<Err = TypeParseError>> FromStr for DayNight<T> {
+    type Err = TypeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match *s.split('-').collect::<Vec<_>>().as_slice() {

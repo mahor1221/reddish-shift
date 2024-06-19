@@ -22,13 +22,14 @@
 // TODO: add setting screen brightness, a percentage of the current brightness
 //       See: https://github.com/qualiaa/redshift-hooks
 // TODO: ? benchmark: https://github.com/nvzqz/divan
-// TODO: ? https://doc.rust-lang.org/std/backtrace/
-// TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html ?
+// TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html
 
 mod calc_colorramp;
 mod calc_solar;
 mod cli;
 mod config;
+mod coproduct;
+mod error;
 mod gamma_drm;
 mod gamma_dummy;
 mod gamma_randr;
@@ -37,13 +38,16 @@ mod location_manual;
 mod types;
 mod types_display;
 mod types_parse;
+mod utils;
 
+use error::LocationProviderError;
 pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
 pub use gamma_vidmode::Vidmode;
 pub use location_manual::Manual;
 use types::Location;
+use utils::IsDefault;
 
 use crate::{
     cli::ClapColorChoiceExt,
@@ -58,7 +62,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, SubsecRound, TimeDelta};
 use std::{
     fmt::{Debug, Write},
-    io::{self},
+    io,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
 use tracing::{info, warn, Level};
@@ -296,9 +300,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 }
 
 trait Provider {
-    fn get(&self) -> Result<Location> {
-        Err(anyhow!("Unable to get location from provider"))
-    }
+    fn get(&self) -> Result<Location, LocationProviderError>;
 }
 
 trait Adjuster {
@@ -351,18 +353,15 @@ impl Provider for Geoclue2 {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self) -> Result<Location> {
+    fn get(&self) -> Result<Location, LocationProviderError> {
         // b"Waiting for current location to become available...\n\0" as *const u8
-
         // Wait for location provider
-        // b"Unable to get location from provider.\n\0" as *const u8 as *const c_char,
-        // print_location(&mut loc);
-        Err(anyhow!("WIP"))
+        Err(LocationProviderError)
     }
 }
 
 impl Provider for LocationProvider {
-    fn get(&self) -> Result<Location> {
+    fn get(&self) -> Result<Location, LocationProviderError> {
         match self {
             Self::Manual(t) => t.get(),
             Self::Geoclue2(t) => t.get(),
@@ -396,17 +395,5 @@ impl Adjuster for AdjustmentMethod {
         //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
         //     pause();
         // }
-    }
-}
-
-//
-
-trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T: Default + PartialEq> IsDefault for T {
-    fn is_default(&self) -> bool {
-        *self == T::default()
     }
 }

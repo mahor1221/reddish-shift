@@ -18,7 +18,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{types::Location, Provider};
+use crate::{error::LocationProviderError, types::Location, Provider};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -33,7 +33,7 @@ impl Manual {
 }
 
 impl Provider for Manual {
-    fn get(&self) -> Result<Location> {
+    fn get(&self) -> Result<Location, LocationProviderError> {
         Ok(self.location)
     }
 }
