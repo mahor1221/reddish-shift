@@ -18,17 +18,20 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{types::ColorSettings, Adjuster};
-use anyhow::Result;
+use crate::{error::AdjusterError, types::ColorSettings, Adjuster};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Dummy;
 impl Adjuster for Dummy {
-    fn restore(&self) -> Result<()> {
+    fn restore(&self) -> Result<(), AdjusterError> {
         Ok(())
     }
 
-    fn set(&self, _reset_ramps: bool, _cs: &ColorSettings) -> Result<()> {
+    fn set(
+        &self,
+        _reset_ramps: bool,
+        _cs: &ColorSettings,
+    ) -> Result<(), AdjusterError> {
         Ok(())
     }
 }

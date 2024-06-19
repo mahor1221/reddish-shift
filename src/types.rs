@@ -19,7 +19,7 @@
 use crate::{
     calc_solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
     coproduct::InjectErr,
-    error::{types::*, LocationProviderError},
+    error::{types::*, ProviderError},
     utils::IntoGeneric,
     LocationProvider, Provider,
 };
@@ -612,7 +612,7 @@ impl Period {
         scheme: &TransitionScheme,
         location: &LocationProvider,
         datetime: impl Fn() -> DateTime<Local>,
-    ) -> Result<(Self, PeriodInfo), LocationProviderError> {
+    ) -> Result<(Self, PeriodInfo), ProviderError> {
         match scheme {
             TransitionScheme::Elev(elev_range) => {
                 let now = (datetime().to_utc() - DateTime::UNIX_EPOCH)

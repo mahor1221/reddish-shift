@@ -1,6 +1,8 @@
 use frunk::Generic;
 use itertools::Itertools;
 
+use crate::{coproduct::CoprodInjector, error::VecError};
+
 pub trait IsDefault {
     fn is_default(&self) -> bool;
 }
@@ -37,39 +39,39 @@ macro_rules! Coprod {
     };
 }
 
-// /// Shortcut for inject_err().map_err(..) on Result types
-// pub trait InjectMapErr<T, E> {
-//     fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>
-//     where
-//         Self: Sized,
-//         F1: CoprodInjector<E, Index>,
-//         O: FnOnce(F1) -> F2;
-// }
-// impl<T, E> InjectMapErr<T, E> for Result<T, E> {
-//     #[inline(always)]
-//     fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>
-//     where
-//         Self: Sized,
-//         F1: CoprodInjector<E, Index>,
-//         O: FnOnce(F1) -> F2,
-//     {
-//         self.map_err(|e| f(CoprodInjector::inject(e)))
-//     }
-// }
+/// Shortcut for inject_err().map_err(..) on Result types
+pub trait InjectMapErr<T, E> {
+    fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>
+    where
+        Self: Sized,
+        F1: CoprodInjector<E, Index>,
+        O: FnOnce(F1) -> F2;
+}
+impl<T, E> InjectMapErr<T, E> for Result<T, E> {
+    #[inline(always)]
+    fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>
+    where
+        Self: Sized,
+        F1: CoprodInjector<E, Index>,
+        O: FnOnce(F1) -> F2,
+    {
+        self.map_err(|e| f(CoprodInjector::inject(e)))
+    }
+}
 
 pub trait CollectResult<T, E> {
-    fn collect_result(self) -> Result<Vec<T>, Vec<E>>;
+    fn collect_result(self) -> Result<Vec<T>, VecError<E>>;
 }
 impl<I, T, E> CollectResult<T, E> for I
 where
     I: Itertools<Item = Result<T, E>>,
 {
-    fn collect_result(self) -> Result<Vec<T>, Vec<E>> {
+    fn collect_result(self) -> Result<Vec<T>, VecError<E>> {
         let (v, e): (Vec<T>, Vec<E>) = self.partition_result();
         if e.is_empty() {
             Ok(v)
         } else {
-            Err(e)
+            Err(VecError(e))
         }
     }
 }

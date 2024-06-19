@@ -48,6 +48,9 @@ pub const FADE_STEPS: u8 = 40;
 pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
 pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
+pub const RANDR_MINOR_VERSION_MIN: u32 = 3;
+pub const RANDR_MAJOR_VERSION: u32 = 1;
+
 /// Merge of cli arguments and config files from highest priority to lowest:
 /// 1. CLI arguments
 /// 2. User config file
@@ -391,18 +394,22 @@ impl ConfigFile {
         let user_config = config_path
             .map(|p| match p.is_file() {
                 true => Ok(p),
-                false => Err(ConfigFileError::ExpectedFile),
+                false => Err(ConfigFileError::PathNotFile),
             })
             .transpose()?
             .or(local_config.as_deref())
-            .ok_or(ConfigFileError::CantFindConfigDir)?;
+            .ok_or(ConfigFileError::ConfigDirNotFound)?;
 
         let mut config = Self::default();
         let mut buf = String::new();
         let mut read = |path: &Path| -> Result<(), ConfigFileError> {
             if path.is_file() {
-                File::open(path)?.read_to_string(&mut buf)?;
-                let cfg = toml::from_str(&buf)?;
+                File::open(path)
+                    .map_err(ConfigFileError::OpenFailed)?
+                    .read_to_string(&mut buf)
+                    .map_err(ConfigFileError::OpenFailed)?;
+                let cfg = toml::from_str(&buf)
+                    .map_err(ConfigFileError::DeserializeFailed)?;
                 config.merge(cfg);
                 Ok(())
             } else {

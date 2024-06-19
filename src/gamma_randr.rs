@@ -18,15 +18,23 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{calc_colorramp::GammaRamps, types::ColorSettings, Adjuster};
-use anyhow::{anyhow, Result};
+use crate::{
+    calc_colorramp::GammaRamps,
+    config::{RANDR_MAJOR_VERSION, RANDR_MINOR_VERSION_MIN},
+    error::{
+        gamma::{RandrError, RandrErrorCrtc},
+        AdjusterError, AdjusterErrorInner,
+    },
+    types::ColorSettings,
+    utils::{CollectResult, InjectMapErr},
+    Adjuster,
+};
 use x11rb::{
     connection::Connection as _,
     cookie::{Cookie, VoidCookie},
-    errors::ReplyError,
-    protocol::{
-        randr::{ConnectionExt, GetCrtcGammaReply, GetCrtcGammaSizeReply},
-        ErrorKind as X11ErrorKind,
+    errors::ConnectionError,
+    protocol::randr::{
+        ConnectionExt, GetCrtcGammaReply, GetCrtcGammaSizeReply,
     },
     rust_connection::RustConnection as Conn,
 };
@@ -45,18 +53,30 @@ struct Crtc {
 }
 
 impl Randr {
-    pub fn new(screen_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
+    pub fn new(
+        screen_num: Option<usize>,
+        crtc_ids: Vec<u32>,
+    ) -> Result<Self, RandrError> {
         // uses the DISPLAY environment variable if screen_num is None
         let screen_num = screen_num.map(|n| ":".to_string() + &n.to_string());
-        let (conn, screen_num) = x11rb::connect(screen_num.as_deref())?;
+        let (conn, screen_num) = x11rb::connect(screen_num.as_deref())
+            .map_err(RandrError::ConnectFailed)?;
 
         // returns a lower version if 1.3 is not supported
-        let r = conn.randr_query_version(1, 3)?.reply()?;
+        let r = conn
+            .randr_query_version(1, 3)
+            .inject_map_err(RandrError::GetVersionFailed)?
+            .reply()
+            .inject_map_err(RandrError::GetVersionFailed)?;
+
         // eprintln!("`{}` returned error {}", "RANDR Query Version", ec);
-        if r.major_version != 1 || r.minor_version < 3 {
-            let major = r.major_version;
-            let minor = r.minor_version;
-            Err(anyhow!("Unsupported RANDR version ({major}.{minor})"))?
+        if r.major_version != RANDR_MAJOR_VERSION
+            || r.minor_version < RANDR_MINOR_VERSION_MIN
+        {
+            Err(RandrError::UnsupportedVersion {
+                major: r.major_version,
+                minor: r.minor_version,
+            })?
         }
 
         let crtcs = Self::get_crtcs(&conn, screen_num, crtc_ids)?;
@@ -67,58 +87,69 @@ impl Randr {
     fn get_crtcs(
         conn: &Conn,
         screen_num: usize,
-        crtc_ids: Vec<u32>,
-    ) -> Result<Vec<Crtc>> {
+        mut crtc_ids: Vec<u32>,
+    ) -> Result<Vec<Crtc>, RandrError> {
+        let win = conn.setup().roots[screen_num].root;
+        let all_crtcs = conn
+            .randr_get_screen_resources_current(win)
+            .inject_map_err(RandrError::GetResourcesFailed)?
+            .reply()
+            .inject_map_err(RandrError::GetResourcesFailed)?
+            .crtcs;
+
         let crtcs = if crtc_ids.is_empty() {
-            let win = conn.setup().roots[screen_num].root;
-            conn.randr_get_screen_resources_current(win)?.reply()?.crtcs
+            all_crtcs
         } else {
+            let len = crtc_ids.len();
+            crtc_ids.sort();
+            crtc_ids.dedup();
+            if len > crtc_ids.len() {
+                Err(RandrError::NonUniqueCrtc)?
+            }
+            let f = |&h| Self::validate_crtc(&all_crtcs, h);
+            crtc_ids.iter().try_for_each(f)?;
             crtc_ids
         };
 
-        // TODO: accumulate errors
         crtcs
             .into_iter()
             .map(|id| {
-                let c_size = conn.randr_get_crtc_gamma_size(id)?;
                 let c_ramp = conn.randr_get_crtc_gamma(id)?;
+                let c_size = conn.randr_get_crtc_gamma_size(id)?;
                 Ok((id, c_size, c_ramp))
             })
             // collect to send all of the requests
-            .collect::<Result<Vec<_>>>()?
+            .collect_result()
+            .map_err(RandrError::SendRequestFailed)?
             .into_iter()
-            .map(|t| Self::get_crtc_from_cookies(conn, screen_num, t))
-            .collect::<Result<Vec<_>>>()
+            .map(Self::get_crtc)
+            .collect_result()
+            .map_err(RandrError::Crtcs)
     }
 
-    fn get_crtc_from_cookies(
-        conn: &Conn,
-        screen_num: usize,
+    fn validate_crtc(all_crtcs: &[u32], id: u32) -> Result<(), RandrError> {
+        if all_crtcs.iter().any(|&i| id == i) {
+            Ok(())
+        } else {
+            Err(RandrError::InvalidCrtc(all_crtcs.to_vec()))
+        }
+    }
+
+    fn get_crtc(
         (id, c_size, c_ramp): (
             u32,
             Cookie<Conn, GetCrtcGammaSizeReply>,
             Cookie<Conn, GetCrtcGammaReply>,
         ),
-    ) -> Result<Crtc> {
-        let r = match c_ramp.reply() {
-            Ok(r) => Ok(r),
-            Err(ReplyError::X11Error(e))
-                if e.error_kind == X11ErrorKind::RandrBadCrtc =>
-            {
-                let win = conn.setup().roots[screen_num].root;
-                let crtcs = conn
-                    .randr_get_screen_resources_current(win)?
-                    .reply()?
-                    .crtcs;
-                Err(anyhow!("Valid CRTCs are {crtcs:?}"))
-            }
-            Err(e) => Err(anyhow::Error::new(e)),
-        }?;
-
+    ) -> Result<Crtc, RandrErrorCrtc> {
+        let r = c_ramp.reply().map_err(RandrErrorCrtc::GetRampFailed)?;
         let saved_ramps = GammaRamps([r.red, r.green, r.blue]);
-        let ramp_size = c_size.reply()?.size;
+        let ramp_size = c_size
+            .reply()
+            .map_err(RandrErrorCrtc::GetRampSizeFailed)?
+            .size;
         if ramp_size == 0 {
-            Err(anyhow!("Gamma ramp size too small: {ramp_size}"))?
+            Err(RandrErrorCrtc::InvalidRampSize(ramp_size))?
         }
 
         Ok(Crtc {
@@ -130,25 +161,25 @@ impl Randr {
 
     fn set_gamma_ramps<'s>(
         &'s self,
-        f: impl Fn(&Crtc) -> Result<VoidCookie<'s, Conn>>,
-    ) -> Result<()> {
+        f: impl Fn(&Crtc) -> Result<VoidCookie<'s, Conn>, ConnectionError>,
+    ) -> Result<(), AdjusterErrorInner> {
         // TODO: accumulate errors
         self.crtcs
             .iter()
             .map(f)
             // collect to send all of the requests
-            .collect::<Result<Vec<_>>>()?
+            .collect_result()
+            .inject_map_err(AdjusterErrorInner::Randr)?
             .into_iter()
-            // fprintf(stderr, _("`%s' returned error %d\n"), "RANDR Set CRTC Gamma",
-            .map(|c| Ok(c.check()?))
-            .collect::<Result<Vec<()>>>()?;
-        // fprintf(stderr, _("Unable to restore CRTC %i\n"), i);
+            .map(|c| c.check())
+            .collect_result()
+            .inject_map_err(AdjusterErrorInner::Randr)?;
         Ok(())
     }
 }
 
 impl Adjuster for Randr {
-    fn restore(&self) -> Result<()> {
+    fn restore(&self) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(|crtc| {
             Ok(self.conn.randr_set_crtc_gamma(
                 crtc.id,
@@ -157,9 +188,14 @@ impl Adjuster for Randr {
                 &crtc.saved_ramps[2],
             )?)
         })
+        .map_err(AdjusterError::Restore)
     }
 
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
+    fn set(
+        &self,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
                 GammaRamps::new(crtc.ramp_size as u32)
@@ -172,5 +208,6 @@ impl Adjuster for Randr {
                 crtc.id, &ramps[0], &ramps[1], &ramps[2],
             )?)
         })
+        .map_err(AdjusterError::Restore)
     }
 }

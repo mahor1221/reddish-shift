@@ -19,7 +19,16 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{calc_colorramp::GammaRamps, types::ColorSettings, Adjuster};
+use crate::{
+    calc_colorramp::GammaRamps,
+    error::{
+        gamma::{DrmError, DrmErrorCrtc},
+        AdjusterError, AdjusterErrorInner,
+    },
+    types::ColorSettings,
+    utils::CollectResult,
+    Adjuster,
+};
 use drm::{
     control::{
         crtc::Handle as CrtcHandle, from_u32 as handle_from_u32,
@@ -29,7 +38,7 @@ use drm::{
 };
 use std::{
     fs::{File, OpenOptions},
-    io::Result as IoResult,
+    io,
     os::fd::{AsFd, BorrowedFd},
     path::Path,
 };
@@ -60,61 +69,84 @@ impl Device for Card {}
 impl ControlDevice for Card {}
 
 impl Card {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        fn inner(path: &Path) -> Result<Card> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, DrmError> {
+        fn inner(path: &Path) -> Result<Card, DrmError> {
             let mut options = OpenOptions::new();
             options.read(true);
             options.write(true);
-            Ok(Card(options.open(path)?))
-            // fprintf(stderr, _("Failed to open DRM device: %s\n"),
+            Ok(Card(
+                options.open(path).map_err(DrmError::OpenDeviceFailed)?,
+            ))
         }
         inner(path.as_ref())
     }
 }
 
 impl Drm {
-    pub fn new(card_num: Option<usize>, crtc_ids: Vec<u32>) -> Result<Self> {
+    pub fn new(
+        card_num: Option<usize>,
+        crtc_ids: Vec<u32>,
+    ) -> Result<Self, DrmError> {
         let path = format!("/dev/dri/card{}", card_num.unwrap_or_default());
         let card = Card::open(path)?;
         let crtcs = Self::get_crtcs(&card, crtc_ids)?;
         Ok(Self { card, crtcs })
     }
 
-    fn get_crtcs(card: &Card, crtc_ids: Vec<u32>) -> Result<Vec<Crtc>> {
-        // TODO: accumulate errors
-        let all_crtcs = card.resource_handles()?.crtcs;
+    fn get_crtcs(
+        card: &Card,
+        mut crtc_ids: Vec<u32>,
+    ) -> Result<Vec<Crtc>, DrmError> {
+        let all_crtcs = card
+            .resource_handles()
+            .map_err(DrmError::GetResourcesFailed)?
+            .crtcs;
+
         let crtcs = if crtc_ids.is_empty() {
             all_crtcs
         } else {
-            crtc_ids
-                .into_iter()
-                .map(|handle| {
-                    let handle: CrtcHandle = handle_from_u32(handle)
-                        .ok_or(anyhow!("must be non zero positive"))?;
-                    if all_crtcs.iter().any(|&h| handle == h) {
-                        Ok::<_, anyhow::Error>(handle)
-                    } else {
-                        let crtcs = all_crtcs
-                            .iter()
-                            .map(|&h| h.into())
-                            .collect::<Vec<u32>>();
-                        Err(anyhow!("Valid CRTCs are {crtcs:?}",))?
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?
+            let len = crtc_ids.len();
+            crtc_ids.sort();
+            crtc_ids.dedup();
+            if len > crtc_ids.len() {
+                Err(DrmError::NonUniqueCrtc)?
+            }
+            let f = |h| Self::validate_crtc(&all_crtcs, h);
+            crtc_ids.into_iter().map(f).collect::<Result<Vec<_>, _>>()?
         };
 
         crtcs
             .into_iter()
-            .map(|h| Self::get_crtc_from_handle(card, h))
-            .collect::<Result<Vec<_>>>()
+            .map(|h| Self::get_crtc(card, h))
+            .collect_result()
+            .map_err(DrmError::Crtcs)
     }
 
-    fn get_crtc_from_handle(card: &Card, handle: CrtcHandle) -> Result<Crtc> {
-        let info = card.get_crtc(handle)?;
+    fn validate_crtc(
+        all_crtcs: &[CrtcHandle],
+        id: u32,
+    ) -> Result<CrtcHandle, DrmError> {
+        let crtcs =
+            || all_crtcs.iter().map(|&h| h.into()).collect::<Vec<u32>>();
+        let handle: CrtcHandle =
+            handle_from_u32(id).ok_or(DrmError::ZeroValueCrtc)?;
+        if all_crtcs.iter().any(|&h| handle == h) {
+            Ok(handle)
+        } else {
+            Err(DrmError::InvalidCrtc(crtcs()))
+        }
+    }
+
+    fn get_crtc(
+        card: &Card,
+        handle: CrtcHandle,
+    ) -> Result<Crtc, DrmErrorCrtc> {
+        let info = card
+            .get_crtc(handle)
+            .map_err(DrmErrorCrtc::GetRampSizeFailed)?;
         let ramp_size = info.gamma_length();
         if ramp_size <= 1 {
-            Err(anyhow!("ramp_size"))?
+            Err(DrmErrorCrtc::InvalidRampSize(ramp_size))?
         }
 
         let (mut r, mut g, mut b) = (Vec::new(), Vec::new(), Vec::new());
@@ -137,7 +169,8 @@ impl Drm {
         // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
         //
         // FIX: Error: Invalid argument (os error 22)
-        card.get_gamma(handle, &mut r, &mut g, &mut b)?;
+        card.get_gamma(handle, &mut r, &mut g, &mut b)
+            .map_err(DrmErrorCrtc::GetRampFailed);
         let saved_ramps = GammaRamps([r, g, b]);
         // _("DRM could not read gamma ramps on CRTC %i on\n"
         // "graphics card %i, ignoring device.\n"),
@@ -151,16 +184,19 @@ impl Drm {
 
     fn set_gamma_ramps(
         &self,
-        f: impl Fn(&Crtc) -> IoResult<()>,
-    ) -> Result<()> {
-        // TODO: accumulate errors
-        self.crtcs.iter().map(f).collect::<IoResult<Vec<_>>>()?;
+        f: impl Fn(&Crtc) -> io::Result<()>,
+    ) -> Result<(), AdjusterErrorInner> {
+        self.crtcs
+            .iter()
+            .map(f)
+            .collect_result()
+            .map_err(AdjusterErrorInner::Drm)?;
         Ok(())
     }
 }
 
 impl Adjuster for Drm {
-    fn restore(&self) -> Result<()> {
+    fn restore(&self) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(|crtc| {
             self.card.set_gamma(
                 crtc.handle,
@@ -169,9 +205,14 @@ impl Adjuster for Drm {
                 &crtc.saved_ramps[2],
             )
         })
+        .map_err(AdjusterError::Restore)
     }
 
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()> {
+    fn set(
+        &self,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<(), AdjusterError> {
         self.set_gamma_ramps(|crtc| {
             let mut ramps = if reset_ramps {
                 GammaRamps::new(crtc.ramp_size)
@@ -183,5 +224,6 @@ impl Adjuster for Drm {
             self.card
                 .set_gamma(crtc.handle, &ramps[0], &ramps[1], &ramps[2])
         })
+        .map_err(AdjusterError::Set)
     }
 }

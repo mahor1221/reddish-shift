@@ -40,6 +40,7 @@ mod types_display;
 mod types_parse;
 mod utils;
 
+use error::{AdjusterErrorRestore, AdjusterErrorSet};
 pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
@@ -51,14 +52,13 @@ use utils::IsDefault;
 use crate::{
     cli::ClapColorChoiceExt,
     config::{Config, ConfigBuilder, FADE_STEPS},
-    error::{AdjustmentMethodError, LocationProviderError},
+    error::{AdjusterError, ProviderError},
     types::{
         ColorSettings, Elevation, Mode, Period, PeriodInfo, TransitionScheme,
     },
     types_display::{HEADER, WARN},
 };
 use anstream::AutoStream;
-use anyhow::Result;
 use chrono::{DateTime, SubsecRound, TimeDelta};
 use std::{
     fmt::{Debug, Write},
@@ -300,17 +300,18 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 }
 
 trait Provider {
-    fn get(&self) -> Result<Location, LocationProviderError>;
+    fn get(&self) -> Result<Location, ProviderError>;
 }
 
 trait Adjuster {
     /// Restore the adjustment to the state before the Adjuster object was created
-    fn restore(&self) -> Result<()> {
-        Err(AdjustmentMethodError::Failed)?
-    }
-
+    fn restore(&self) -> Result<(), AdjusterErrorRestore>;
     /// Set a specific temperature
-    fn set(&self, reset_ramps: bool, cs: &ColorSettings) -> Result<()>;
+    fn set(
+        &self,
+        reset_ramps: bool,
+        cs: &ColorSettings,
+    ) -> Result<(), AdjusterErrorSet>;
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -353,15 +354,15 @@ impl Provider for Geoclue2 {
     // Listen and handle location updates
     // fn fd() -> c_int;
 
-    fn get(&self) -> Result<Location, LocationProviderError> {
+    fn get(&self) -> Result<Location, ProviderError> {
         // b"Waiting for current location to become available...\n\0" as *const u8
         // Wait for location provider
-        Err(LocationProviderError)
+        Err(ProviderError)
     }
 }
 
 impl Provider for LocationProvider {
-    fn get(&self) -> Result<Location, LocationProviderError> {
+    fn get(&self) -> Result<Location, ProviderError> {
         match self {
             Self::Manual(t) => t.get(),
             Self::Geoclue2(t) => t.get(),
