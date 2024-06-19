@@ -26,7 +26,6 @@ use crate::{
     AdjustmentMethod, DaemonMode, FadeStatus, LocationProvider,
 };
 use anstyle::{AnsiColor, Color, Style};
-use anyhow::Result;
 use std::fmt::{self, Display, Formatter};
 use tracing::info;
 
@@ -215,7 +214,7 @@ impl Display for Config {
 
 impl DaemonMode<'_, '_> {
     #[allow(clippy::too_many_lines)]
-    pub fn log(&self) -> Result<()> {
+    pub fn log(&self) {
         if Some(&self.period) != self.prev_period.as_ref() {
             info!("{}", self.period);
         }
@@ -258,7 +257,5 @@ impl DaemonMode<'_, '_> {
         } else if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
             info!("    {BODY}Temperature{BODY:#}: {temp}");
         }
-
-        Ok(())
     }
 }

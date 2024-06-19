@@ -47,10 +47,10 @@ impl FromStr for Brightness {
 }
 
 impl FromStr for Gamma {
-    type Err = GammaRgbError;
+    type Err = GammaError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let f = |s: &str| -> Result<f64, GammaError> {
+        let f = |s: &str| -> Result<f64, GammaErrorT> {
             gamma(s.parse::<f64>().inject_err()?).inject_err()
         };
 
@@ -61,7 +61,7 @@ impl FromStr for Gamma {
                 .try_into()
                 .unwrap_or_else(|_| unreachable!())),
             [rbg] => Ok(f(rbg)?.try_into().unwrap_or_else(|_| unreachable!())),
-            _ => Err(GammaRgbError::Fmt),
+            _ => Err(GammaError::Fmt),
         }
     }
 }

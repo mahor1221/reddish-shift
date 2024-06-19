@@ -20,7 +20,6 @@
 */
 
 use crate::{calc_colorramp::GammaRamps, types::ColorSettings, Adjuster};
-use anyhow::{anyhow, Result};
 use drm::{
     control::{
         crtc::Handle as CrtcHandle, from_u32 as handle_from_u32,

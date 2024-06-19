@@ -21,7 +21,7 @@ use crate::{
         CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, InfoLevel,
         ModeArgs, Verbosity,
     },
-    error::parse::DayNightErrorType,
+    error::{parse::DayNightErrorType, ConfigError, ConfigFileError},
     types::{
         AdjustmentMethodType, BrightnessRange, ColorSettings, DayNight,
         GammaRange, LocationProviderType, Mode, TemperatureRange,
@@ -29,7 +29,7 @@ use crate::{
     },
     AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode,
 };
-use anyhow::{anyhow, Result};
+// use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
 use clap::Parser;
@@ -113,7 +113,7 @@ struct Either<U: TryInto<T>, T> {
 }
 
 impl ConfigBuilder {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<Self, ConfigError> {
         let cli_args = CliArgs::parse();
         let mut cfg = Self::default();
 
@@ -127,7 +127,7 @@ impl ConfigBuilder {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn build(self) -> Result<Config> {
+    pub fn build(self) -> Result<Config, ConfigError> {
         let Self {
             mode,
             verbosity,
@@ -154,7 +154,7 @@ impl ConfigBuilder {
 
         let method = match mode {
             Mode::Print => AdjustmentMethodType::Dummy,
-            _ => method.ok_or(anyhow!("WIP"))?,
+            _ => method.ok_or(ConfigError::WIP)?,
         };
 
         let method = match method {
@@ -382,7 +382,7 @@ impl ConfigBuilder {
 }
 
 impl ConfigFile {
-    fn new(config_path: Option<&Path>) -> Result<Self> {
+    fn new(config_path: Option<&Path>) -> Result<Self, ConfigFileError> {
         #[cfg(unix)]
         let system_config =
             Path::new(formatcp!("/etc/{PKG_NAME}/config.toml"));
@@ -391,15 +391,15 @@ impl ConfigFile {
         let user_config = config_path
             .map(|p| match p.is_file() {
                 true => Ok(p),
-                false => Err(anyhow!("e")),
+                false => Err(ConfigFileError::ExpectedFile),
             })
             .transpose()?
             .or(local_config.as_deref())
-            .ok_or(anyhow!("user_config"))?;
+            .ok_or(ConfigFileError::CantFindConfigDir)?;
 
         let mut config = Self::default();
         let mut buf = String::new();
-        let mut read = |path: &Path| -> Result<()> {
+        let mut read = |path: &Path| -> Result<(), ConfigFileError> {
             if path.is_file() {
                 File::open(path)?.read_to_string(&mut buf)?;
                 let cfg = toml::from_str(&buf)?;
@@ -557,6 +557,7 @@ impl<'de> Deserialize<'de> for AdjustmentMethodType {
 #[cfg(test)]
 mod test {
     use super::*;
+    use anyhow::Result;
 
     #[test]
     fn test_config_toml_has_default_values() -> Result<()> {

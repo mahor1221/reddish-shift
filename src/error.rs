@@ -1,14 +1,9 @@
-use crate::{
-    types::{
-        Elevation, TimeOffset, MAX_BRIGHTNESS, MAX_ELEVATION, MAX_GAMMA,
-        MAX_LATITUDE, MAX_LONGITUDE, MAX_TEMPERATURE, MIN_BRIGHTNESS,
-        MIN_ELEVATION, MIN_GAMMA, MIN_LATITUDE, MIN_LONGITUDE,
-        MIN_TEMPERATURE,
-    },
-    Coprod,
-};
+use crate::Coprod;
 use core::fmt;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -28,10 +23,45 @@ impl<E: Display> Display for VecError<E> {
 pub struct LocationProviderError;
 
 #[derive(Debug, Error)]
-pub enum AdjustmentMethodError {}
+pub enum AdjustmentMethodError {
+    #[error("Temperature adjustment failed")]
+    Failed,
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("WIP")]
+    WIP,
+    #[error("{0}")]
+    File(#[from] ConfigFileError),
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigFileError {
+    #[error("")]
+    ExpectedFile,
+    #[error("")]
+    CantFindConfigDir,
+    #[error("{0}")]
+    CantOpen(#[from] std::io::Error),
+    #[error("{0}")]
+    CantDeserialize(#[from] toml::de::Error),
+}
+
+#[derive(Debug, Error)]
+#[error("")]
+pub enum DrmError {
+    CantOpenCard(),
+}
 
 pub mod types {
     use super::*;
+    use crate::types::{
+        Elevation, TimeOffset, MAX_BRIGHTNESS, MAX_ELEVATION, MAX_GAMMA,
+        MAX_LATITUDE, MAX_LONGITUDE, MAX_TEMPERATURE, MIN_BRIGHTNESS,
+        MIN_ELEVATION, MIN_GAMMA, MIN_LATITUDE, MIN_LONGITUDE,
+        MIN_TEMPERATURE,
+    };
 
     #[derive(Debug, Error)]
     #[error("Temperature must be between {MIN_TEMPERATURE}K and {MAX_TEMPERATURE}K")]
@@ -91,10 +121,9 @@ pub mod types {
         pub low: Elevation,
     }
 
-    type GammaRgbErrorT = GammaError;
     #[derive(Debug, Error)]
     #[error("{0}")]
-    pub struct GammaRgbError(#[from] VecError<GammaRgbErrorT>);
+    pub struct GammaRgbError(#[from] VecError<GammaError>);
 
     type TimeErrorT = Coprod!(HourError, MinuteError);
     #[derive(Debug, Error)]
@@ -106,8 +135,8 @@ pub mod types {
     #[error("{0}")]
     pub struct LocationError(#[from] VecError<LocationT>);
 
-    impl From<Vec<GammaRgbErrorT>> for GammaRgbError {
-        fn from(v: Vec<GammaRgbErrorT>) -> Self {
+    impl From<Vec<GammaError>> for GammaRgbError {
+        fn from(v: Vec<GammaError>) -> Self {
             Self(VecError(v))
         }
     }
@@ -126,15 +155,11 @@ pub mod types {
 }
 
 pub mod parse {
-    use super::{types, VecError};
-    use crate::Coprod;
-    use std::{
-        error::Error,
-        num::{ParseFloatError, ParseIntError},
-    };
-    use thiserror::Error;
+    use super::*;
+    use std::num::{ParseFloatError, ParseIntError};
 
     pub trait DayNightErrorType: Error {}
+
     #[derive(Debug, Error)]
     #[error("")]
     pub enum DayNightError<E: DayNightErrorType> {
@@ -160,16 +185,16 @@ pub mod parse {
     }
     impl DayNightErrorType for BrightnessError {}
 
-    pub type GammaError = Coprod!(ParseFloatError, types::GammaError);
+    pub type GammaErrorT = Coprod!(ParseFloatError, types::GammaError);
     #[derive(Debug, Error)]
     #[error("{0}")]
-    pub enum GammaRgbError {
-        Multiple(#[from] VecError<GammaError>),
-        Single(#[from] GammaError),
+    pub enum GammaError {
+        Multiple(#[from] VecError<GammaErrorT>),
+        Single(#[from] GammaErrorT),
         #[error("")]
         Fmt,
     }
-    impl DayNightErrorType for GammaRgbError {}
+    impl DayNightErrorType for GammaError {}
 
     #[derive(Debug, Error)]
     #[error("{0}")]
@@ -185,13 +210,6 @@ pub mod parse {
         Type(#[from] types::LongitudeError),
     }
 
-    #[derive(Debug, Error)]
-    #[error("{0}")]
-    pub enum ElevationError {
-        Parse(#[from] ParseFloatError),
-        Type(#[from] types::ElevationError),
-    }
-
     type LocationErrorT = Coprod!(LatitudeError, LongitudeError);
     #[derive(Debug, Error)]
     #[error("{0}")]
@@ -199,6 +217,13 @@ pub mod parse {
         Multiple(#[from] VecError<LocationErrorT>),
         #[error("")]
         Fmt,
+    }
+
+    #[derive(Debug, Error)]
+    #[error("{0}")]
+    pub enum ElevationError {
+        Parse(#[from] ParseFloatError),
+        Type(#[from] types::ElevationError),
     }
 
     pub type TimeErrorT =
@@ -278,8 +303,8 @@ pub mod parse {
         }
     }
 
-    impl From<Vec<GammaError>> for GammaRgbError {
-        fn from(v: Vec<GammaError>) -> Self {
+    impl From<Vec<GammaErrorT>> for GammaError {
+        fn from(v: Vec<GammaErrorT>) -> Self {
             Self::Multiple(VecError(v))
         }
     }

@@ -40,7 +40,6 @@ mod types_display;
 mod types_parse;
 mod utils;
 
-use error::LocationProviderError;
 pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
@@ -52,13 +51,14 @@ use utils::IsDefault;
 use crate::{
     cli::ClapColorChoiceExt,
     config::{Config, ConfigBuilder, FADE_STEPS},
+    error::{AdjustmentMethodError, LocationProviderError},
     types::{
         ColorSettings, Elevation, Mode, Period, PeriodInfo, TransitionScheme,
     },
     types_display::{HEADER, WARN},
 };
 use anstream::AutoStream;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::{DateTime, SubsecRound, TimeDelta};
 use std::{
     fmt::{Debug, Write},
@@ -209,7 +209,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
 
             (self.interp, self.fade) = self.next_interpolate(target);
 
-            self.log()?;
+            self.log();
 
             // // Activate hooks if period changed
             // if period != prev_period {
@@ -306,7 +306,7 @@ trait Provider {
 trait Adjuster {
     /// Restore the adjustment to the state before the Adjuster object was created
     fn restore(&self) -> Result<()> {
-        Err(anyhow!("Temperature adjustment failed"))
+        Err(AdjustmentMethodError::Failed)?
     }
 
     /// Set a specific temperature
