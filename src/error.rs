@@ -8,8 +8,6 @@ use std::{
 };
 use thiserror::Error;
 
-// TODO: Box large errors
-
 #[derive(Debug, Error)]
 pub struct VecError<E>(pub Vec<E>);
 impl<E: Display> Display for VecError<E> {
@@ -29,7 +27,6 @@ pub enum ReddishError {
     Provider(#[from] ProviderError),
     Ctrlc(#[from] ctrlc::Error),
     Mpsc(#[from] RecvTimeoutError),
-    Fmt(#[from] std::fmt::Error),
 }
 
 #[derive(Debug, Error)]

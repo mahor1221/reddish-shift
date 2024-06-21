@@ -162,7 +162,6 @@ impl Randr {
         &'s self,
         f: impl Fn(&Crtc) -> Result<VoidCookie<'s, Conn>, ConnectionError>,
     ) -> Result<(), AdjusterErrorInner> {
-        // TODO: accumulate errors
         self.crtcs
             .iter()
             .map(f)

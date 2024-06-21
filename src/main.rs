@@ -23,6 +23,14 @@
 //       See: https://github.com/qualiaa/redshift-hooks
 // TODO: ? benchmark: https://github.com/nvzqz/divan
 // TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html
+// TODO: Fix large fade steps
+// TODO: move coproduct to a fork of frunk
+// TODO: Box large errors
+// TODO: Win support & Choco package
+
+// TODO: config.toml
+// TODO: WIP method in config
+// TODO: AUR package
 
 mod calc_colorramp;
 mod calc_solar;
@@ -45,6 +53,7 @@ pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
 pub use gamma_vidmode::Vidmode;
+use itertools::Itertools;
 pub use location_manual::Manual;
 use types::Location;
 use utils::IsDefault;
@@ -56,12 +65,12 @@ use crate::{
     types::{
         ColorSettings, Elevation, Mode, Period, PeriodInfo, TransitionScheme,
     },
-    types_display::{HEADER, WARN},
+    types_display::{BODY, HEADER, WARN},
 };
 use anstream::AutoStream;
 use chrono::{DateTime, SubsecRound, TimeDelta};
 use std::{
-    fmt::{Debug, Write},
+    fmt::Debug,
     io,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
@@ -84,7 +93,11 @@ fn main() -> Result<(), ReddishError> {
         }
     }
 
-    if let AdjustmentMethod::Dummy(_) = c.method {
+    if let (
+        Mode::Daemon | Mode::Oneshot | Mode::Set | Mode::Reset,
+        AdjustmentMethod::Dummy(_),
+    ) = (c.mode, &c.method)
+    {
         let s = "Using dummy method! Display will not be affected";
         warn!("{WARN}Warning{WARN:#}: {s}");
     }
@@ -147,17 +160,14 @@ fn run(c: &Config, sig: &Receiver<()>) -> Result<(), ReddishError> {
 fn run_print_mode(c: &Config) -> Result<(), ReddishError> {
     let now = (c.time)();
     let delta = now.to_utc() - DateTime::UNIX_EPOCH;
-    let mut buf = String::from("Time     | Degree\n---------+-------\n");
-    for d in (0..24).map(TimeDelta::hours) {
+    let loc = c.location.get()?;
+    let mut buf = (0..24).map(|h| {
+        let d = TimeDelta::hours(h);
         let time = (now + d).time().trunc_subsecs(0);
-        let elev = Elevation::new(
-            (delta + d).num_seconds() as f64,
-            c.location.get()?,
-        );
-        writeln!(&mut buf, "{time} | {:6.2}", *elev)?;
-    }
-
-    Ok(info!("{buf}"))
+        let elev = Elevation::new((delta + d).num_seconds() as f64, loc);
+        format!("{BODY}{time}{BODY:#}: {:6.2}°", *elev)
+    });
+    Ok(info!("{}", buf.join("\n")))
 }
 
 #[derive(Debug)]
