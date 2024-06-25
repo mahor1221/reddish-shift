@@ -1,9 +1,7 @@
-use std::error::Error;
-
+use crate::{coproduct::CoprodInjector, error::VecError};
 use frunk::Generic;
 use itertools::Itertools;
-
-use crate::{coproduct::CoprodInjector, error::VecError};
+use std::error::Error;
 
 pub trait IsDefault {
     fn is_default(&self) -> bool;
@@ -30,7 +28,7 @@ impl<Repr> IntoGeneric for Repr {
 }
 
 /// Copied from frunk::Coprod
-/// Display and Error implementation is added for the local Coproduct
+/// Display and Error implementations are added for the local Coproduct
 #[macro_export]
 macro_rules! Coprod {
     () => { $crate::coproduct::CNil };
@@ -39,6 +37,24 @@ macro_rules! Coprod {
     ($A:ty, $($tok:tt)*) => {
         $crate::coproduct::Coproduct<$A, $crate::Coprod![$($tok)*]>
     };
+}
+
+/// Shortcut for inject on Result types
+pub trait InjectErr<T, E> {
+    fn inject_err<F, Index>(self) -> Result<T, F>
+    where
+        Self: Sized,
+        F: CoprodInjector<E, Index>;
+}
+impl<T, E> InjectErr<T, E> for Result<T, E> {
+    #[inline(always)]
+    fn inject_err<F, Index>(self) -> Result<T, F>
+    where
+        Self: Sized,
+        F: CoprodInjector<E, Index>,
+    {
+        self.map_err(CoprodInjector::inject)
+    }
 }
 
 /// Shortcut for inject_err().map_err(..) on Result types
@@ -61,6 +77,7 @@ impl<T, E> InjectMapErr<T, E> for Result<T, E> {
     }
 }
 
+/// Shortcut for partition_result
 pub trait CollectResult<T, E: Error> {
     fn collect_result(self) -> Result<Vec<T>, VecError<E>>;
 }

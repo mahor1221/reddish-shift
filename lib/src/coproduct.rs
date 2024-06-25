@@ -1285,24 +1285,6 @@ impl<H: Display, T: Display> Display for Coproduct<H, T> {
 impl Error for CNil {}
 impl<H: Error, T: Error> Error for Coproduct<H, T> {}
 
-/// Shortcut for inject on Result types
-pub trait InjectErr<T, E> {
-    fn inject_err<F, Index>(self) -> Result<T, F>
-    where
-        Self: Sized,
-        F: CoprodInjector<E, Index>;
-}
-impl<T, E> InjectErr<T, E> for Result<T, E> {
-    #[inline(always)]
-    fn inject_err<F, Index>(self) -> Result<T, F>
-    where
-        Self: Sized,
-        F: CoprodInjector<E, Index>,
-    {
-        self.map_err(CoprodInjector::inject)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use frunk::{hlist, poly_fn};

@@ -18,9 +18,8 @@
 
 use crate::{
     calc_solar::{solar_elevation, SOLAR_CIVIL_TWILIGHT_ELEV},
-    coproduct::InjectErr,
     error::{types::*, ProviderError},
-    utils::IntoGeneric,
+    utils::{InjectErr, IntoGeneric},
     LocationProvider, Provider,
 };
 use chrono::{DateTime, Local, NaiveTime, Timelike};

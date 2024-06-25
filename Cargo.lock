@@ -724,6 +724,7 @@ version = "0.0.0"
 dependencies = [
  "_reddish-shift",
  "anyhow",
+ "clap",
  "clap_complete",
 ]
 

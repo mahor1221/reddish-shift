@@ -17,7 +17,6 @@
 */
 
 use crate::{
-    coproduct::InjectErr,
     error::{gamma::CrtcError, parse::*},
     types::{
         gamma, hour, minute, AdjustmentMethodType, Brightness, DayNight,
@@ -25,7 +24,7 @@ use crate::{
         LocationProviderType, Longitude, Temperature, Time, TimeOffset,
         TimeRange, TimeRanges, TransitionScheme,
     },
-    utils::{CollectResult, IntoGeneric},
+    utils::{CollectResult, InjectErr, IntoGeneric},
 };
 use frunk::validated::IntoValidated;
 use std::str::FromStr;

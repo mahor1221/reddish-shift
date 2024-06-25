@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use _reddish_shift::cli_args_command;
 use anyhow::Result;
+use clap::ValueEnum;
 use clap_complete::{generate_to, Shell};
 use std::{env, path::PathBuf};
 
@@ -10,7 +11,7 @@ fn main() -> Result<()> {
     let target = PathBuf::from(&out).ancestors().nth(3).unwrap().to_owned();
     let mut cmd = cli_args_command();
 
-    for shell in [Shell::Bash, Shell::Fish, Shell::Zsh, Shell::Elvish] {
+    for &shell in Shell::value_variants() {
         generate_to(shell, &mut cmd, NAME, &out)?;
     }
 

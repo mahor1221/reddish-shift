@@ -22,12 +22,11 @@
 // TODO: add setting screen brightness, a percentage of the current brightness
 //       See: https://github.com/qualiaa/redshift-hooks
 // TODO: ? benchmark: https://github.com/nvzqz/divan
-// TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html
 // TODO: Fix large fade steps
-// TODO: Box large errors
+// TODO: ? Box large errors
 // TODO: Win support & Choco package
-
-// TODO: move coproduct to a fork of frunk
+// TODO: move coproduct.rs to a fork of frunk after Error got stable in core
+//       https://github.com/rust-lang/rust/issues/103765
 
 mod calc_colorramp;
 mod calc_solar;
