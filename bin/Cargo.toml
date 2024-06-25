@@ -1,5 +1,5 @@
 [package]
-name = "reddish-shift"
+name = "bin"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -14,11 +14,15 @@ build = "build.rs"
 [lints]
 workspace = true
 
+[[bin]]
+name = "reddish-shift"
+path = "src/main.rs"
+
 [dependencies]
-_reddish-shift = { path = "../lib" }
+reddish-shift = { path = "../lib" }
 
 [build-dependencies]
 anyhow = "1.0"
 clap = "*"
 clap_complete = "4.5.6"
-_reddish-shift = { path = "../lib" }
+reddish-shift = { path = "../lib" }

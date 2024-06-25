@@ -1,3 +1,3 @@
 fn main() {
-    _reddish_shift::main()
+    reddish_shift::main()
 }

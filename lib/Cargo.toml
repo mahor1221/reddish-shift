@@ -1,5 +1,5 @@
 [package]
-name = "_reddish-shift"
+name = "reddish-shift"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

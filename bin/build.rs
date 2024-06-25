@@ -1,12 +1,12 @@
 #![allow(clippy::unwrap_used)]
-use _reddish_shift::cli_args_command;
 use anyhow::Result;
 use clap::ValueEnum;
 use clap_complete::{generate_to, Shell};
+use reddish_shift::cli_args_command;
 use std::{env, path::PathBuf};
 
 fn main() -> Result<()> {
-    const NAME: &str = env!("CARGO_PKG_NAME");
+    const NAME: &str = "reddish-shift";
     let out = env::var_os("OUT_DIR").unwrap();
     let target = PathBuf::from(&out).ancestors().nth(3).unwrap().to_owned();
     let mut cmd = cli_args_command();
