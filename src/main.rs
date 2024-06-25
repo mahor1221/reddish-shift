@@ -28,8 +28,6 @@
 // TODO: Box large errors
 // TODO: Win support & Choco package
 
-// TODO: config.toml
-// TODO: WIP method in config
 // TODO: AUR package
 
 mod calc_colorramp;

@@ -1,71 +1,81 @@
-# Set the day and night screen temperatures
-temperature = "6500-4500"
-#temperature = 6500
+# Color temperature to set for day and night [default: 6500-4500]
 
-# Set the screen brightness. Default is 1.0.
-brightness = 1.0
-# It is also possible to use different settings for day and night
-#brightness = "0.7-0.4"
-
-# Set the screen gamma (for all colors, or each color channel individually)
-gamma = 1.0
-#gamma = "0.8:0.7:0.8"
-# This can also be set individually for day and night
-#gamma = "0.8:0.7:0.8 - 0.6"
-#gamma = "0.8:0.7:0.8 - 0.6:0.5:0.6"
-
-# Whether to preserve gamma ramps if supported by gamma method.
-reset-ramps = false
-
-# Disable the smooth fade between temperatures when Reddish Shift starts and
-# stops. false will cause an immediate change between screen temperatures. true
-# will gradually apply the new screen temperature over a couple of seconds.
-disable-fade = false
-
-# Set the location-provider: 'geoclue2', 'manual'
-# type 'reddish-shift -l list' to see possible values.
-
-# Configuration of the location-provider:
-# type 'reddish-shift -l PROVIDER:help' to see the settings.
-# ex: 'reddish-shift -l manual:help'
-# Keep in mind that longitudes west of Greenwich (e.g. the Americas)
-# are negative numbers.
-location = "0.0:0.0"
-#manual = "geoclue2"
-#manual = "Newyork"
-
-# Set transition scheme: 'time', 'elevation'
-# Setting it to `elevation` requires using a location provider
-
-# Custom dawn/dusk ranges.
-# Instead of using the solar elevation, the time ranges of dawn and dusk can
-# be specified manually. The times must be specified as HH:MM in 24-hour format.
-# time.dawn = "6:00-7:45"
-# time.dusk = "18:35-20:15"
-#scheme = "6:00-7:45 - 18:35-20:15"
-#scheme = "7:45 - 20:15"
-
-# Solar elevation thresholds.
-# By default, Reddish Shift will use the current elevation of the sun to
-# determine whether it is daytime, night or in transition (dawn/dusk). When
-# the sun is above the degrees specified with elevation-high it is considered
-# daytime and below elevation-low it is considered night.
-# elevation.high = 3
-# elevation.low = -6
-scheme = "3:-6"
-#scheme = "dawn:dusk"
+# The neutral temperature is 6500K. Using this value will not change the color
+# temperature of the display. Setting the color temperature to a value higher
+# than this results in more blue light, and setting a lower value will result
+# in more red light.
+#temperature = 5000        #(day=night=5000)
+#temperature = "6500-4500" #(day=6500, night=4500)
 
 
-# Set the adjustment-method: 'randr', 'vidmode', 'drm'
-# type 'reddish-shift -m list' to see all possible values.
-# 'randr' is the preferred method, 'vidmode' is an older API. but works in some
-# cases when 'randr' does not.
-#method = "randr:0"
+# Additional gamma correction to apply for day and night [default: 1.0]
+#
+# Either set it for all colors, or each color channel individually
+#gamma = 0.9                 #(day=night=0.9)
+#gamma = "1.0 - 0.8:0.9:0.9" #(day=1.0, night=(R=0.8, G=0.9, B=0.9))
 
-# Configuration of the adjustment-method
-# type 'reddish-shift -m METHOD:help' to see the settings.
-# ex: 'reddish-shift -m randr:help'
-# In this example, randr is configured to adjust only screen 0. Note that the
-# numbering starts from 0, so this is actually the first screen. If this option
-# is not specified, Reddish Shift will try to adjust _all_ screens.
-# randr.screen = 0
+
+# Screen brightness to apply for day and night [default: 1.0]
+#
+# It is a fake brightness adjustment obtained by manipulating the gamma ramps
+# which means that it does not reduce the backlight of the screen
+#brightness = 1.0       #(day=night=0.8)
+#brightness = "1.0-0.8" #(day=1.0, night=0.8)
+
+
+# Transition scheme [default: 3:-6]
+#
+# Either time ranges or elevation angles. By default, Reddish Shift will use
+# the current elevation of the sun to determine whether it is daytime, night
+# or in transition (dawn/dusk). You can also use the print command to see solar
+# elevation angles for the next 24 hours
+#scheme = "6:00-7:45 - 18:35-20:15" #(dawn=6:00-7:45, dusk=18:35-20:15)
+#scheme = "7:45 - 18:35"            #(day starts at 7:45, night starts at 20:15)
+#scheme = "3:-6"                    #(above 3° is day, bellow -6° is night)
+
+
+# Location, used for computation of current solar elevation [default: 0:0]
+#
+# It is not needed when using manual time ranges for transition scheme Either
+# set latitude and longitude manually or select a location provider. Negative
+# values represent west and south, respectively.
+# location providers: geoclue2 (currently not available)
+#location = "51.48:0.0" #(Greenwich)
+#location = "geoclue2"
+
+
+# Adjustment method to use to apply color settings
+#
+# If not set, the first available method will be used
+# methods: dummy (does not affect the display)
+#          randr (X RANDR extension)
+#          vidmode (X VidMode extension)
+#          drm (Direct Rendering Manager)
+#method = "vidmode"             #(apply to $DISPLAY)
+#method = "vidmode:0"           #(apply to screen 0)
+#method = "drm"                 #(apply to /dev/dri/card0)
+#method = "drm:1"               #(apply to /dev/dri/card1)
+#method = "drm:0:80"            #(apply to /dev/dri/card0 with crtc 80)
+#method = "randr"               #(apply to $DISPLAY)
+#method = "randr:0"             #(apply to screen 0)
+#method = "randr$DISPLAY:62,63" #(apply to $DISPLAY with crtcs 62 and 63)
+
+
+# Reset existing gamma ramps before applying new color settings
+#reset-ramps = true
+
+
+# Disable fading between color temperatures
+#
+# It will cause an immediate change between screen temperatures. by default,
+# the new screen temperature are gradually applied over a
+# couple of seconds
+#disable-fade = true
+
+
+# Duration of sleep between screen updates in milliseconds
+#sleep-duration = 5000
+
+
+# Duration of sleep between screen updates for fade in milliseconds
+#sleep-duration_short = 100

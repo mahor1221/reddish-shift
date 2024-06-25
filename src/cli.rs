@@ -81,6 +81,10 @@ pub enum ModeArgs {
         c: CmdArgs,
 
         /// Disable fading between color temperatures
+        ///
+        /// It will cause an immediate change between screen temperatures. by default,
+        /// the new screen temperature are gradually applied over a couple of seconds
+        #[arg(verbatim_doc_comment)]
         #[arg(long, action = ArgAction::SetTrue)]
         disable_fade: Option<bool>,
 
@@ -121,14 +125,14 @@ pub enum ModeArgs {
     Print {
         /// Location [default: 0:0]
         ///
-        /// Either set it manually or select a location provider. Negative
-        /// values represent west and south, respectively.
-        /// location providers: geoclue2 (currently not available)
+        /// Either set latitude and longitude manually or select a location provider.
+        /// Negative values represent west and south, respectively. location providers:
+        /// geoclue2 (currently not available)
         /// e.g.: 51.48:0.0 (Greenwich)
-        ///       geoclue2 (automatic geolocation updates)
+        ///       geoclue2
         #[arg(verbatim_doc_comment)]
         #[arg(long, short, value_parser = LocationProviderType::from_str)]
-        #[arg(value_name = "LATITUDE:LONGITUDE | LOCATION_PROVIDER")]
+        #[arg(value_name = "LATITUDE:LONGITUDE | PROVIDER")]
         location: LocationProviderType,
     },
 }
@@ -138,10 +142,10 @@ pub enum ModeArgs {
 pub struct ColorSettingsArgs {
     /// Color temperature to apply [default: 6500]
     ///
-    /// The neutral temperature is 6500K. Using this value will not change the
-    /// color temperature of the display. Setting the color temperature to a
-    /// value higher than this results in more blue light, and setting a lower
-    /// value will result in more red light.
+    /// The neutral temperature is 6500K. Using this value will not change the color
+    /// temperature of the display. Setting the color temperature to a value higher
+    /// than this results in more blue light, and setting a lower value will result
+    /// in more red light.
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Temperature::from_str)]
     #[arg(value_name = formatcp!("{MIN_TEMPERATURE}-{MAX_TEMPERATURE}"))]
@@ -149,7 +153,8 @@ pub struct ColorSettingsArgs {
 
     /// Additional gamma correction to apply [default: 1.0]
     ///
-    /// e.g.: 0.9 (R=G=B=0.9)
+    /// Either set it for all colors, or each color channel individually
+    /// e.g.: 0.9         (R=G=B=0.9)
     ///       0.8:0.9:0.9 (R=0.8, G=0.9, B=0.9)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Gamma::from_str)]
@@ -164,24 +169,94 @@ pub struct ColorSettingsArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct CmdArgs {
+    /// Color temperature to set for day and night [default: 6500-4500]
+    ///
+    /// The neutral temperature is 6500K. Using this value will not change the color
+    /// temperature of the display. Setting the color temperature to a value higher
+    /// than this results in more blue light, and setting a lower value will result
+    /// in more red light.
+    /// e.g.: 5000      (day=night=5000)
+    ///       6500-4500 (day=6500, night=4500)
+    #[arg(verbatim_doc_comment)]
+    #[arg(long, short, value_parser = TemperatureRange::from_str)]
+    #[arg(value_name = formatcp!("{MIN_TEMPERATURE}-{MAX_TEMPERATURE}"))]
+    pub temperature: Option<TemperatureRange>,
+
+    /// Additional gamma correction to apply for day and night [default: 1.0]
+    ///
+    /// Either set it for all colors, or each color channel individually
+    /// e.g.: 0.9               (day=night=0.9)
+    ///       1.0 - 0.8:0.9:0.9 (day=1.0, night=(R=0.8, G=0.9, B=0.9))
+    #[arg(verbatim_doc_comment)]
+    #[arg(long, short, value_parser = GammaRange::from_str)]
+    #[arg(value_name = "0.1-1.0")]
+    pub gamma: Option<GammaRange>,
+
+    /// Screen brightness to apply for day and night [default: 1.0]
+    ///
+    /// It is a fake brightness adjustment obtained by manipulating the gamma ramps
+    /// which means that it does not reduce the backlight of the screen
+    /// e.g.: 0.8     (day=night=0.8)
+    ///       1.0-0.8 (day=1.0, night=0.8)
+    #[arg(verbatim_doc_comment)]
+    #[arg(long, short, value_parser = BrightnessRange::from_str)]
+    #[arg(value_name = "0.1-1.0")]
+    pub brightness: Option<BrightnessRange>,
+
+    /// Transition scheme [default: 3:-6]
+    ///
+    /// Either time ranges or elevation angles. By default, Reddish Shift will use
+    /// the current elevation of the sun to determine whether it is daytime, night
+    /// or in transition (dawn/dusk). You can also use the print command to see
+    /// solar elevation angles for the next 24 hours
+    /// e.g.: 6:00-7:45 - 18:35-20:15 (dawn=6:00-7:45, dusk=18:35-20:15)
+    ///       7:45 - 18:35            (day starts at 7:45, night starts at 20:15)
+    ///       3:-6                    (above 3° is day, bellow -6° is night)
+    #[arg(verbatim_doc_comment)]
+    #[arg(long, short, value_parser = TransitionScheme::from_str)]
+    #[arg(value_name = "TIME-TIME - TIME-TIME | TIME-TIME | DEGREE:DEGREE")]
+    pub scheme: Option<TransitionScheme>,
+
+    /// Location, used for computation of current solar elevation [default: 0:0]
+    ///
+    /// It is not needed when using manual time ranges for transition scheme Either
+    /// set latitude and longitude manually or select a location provider. Negative
+    /// values represent west and south, respectively. location providers: geoclue2
+    /// (currently not available)
+    /// e.g.: 51.48:0.0 (Greenwich)
+    ///       geoclue2
+    #[arg(verbatim_doc_comment)]
+    #[arg(long, short, value_parser = LocationProviderType::from_str)]
+    #[arg(value_name = "LATITUDE:LONGITUDE | PROVIDER")]
+    pub location: Option<LocationProviderType>,
+
+    #[command(flatten)]
+    pub i: CmdInnerArgs,
+}
+
+#[derive(Debug, Args)]
 pub struct CmdInnerArgs {
     /// Adjustment method to use to apply color settings
     ///
+    /// If not set, the first available method will be used
     /// methods: dummy (does not affect the display)
     ///          randr (X RANDR extension)
     ///          vidmode (X VidMode extension)
     ///          drm (Direct Rendering Manager)
-    /// e.g.: vidmode (apply to $DISPLAY)
-    ///       vidmode:0 (apply to screen 0)
-    ///       drm (apply to /dev/dri/card0)
-    ///       drm:1 (apply to /dev/dri/card1)
-    ///       drm:0:80 (apply to /dev/dri/card0 with crtc 80)
-    ///       randr (apply to $DISPLAY)
-    ///       randr:0 (apply to screen 0)
+    /// e.g.: vidmode             (apply to $DISPLAY)
+    ///       vidmode:0           (apply to screen 0)
+    ///       drm                 (apply to /dev/dri/card0)
+    ///       drm:1               (apply to /dev/dri/card1)
+    ///       drm:0:80            (apply to /dev/dri/card0 with crtc 80)
+    ///       randr               (apply to $DISPLAY)
+    ///       randr:0             (apply to screen 0)
     ///       randr$DISPLAY:62,63 (apply to $DISPLAY with crtcs 62 and 63)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = AdjustmentMethodType::from_str)]
-    #[arg(value_name = "METHOD [:DISPLAY_NUM | CARD_NUM [:CRTC1,CRTC2,...]]")]
+    #[arg(
+        value_name = "METHOD [:(DISPLAY_NUM | CARD_NUM) [:CRTC1,CRTC2,...]]"
+    )]
     pub method: Option<AdjustmentMethodType>,
 
     /// Reset existing gamma ramps before applying new color settings
@@ -191,64 +266,6 @@ pub struct CmdInnerArgs {
     /// Path of config file
     #[arg(long, short, value_name = "FILE", display_order(99))]
     pub config: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
-pub struct CmdArgs {
-    /// Color temperature to set for day and night [default: 6500-4500]
-    ///
-    /// e.g.: 5000 (day=night=5000)
-    ///       6500-4500 (day=6500, night=4500)
-    #[arg(verbatim_doc_comment)]
-    #[arg(long, short, value_parser = TemperatureRange::from_str)]
-    #[arg(value_name = formatcp!("{MIN_TEMPERATURE}-{MAX_TEMPERATURE}"))]
-    pub temperature: Option<TemperatureRange>,
-
-    /// Additional gamma correction to apply for day and night [default: 1.0]
-    ///
-    /// e.g.: 0.9 (day=night=0.9)
-    ///       1.0-0.8:0.9:0.9 (day=1.0, night=(R=0.8, G=0.9, B=0.9))
-    #[arg(verbatim_doc_comment)]
-    #[arg(long, short, value_parser = GammaRange::from_str)]
-    #[arg(value_name = "0.1-1.0")]
-    pub gamma: Option<GammaRange>,
-
-    /// Screen brightness to apply for day and night [default: 1.0]
-    ///
-    /// e.g.: 0.8 (day=night=0.8)
-    ///       1.0-0.8 (day=1.0, night=0.8)
-    #[arg(verbatim_doc_comment)]
-    #[arg(long, short, value_parser = BrightnessRange::from_str)]
-    #[arg(value_name = "0.1-1.0")]
-    pub brightness: Option<BrightnessRange>,
-
-    /// Transition scheme [default: 3:-6]
-    ///
-    /// Either time ranges or elevation angles. The default value is recommended
-    /// for most users. You can also use the print command to see solar
-    /// elevation angles for the next 24 hours
-    /// e.g.: 6:00-7:45 - 18:35-20:15 (dawn=6:00-7:45, dusk=18:35-20:15)
-    ///       7:45 - 18:35 (day starts at 7:45, night starts at 20:15)
-    ///       3:-6 (above 3° is day, bellow -6° is night)
-    #[arg(verbatim_doc_comment)]
-    #[arg(long, short, value_parser = TransitionScheme::from_str)]
-    #[arg(value_name = "TIME-TIME - TIME-TIME | TIME-TIME | DEGREE:DEGREE")]
-    pub scheme: Option<TransitionScheme>,
-
-    /// Location [default: 0:0]
-    ///
-    /// Either set latitude and longitude manually or select a location
-    /// provider. Negative values represent west and south, respectively.
-    /// location providers: geoclue2 (currently not available)
-    /// e.g.: 51.48:0.0 (Greenwich)
-    ///       geoclue2 (automatic geolocation updates)
-    #[arg(verbatim_doc_comment)]
-    #[arg(long, short, value_parser = LocationProviderType::from_str)]
-    #[arg(value_name = "LATITUDE:LONGITUDE | LOCATION_PROVIDER")]
-    pub location: Option<LocationProviderType>,
-
-    #[command(flatten)]
-    pub i: CmdInnerArgs,
 }
 
 //

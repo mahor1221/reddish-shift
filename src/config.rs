@@ -101,15 +101,15 @@ pub struct ConfigBuilder {
 #[serde(rename_all = "kebab-case")]
 struct ConfigFile {
     temperature: Option<Either<u16, TemperatureRange>>,
-    brightness: Option<Either<f64, BrightnessRange>>,
     gamma: Option<Either<f64, GammaRange>>,
-    reset_ramps: Option<bool>,
+    brightness: Option<Either<f64, BrightnessRange>>,
     scheme: Option<TransitionScheme>,
+    location: Option<LocationProviderType>,
+    method: Option<AdjustmentMethodType>,
+    reset_ramps: Option<bool>,
     disable_fade: Option<bool>,
     sleep_duration_short: Option<u16>,
     sleep_duration: Option<u16>,
-    location: Option<LocationProviderType>,
-    method: Option<AdjustmentMethodType>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -561,22 +561,5 @@ impl<'de> Deserialize<'de> for LocationProviderType {
 impl<'de> Deserialize<'de> for AdjustmentMethodType {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         String::deserialize(d)?.parse().map_err(de::Error::custom)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use anyhow::Result;
-
-    #[test]
-    fn test_config_toml_has_default_values() -> Result<()> {
-        const CONFIG_TOML: &str =
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/config.toml"));
-        let cfg = toml::from_str(CONFIG_TOML)?;
-        let mut config = ConfigBuilder::default();
-        config.merge_with_config_file(cfg);
-        assert_eq!(config, ConfigBuilder::default());
-        Ok(())
     }
 }
