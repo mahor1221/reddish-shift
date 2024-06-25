@@ -1,0 +1,23 @@
+[package]
+name = "reddish-shift"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+readme.workspace = true
+repository.workspace = true
+#homepage.workspace = true
+#documentation.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+_reddish-shift = { path = "../lib" }
+
+[build-dependencies]
+anyhow = "1.0"
+clap_complete = "4.5.6"
+_reddish-shift = { path = "../lib" }

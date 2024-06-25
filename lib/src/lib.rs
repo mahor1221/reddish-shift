@@ -24,11 +24,10 @@
 // TODO: ? benchmark: https://github.com/nvzqz/divan
 // TODO: ? #[instrument]: https://docs.rs//latest/tracing/index.html
 // TODO: Fix large fade steps
-// TODO: move coproduct to a fork of frunk
 // TODO: Box large errors
 // TODO: Win support & Choco package
 
-// TODO: AUR package
+// TODO: move coproduct to a fork of frunk
 
 mod calc_colorramp;
 mod calc_solar;
@@ -46,6 +45,7 @@ mod types_display;
 mod types_parse;
 mod utils;
 
+pub use cli::cli_args_command;
 use error::ReddishError;
 pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
@@ -72,7 +72,7 @@ use std::{
 use tracing::{error, info, Level};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-fn main() {
+pub fn main() {
     (|| -> Result<(), ReddishError> {
         let c = ConfigBuilder::new(|verbosity, color| {
             let choice = color.to_choice();

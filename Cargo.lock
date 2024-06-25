@@ -3,6 +3,33 @@
 version = 3
 
 [[package]]
+name = "_reddish-shift"
+version = "0.0.0"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "anyhow",
+ "chrono",
+ "clap",
+ "const_format",
+ "ctrlc",
+ "dirs",
+ "drm",
+ "exitcode",
+ "frunk",
+ "frunk_core",
+ "insta",
+ "itertools",
+ "serde",
+ "thiserror",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "vergen",
+ "x11rb",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -186,7 +213,7 @@ dependencies = [
 [[package]]
 name = "clap"
 version = "4.5.7"
-source = "git+https://github.com/mahor1221/clap.git?branch=patch#77de2533d278bbfc39e2436592013b057a55ad51"
+source = "git+https://github.com/mahor1221/clap.git?branch=patch#a1548190a5e747afa3cfe0cfde74e3353e395d5a"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -195,7 +222,7 @@ dependencies = [
 [[package]]
 name = "clap_builder"
 version = "4.5.7"
-source = "git+https://github.com/mahor1221/clap.git?branch=patch#77de2533d278bbfc39e2436592013b057a55ad51"
+source = "git+https://github.com/mahor1221/clap.git?branch=patch#a1548190a5e747afa3cfe0cfde74e3353e395d5a"
 dependencies = [
  "anstream",
  "anstyle",
@@ -204,9 +231,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbca90c87c2a04da41e95d1856e8bcd22f159bdbfa147314d2ce5218057b0e58"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.5.5"
-source = "git+https://github.com/mahor1221/clap.git?branch=patch#77de2533d278bbfc39e2436592013b057a55ad51"
+source = "git+https://github.com/mahor1221/clap.git?branch=patch#a1548190a5e747afa3cfe0cfde74e3353e395d5a"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -217,7 +253,7 @@ dependencies = [
 [[package]]
 name = "clap_lex"
 version = "0.7.1"
-source = "git+https://github.com/mahor1221/clap.git?branch=patch#77de2533d278bbfc39e2436592013b057a55ad51"
+source = "git+https://github.com/mahor1221/clap.git?branch=patch#a1548190a5e747afa3cfe0cfde74e3353e395d5a"
 
 [[package]]
 name = "colorchoice"
@@ -686,27 +722,9 @@ dependencies = [
 name = "reddish-shift"
 version = "0.0.0"
 dependencies = [
- "anstream",
- "anstyle",
+ "_reddish-shift",
  "anyhow",
- "chrono",
- "clap",
- "const_format",
- "ctrlc",
- "dirs",
- "drm",
- "exitcode",
- "frunk",
- "frunk_core",
- "insta",
- "itertools",
- "serde",
- "thiserror",
- "toml",
- "tracing",
- "tracing-subscriber",
- "vergen",
- "x11rb",
+ "clap_complete",
 ]
 
 [[package]]

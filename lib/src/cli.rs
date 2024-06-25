@@ -26,7 +26,8 @@ use crate::{
 };
 use anstream::ColorChoice;
 use clap::{
-    ArgAction, Args, ColorChoice as ClapColorChoice, Parser, Subcommand,
+    ArgAction, Args, ColorChoice as ClapColorChoice, Command, CommandFactory,
+    Parser, Subcommand,
 };
 use const_format::formatcp;
 use std::{cmp::Ordering, marker::PhantomData, path::PathBuf, str::FromStr};
@@ -363,4 +364,10 @@ impl ClapColorChoiceExt for ClapColorChoice {
             ClapColorChoice::Never => ColorChoice::Never,
         }
     }
+}
+
+//
+
+pub fn cli_args_command() -> Command {
+    CliArgs::command()
 }
