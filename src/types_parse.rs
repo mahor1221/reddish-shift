@@ -18,7 +18,7 @@
 
 use crate::{
     coproduct::InjectErr,
-    error::parse::*,
+    error::{gamma::CrtcError, parse::*},
     types::{
         gamma, hour, minute, AdjustmentMethodType, Brightness, DayNight,
         Elevation, ElevationRange, Gamma, Latitude, Location,
@@ -34,7 +34,10 @@ impl FromStr for Temperature {
     type Err = TemperatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.trim().parse::<u16>()?.try_into()?)
+        Ok(s.trim()
+            .parse::<u16>()
+            .map_err(|e| TemperatureError::Parse(e, s.into()))?
+            .try_into()?)
     }
 }
 
@@ -42,7 +45,10 @@ impl FromStr for Brightness {
     type Err = BrightnessError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.trim().parse::<f64>()?.try_into()?)
+        Ok(s.trim()
+            .parse::<f64>()
+            .map_err(|e| BrightnessError::Parse(e, s.into()))?
+            .try_into()?)
     }
 }
 
@@ -70,7 +76,10 @@ impl FromStr for Latitude {
     type Err = LatitudeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.trim().parse::<f64>()?.try_into()?)
+        Ok(s.trim()
+            .parse::<f64>()
+            .map_err(|e| LatitudeError::Parse(e, s.into()))?
+            .try_into()?)
     }
 }
 
@@ -78,7 +87,10 @@ impl FromStr for Longitude {
     type Err = LongitudeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.trim().parse::<f64>()?.try_into()?)
+        Ok(s.trim()
+            .parse::<f64>()
+            .map_err(|e| LongitudeError::Parse(e, s.into()))?
+            .try_into()?)
     }
 }
 
@@ -170,7 +182,10 @@ impl FromStr for Elevation {
     type Err = ElevationError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(s.trim().parse::<f64>()?.try_into()?)
+        Ok(s.trim()
+            .parse::<f64>()
+            .map_err(|e| ElevationError::Parse(e, s.into()))?
+            .try_into()?)
     }
 }
 
@@ -229,18 +244,26 @@ impl FromStr for AdjustmentMethodType {
                 screen_num: None,
                 crtcs: vec![],
             }),
-            _ => Err(AdjustmentMethodTypeParamError::Kind),
+            _ => Err(AdjustmentMethodTypeParamError::InvalidName(s.into())),
         };
 
         let num = |o: Option<&str>| match o {
             None => Ok(None),
-            Some(s) => Ok(Some(s.parse()?)),
+            Some(s) => Ok(Some(s.parse().map_err(|e| {
+                AdjustmentMethodTypeParamError::Display(e, s.into())
+            })?)),
         };
         let crtcs = |o: Option<&str>| match o {
             None => Ok(Vec::new()),
-            Some(s) => {
-                Ok(s.split(',').map(|s| s.trim().parse()).collect_result()?)
-            }
+            Some(s) => Ok(s
+                .split(',')
+                .map(|id| {
+                    id.trim().parse().map_err(|err| CrtcError {
+                        id: id.to_string(),
+                        err,
+                    })
+                })
+                .collect_result()?),
         };
 
         let f = |k: &str, n: Option<&str>, c: Option<&str>| {

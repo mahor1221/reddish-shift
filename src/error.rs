@@ -1,10 +1,11 @@
-use crate::Coprod;
+use crate::{types_display::ERR, Coprod};
 use config::ConfigError;
+use itertools::Itertools;
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
     io,
-    sync::mpsc::RecvTimeoutError,
+    path::PathBuf,
 };
 use thiserror::Error;
 
@@ -12,10 +13,10 @@ use thiserror::Error;
 pub struct VecError<E: Error>(pub Vec<E>);
 impl<E: Error> Display for VecError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for i in &self.0 {
-            writeln!(f, "{i}")?;
-        }
-        Ok(())
+        let err =
+            |e: &E| "- ".to_string() + &e.to_string().lines().join("\n  ");
+        let s = self.0.iter().map(err).join("\n");
+        f.write_str(&s)
     }
 }
 
@@ -38,14 +39,31 @@ impl<E: Error> VecError<E> {
 
 //
 
+#[derive(Debug)]
+pub struct ReddishError(ReddishErrorKind);
+
+impl Display for ReddishError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let sep = " ".repeat("error: ".len()) + "\n";
+        let s = format!("{ERR}error:{ERR:#} {}", self.0).lines().join(&sep);
+        f.write_str(&s)
+    }
+}
+
+//
+
 #[derive(Debug, Error)]
-#[error("{0}")]
-pub enum ReddishError {
+pub enum ReddishErrorKind {
+    #[error("configuration failed:\n{0}")]
     Config(#[from] ConfigError),
+    #[error("screen adjustment failed:\n{0}")]
     Adjuster(#[from] AdjusterError),
+    #[error("failed to retrieve location:\n{0}")]
     Provider(#[from] ProviderError),
+    #[error("failed to set CTRL-C handler:\n{0}")]
     Ctrlc(#[from] ctrlc::Error),
-    Mpsc(#[from] RecvTimeoutError),
+    #[error("failed to handle CTRL-C:\n{0}")]
+    Mpsc(#[from] std::sync::mpsc::RecvTimeoutError),
 }
 
 #[derive(Debug, Error)]
@@ -55,26 +73,26 @@ pub struct ProviderError;
 
 #[derive(Debug, Error)]
 pub enum AdjusterError {
-    #[error("Temperature adjustment failed:\n{0}")]
+    #[error("set gamma ramps:\n{0}")]
     Set(AdjusterErrorInner),
-    #[error("Unable to restore gamma ramps:\n{0}")]
+    #[error("restore gamma ramps:\n{0}")]
     Restore(AdjusterErrorInner),
 }
 
 #[derive(Debug, Error)]
 pub enum AdjusterErrorInner {
-    #[error("{0}")]
+    #[error("vidmode:\n{0}")]
     Vidmode(#[from] X11Error),
-    #[error("{0}")]
-    Randr(#[from] AdjusterErrorInnerRandr),
-    #[error("{0}")]
+    #[error("randr:\n{0}")]
+    Randr(#[from] RandrError),
+    #[error("drm:\n{0}")]
     Drm(#[from] VecError<io::Error>),
 }
 
 type X11Error =
     Coprod!(x11rb::errors::ConnectionError, x11rb::errors::ReplyError);
 
-type AdjusterErrorInnerRandr = Coprod!(
+type RandrError = Coprod!(
     VecError<x11rb::errors::ConnectionError>,
     VecError<x11rb::errors::ReplyError>
 );
@@ -85,131 +103,139 @@ pub mod config {
 
     #[derive(Debug, Error)]
     pub enum ConfigError {
-        #[error("None of the available methods worked:\n{0}")]
+        #[error("none of the available methods worked:\n{0}")]
         NoAvailableMethod(VecError<AdjustmentMethodError>),
-        #[error("{0}")]
-        Method(#[from] AdjustmentMethodError),
+        #[error("adjustment method initialization:\n{0}")]
+        MethodInit(#[from] AdjustmentMethodError),
         #[error("{0}")]
         File(#[from] ConfigFileError),
     }
 
     #[derive(Debug, Error)]
     pub enum ConfigFileError {
-        #[error("")]
-        PathNotFile,
-        #[error("")]
+        #[error("given path is not a file ({0})")]
+        PathNotFile(PathBuf),
+        #[error("could not find configuration file. Use the -c flag.")]
         ConfigDirNotFound,
-        #[error("{0}")]
-        OpenFailed(io::Error),
-        #[error("{0}")]
-        DeserializeFailed(toml::de::Error),
+        #[error("could not read file ({1}):\n{0}")]
+        OpenFailed(io::Error, PathBuf),
+        #[error("could not deserialize file ({1}):\n{0}")]
+        DeserializeFailed(toml::de::Error, PathBuf),
     }
 
     impl From<DrmError> for ConfigError {
         fn from(e: DrmError) -> Self {
-            Self::Method(AdjustmentMethodError::Drm(e))
+            Self::MethodInit(AdjustmentMethodError::Drm(e))
         }
     }
 
     impl From<RandrError> for ConfigError {
         fn from(e: RandrError) -> Self {
-            Self::Method(AdjustmentMethodError::Randr(e))
+            Self::MethodInit(AdjustmentMethodError::Randr(e))
         }
     }
 
     impl From<VidmodeError> for ConfigError {
         fn from(e: VidmodeError) -> Self {
-            Self::Method(AdjustmentMethodError::Vidmode(e))
+            Self::MethodInit(AdjustmentMethodError::Vidmode(e))
         }
     }
 }
 
 pub mod gamma {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[derive(Debug, Error)]
     pub enum AdjustmentMethodError {
-        #[error("{0}")]
+        #[error("vidmode:\n{0}")]
         Vidmode(#[from] VidmodeError),
-        #[error("{0}")]
+        #[error("randr:\n{0}")]
         Randr(#[from] RandrError),
-        #[error("{0}")]
+        #[error("drm:\n{0}")]
         Drm(#[from] DrmError),
+    }
+
+    #[derive(Debug, Error)]
+    #[error("id ({id}):\n{err}")]
+    pub struct CrtcError<ID: Display, E: Error> {
+        pub id: ID,
+        pub err: E,
     }
 
     //
 
     #[derive(Debug, Error)]
     pub enum VidmodeError {
-        #[error("Failed to open DRM device: %s")]
+        #[error("connection failed:\n{0}")]
         ConnectFailed(#[from] x11rb::errors::ConnectError),
-        #[error("{0}")]
+        #[error("could not get version:\n{0}")]
         GetVersionFailed(X11Error),
-        // eprintln!("X request failed: XF86VidModeGetGammaRampSize");
-        #[error("{0}")]
-        GetRampSizeFailed(X11Error),
-        #[error("Gamma ramp size too small: {0}")]
-        InvalidRampSize(u16),
-        #[error("{0}")]
+        #[error("could not get gamma ramp:\n{0}")]
         GetRampFailed(X11Error),
+        #[error("could not get gamma ramp size:\n{0}")]
+        GetRampSizeFailed(X11Error),
+        #[error("gamma ramp size too small: {0}")]
+        InvalidRampSize(u16),
     }
 
     #[derive(Debug, Error)]
     pub enum RandrError {
-        #[error("{0}")]
+        #[error("connection failed:\n{0}")]
         ConnectFailed(#[from] x11rb::errors::ConnectError),
-        #[error("{0}")]
+        #[error("could not get version:\n{0}")]
         GetVersionFailed(X11Error),
-        #[error("{0}")]
+        #[error("could not get resources:\n{0}")]
         GetResourcesFailed(X11Error),
-        #[error("Unsupported RANDR version ({major}.{minor})")]
+        #[error("unsupported version ({major}.{minor})")]
         UnsupportedVersion { major: u32, minor: u32 },
-        #[error("Crtc numbers must be unique")]
+        #[error("crtc numbers must be unique")]
         NonUniqueCrtc,
-        #[error("Valid CRTCs are: {0:?}")]
+        #[error("valid crtcs are: {0:?}")]
         InvalidCrtc(Vec<u32>),
-        #[error("{0}")]
+        #[error("could not send requests:\n{0}")]
         SendRequestFailed(VecError<x11rb::errors::ConnectionError>),
-        #[error("{0}")]
-        Crtcs(#[from] VecError<RandrErrorCrtc>),
+        #[error("crtc:\n{0}")]
+        GetCrtcs(#[from] VecError<CrtcError<u32, RandrCrtcError>>),
     }
 
     #[derive(Debug, Error)]
-    pub enum RandrErrorCrtc {
-        #[error("{0}")]
-        GetRampSizeFailed(x11rb::errors::ReplyError),
-        #[error("Gamma ramp size too small: {0}")]
-        InvalidRampSize(u16),
-        #[error("{0}")]
+    pub enum RandrCrtcError {
+        #[error("could not get gamma ramp:\n{0}")]
         GetRampFailed(x11rb::errors::ReplyError),
+        #[error("could not get gamma ramp size:\n{0}")]
+        GetRampSizeFailed(x11rb::errors::ReplyError),
+        #[error("gamma ramp size too small: {0}")]
+        InvalidRampSize(u16),
     }
 
     //
 
     #[derive(Debug, Error)]
     pub enum DrmError {
-        #[error("Failed to open DRM device:\n{0}")]
-        OpenDeviceFailed(io::Error),
-        #[error("{0}")]
+        #[error("failed to open device ({1}):\n{0}")]
+        OpenDeviceFailed(io::Error, PathBuf),
+        #[error("could not get resources:\n{0}")]
         GetResourcesFailed(io::Error),
-        #[error("Crtc numbers must be non zero")]
+        #[error("crtc numbers must be non zero")]
         ZeroValueCrtc,
-        #[error("Crtc numbers must be unique")]
+        #[error("crtc numbers must be unique")]
         NonUniqueCrtc,
-        #[error("Valid CRTCs are: {0:?}")]
+        #[error("valid crtcs are: {0:?}")]
         InvalidCrtc(Vec<u32>),
-        #[error("{0}")]
-        Crtcs(VecError<DrmErrorCrtc>),
+        #[error("crtc:\n{0}")]
+        GetCrtcs(VecError<CrtcError<u32, DrmCrtcError>>),
     }
 
     #[derive(Debug, Error)]
-    pub enum DrmErrorCrtc {
-        #[error("{0}")]
-        GetRampSizeFailed(io::Error),
-        #[error("Gamma ramp size too small: {0}")]
-        InvalidRampSize(u32),
-        #[error("{0}")]
+    pub enum DrmCrtcError {
+        #[error("could not get gamma ramp:\n{0}")]
         GetRampFailed(io::Error),
+        #[error("could not get gamma ramp size:\n{0}")]
+        GetRampSizeFailed(io::Error),
+        #[error("gamma ramp size too small: {0}")]
+        InvalidRampSize(u32),
     }
 }
 
@@ -223,75 +249,77 @@ pub mod types {
     };
 
     #[derive(Debug, Error)]
-    #[error("Temperature must be between {MIN_TEMPERATURE}K and {MAX_TEMPERATURE}K")]
+    #[error("temperature must be between {MIN_TEMPERATURE}K and {MAX_TEMPERATURE}K ({0})")]
     pub struct TemperatureError(pub u16);
 
     #[rustfmt::skip]
     #[derive(Debug, Error)]
-    #[error("Brightness must be between {MIN_BRIGHTNESS} and {MAX_BRIGHTNESS}")]
+    #[error("brightness must be between {MIN_BRIGHTNESS} and {MAX_BRIGHTNESS} ({0})")]
     pub struct BrightnessError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Gamma must be between {MIN_GAMMA} and {MAX_GAMMA}")]
+    #[error("gamma must be between {MIN_GAMMA} and {MAX_GAMMA} ({0})")]
     pub struct GammaError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Latitude must be between {MAX_LATITUDE}° and {MIN_LATITUDE}°")]
+    #[error(
+        "latitude must be between {MAX_LATITUDE}° and {MIN_LATITUDE}° ({0})"
+    )]
     pub struct LatitudeError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Longitude must be between {MAX_LONGITUDE}° and {MIN_LONGITUDE}°")]
+    #[error("longitude must be between {MAX_LONGITUDE}° and {MIN_LONGITUDE}° ({0})")]
     pub struct LongitudeError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Elevation must be between {MAX_ELEVATION}° and {MIN_ELEVATION}°")]
+    #[error("elevation must be between {MAX_ELEVATION}° and {MIN_ELEVATION}° ({0})")]
     pub struct ElevationError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Hour must be between 0 and 23")]
+    #[error("hour must be between 0 and 23 ({0})")]
     pub struct HourError(pub u8);
 
     #[derive(Debug, Error)]
-    #[error("Minute must be between 0 and 59")]
+    #[error("minute must be between 0 and 59 ({0})")]
     pub struct MinuteError(pub u8);
 
     #[derive(Debug, Error)]
-    #[error("Alpha must be between 0.0 and 1.0")]
+    #[error("alpha must be between 0.0 and 1.0 ({0})")]
     pub struct AlphaError(pub f64);
 
     #[derive(Debug, Error)]
-    #[error("Starting time must be earlier than ending time: {start}-{end}")]
+    #[error("starting time must be earlier than ending time (start: {start}, end: {end})")]
     pub struct TimeRangeError {
         pub start: TimeOffset,
         pub end: TimeOffset,
     }
 
     #[derive(Debug, Error)]
-    #[error("dawn.end < dusk.start")]
+    #[error("dawn's ending time must be earlier than dusk's starting time (dawn's end: {dawn_end}, dusk's start: {dusk_start})")]
     pub struct TimeRangesError {
         pub dawn_end: TimeOffset,
         pub dusk_start: TimeOffset,
     }
 
     #[derive(Debug, Error)]
-    #[error("High transition elevation cannot be lower than the low transition elevation")]
+    #[error("high transition elevation must be higher than the low transition elevation (high: {high}, low: {low})")]
     pub struct ElevationRangeError {
         pub high: Elevation,
         pub low: Elevation,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
+    #[error("gamma:\n{0}")]
     pub struct GammaRgbError(#[from] VecError<GammaError>);
 
     type TimeErrorT = Coprod!(HourError, MinuteError);
     #[derive(Debug, Error)]
-    #[error("{0}")]
+    #[error("time:\n{0}")]
     pub struct TimeError(#[from] VecError<TimeErrorT>);
 
     type LocationT = Coprod!(LatitudeError, LongitudeError);
     #[derive(Debug, Error)]
-    #[error("{0}")]
+    #[error("location:\n{0}")]
     pub struct LocationError(#[from] VecError<LocationT>);
 
     impl From<Vec<GammaError>> for GammaRgbError {
@@ -315,145 +343,157 @@ pub mod types {
 
 pub mod parse {
     use super::*;
+    use gamma::CrtcError;
     use std::num::{ParseFloatError, ParseIntError};
 
     pub trait DayNightErrorType: Error {}
 
     #[derive(Debug, Error)]
-    #[error("")]
     pub enum DayNightError<E: DayNightErrorType> {
+        #[error("{0}")]
         Multiple(#[from] VecError<E>),
+        #[error("- {0}")]
         Single(#[from] E),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum TemperatureError {
-        Parse(#[from] ParseIntError),
+        #[error("{0} ({1})")]
+        Parse(ParseIntError, String),
+        #[error("{0}")]
         Type(#[from] types::TemperatureError),
     }
     impl DayNightErrorType for TemperatureError {}
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum BrightnessError {
-        Parse(#[from] ParseFloatError),
+        #[error("{0} ({1})")]
+        Parse(ParseFloatError, String),
+        #[error("{0}")]
         Type(#[from] types::BrightnessError),
     }
     impl DayNightErrorType for BrightnessError {}
 
     pub type GammaErrorT = Coprod!(ParseFloatError, types::GammaError);
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum GammaError {
+        #[error("{0}")]
         Multiple(#[from] VecError<GammaErrorT>),
+        #[error("- {0}")]
         Single(#[from] GammaErrorT),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
     impl DayNightErrorType for GammaError {}
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum LatitudeError {
-        Parse(#[from] ParseFloatError),
+        #[error("{0} ({1})")]
+        Parse(ParseFloatError, String),
+        #[error("{0}")]
         Type(#[from] types::LatitudeError),
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum LongitudeError {
-        Parse(#[from] ParseFloatError),
+        #[error("{0} ({1})")]
+        Parse(ParseFloatError, String),
+        #[error("{0}")]
         Type(#[from] types::LongitudeError),
     }
 
     type LocationErrorT = Coprod!(LatitudeError, LongitudeError);
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum LocationError {
+        #[error("{0}")]
         Multiple(#[from] VecError<LocationErrorT>),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum ElevationError {
-        Parse(#[from] ParseFloatError),
+        #[error("{0} ({1})")]
+        Parse(ParseFloatError, String),
+        #[error("{0}")]
         Type(#[from] types::ElevationError),
     }
 
     pub type TimeErrorT =
         Coprod!(ParseIntError, types::HourError, types::MinuteError);
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum TimeError {
+        #[error("{0}")]
         Multiple(#[from] VecError<TimeErrorT>),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum TimeRangeError {
+        #[error("{0}")]
         Multiple(#[from] VecError<TimeError>),
+        #[error("- {0}")]
         Single(#[from] TimeError),
+        #[error("- {0}")]
         Type(#[from] types::TimeRangeError),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum TimeRangesError {
+        #[error("{0}")]
         Multiple(#[from] VecError<TimeRangeError>),
+        #[error("- {0}")]
         Type(#[from] types::TimeRangesError),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum ElevationRangeError {
+        #[error("{0}")]
         Multiple(#[from] VecError<ElevationError>),
+        #[error("- {0}")]
         Type(#[from] types::ElevationRangeError),
-        #[error("")]
+        #[error("- invalid format")]
         Fmt,
     }
 
     #[derive(Debug, Error)]
-    #[error("{time}\n{elev}")]
+    #[error("as time ranges:\n{time}\nas elevation range:\n{elev}")]
     pub struct TransitionSchemeError {
         pub time: TimeRangesError,
         pub elev: ElevationRangeError,
     }
 
     #[derive(Debug, Error)]
-    #[error("{loc}")]
+    #[error("as automatic:\n- did not match any provider\nas manual:\n{loc}")]
     pub struct LocationProviderError {
         pub loc: LocationError,
     }
 
     #[derive(Debug, Error)]
     pub enum AdjustmentMethodTypeParamError {
-        #[error("")]
-        Kind,
-        #[error("")]
-        Display(#[from] ParseIntError),
-        #[error("")]
-        Crtcs(#[from] VecError<ParseIntError>),
+        #[error("there is no adjustment method with this name ({0})")]
+        InvalidName(String),
+        #[error("display number ({1}):\n{0}")]
+        Display(ParseIntError, String),
+        #[error("crtc numbers:\n{0}")]
+        Crtcs(#[from] VecError<CrtcError<String, ParseIntError>>),
     }
 
     #[derive(Debug, Error)]
-    #[error("{0}")]
     pub enum AdjustmentMethodTypeError {
+        #[error("{0}")]
         Vec(#[from] VecError<AdjustmentMethodTypeParamError>),
-        #[error("")]
-        Fmt,
-        #[error("")]
+        #[error("videmode does not support crtcs")]
         CrtcOnVidmode,
+        #[error("invalid format")]
+        Fmt,
     }
 
     impl<E: DayNightErrorType> From<Vec<E>> for DayNightError<E> {
@@ -498,15 +538,39 @@ pub mod parse {
         }
     }
 
-    impl From<Vec<ParseIntError>> for AdjustmentMethodTypeParamError {
-        fn from(v: Vec<ParseIntError>) -> Self {
-            Self::Crtcs(VecError(v))
-        }
-    }
-
     impl From<Vec<AdjustmentMethodTypeParamError>> for AdjustmentMethodTypeError {
         fn from(v: Vec<AdjustmentMethodTypeParamError>) -> Self {
             Self::Vec(VecError(v))
         }
+    }
+}
+
+impl From<ConfigError> for ReddishError {
+    fn from(e: ConfigError) -> Self {
+        Self(ReddishErrorKind::Config(e))
+    }
+}
+
+impl From<AdjusterError> for ReddishError {
+    fn from(e: AdjusterError) -> Self {
+        Self(ReddishErrorKind::Adjuster(e))
+    }
+}
+
+impl From<ProviderError> for ReddishError {
+    fn from(e: ProviderError) -> Self {
+        Self(ReddishErrorKind::Provider(e))
+    }
+}
+
+impl From<ctrlc::Error> for ReddishError {
+    fn from(e: ctrlc::Error) -> Self {
+        Self(ReddishErrorKind::Ctrlc(e))
+    }
+}
+
+impl From<std::sync::mpsc::RecvTimeoutError> for ReddishError {
+    fn from(e: std::sync::mpsc::RecvTimeoutError) -> Self {
+        Self(ReddishErrorKind::Mpsc(e))
     }
 }

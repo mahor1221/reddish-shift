@@ -22,7 +22,7 @@ use crate::{
     calc_colorramp::GammaRamps,
     config::{RANDR_MAJOR_VERSION, RANDR_MINOR_VERSION_MIN},
     error::{
-        gamma::{RandrError, RandrErrorCrtc},
+        gamma::{CrtcError, RandrCrtcError, RandrError},
         AdjusterError, AdjusterErrorInner,
     },
     types::ColorSettings,
@@ -123,7 +123,7 @@ impl Randr {
             .into_iter()
             .map(Self::get_crtc)
             .collect_result()
-            .map_err(RandrError::Crtcs)
+            .map_err(RandrError::GetCrtcs)
     }
 
     fn validate_crtc(all_crtcs: &[u32], id: u32) -> Result<(), RandrError> {
@@ -140,22 +140,26 @@ impl Randr {
             Cookie<Conn, GetCrtcGammaSizeReply>,
             Cookie<Conn, GetCrtcGammaReply>,
         ),
-    ) -> Result<Crtc, RandrErrorCrtc> {
-        let r = c_ramp.reply().map_err(RandrErrorCrtc::GetRampFailed)?;
-        let saved_ramps = GammaRamps([r.red, r.green, r.blue]);
-        let ramp_size = c_size
-            .reply()
-            .map_err(RandrErrorCrtc::GetRampSizeFailed)?
-            .size;
-        if ramp_size == 0 {
-            Err(RandrErrorCrtc::InvalidRampSize(ramp_size))?
-        }
+    ) -> Result<Crtc, CrtcError<u32, RandrCrtcError>> {
+        let f = || -> Result<Crtc, RandrCrtcError> {
+            let r = c_ramp.reply().map_err(RandrCrtcError::GetRampFailed)?;
+            let saved_ramps = GammaRamps([r.red, r.green, r.blue]);
+            let ramp_size = c_size
+                .reply()
+                .map_err(RandrCrtcError::GetRampSizeFailed)?
+                .size;
+            if ramp_size == 0 {
+                Err(RandrCrtcError::InvalidRampSize(ramp_size))?
+            }
 
-        Ok(Crtc {
-            id,
-            ramp_size,
-            saved_ramps,
-        })
+            Ok(Crtc {
+                id,
+                ramp_size,
+                saved_ramps,
+            })
+        };
+
+        f().map_err(|err| CrtcError { id, err })
     }
 
     fn set_gamma_ramps<'s>(

@@ -39,6 +39,10 @@ dirs = "5.0.1"
 serde = { version = "1.0.203", features = ["derive"] }
 toml = "0.8.14"
 
+[patch.crates-io]
+# See https://github.com/clap-rs/clap/issues/5550
+clap = { git = "https://github.com/mahor1221/clap.git", branch = "patch" }
+
 [build-dependencies]
 vergen = { version = "8.3", features = ["cargo", "git", "gitcl", "rustc"] }
 anyhow = "1.0"

@@ -175,7 +175,7 @@ impl ConfigBuilder {
                 ) = (mode, scheme, l.is_default())
                 {
                     warn!(
-                        "{WARN}Warning{WARN:#}: Using default location ({l})"
+                        "{WARN}warning:{WARN:#} using default location ({l})"
                     );
                 }
                 LocationProvider::Manual(Manual::new(l))
@@ -198,8 +198,8 @@ impl ConfigBuilder {
 
             (_, Some(m)) => match m {
                 AdjustmentMethodType::Dummy => {
-                    let s = "Using dummy method! Display will not be affected";
-                    warn!("{WARN}Warning{WARN:#}: {s}");
+                    let s = "using dummy method! display will not be affected";
+                    warn!("{WARN}warning:{WARN:#} {s}");
                     Ok(AdjustmentMethod::Dummy(Default::default()))
                 }
                 AdjustmentMethodType::Drm { card_num, crtcs } => {
@@ -214,22 +214,21 @@ impl ConfigBuilder {
             },
 
             (_, None) => {
-                let s = "Trying all methods until one that works is found";
-                warn!("{WARN}Warning{WARN:#}: {s}");
+                let s = "trying all methods until one that works is found";
+                warn!("{WARN}warning:{WARN:#} {s}");
                 Err(())
-                    // .or_else(|_| -> Result<_, VecError<_>> {
-                    //     let errs = VecError::default();
-                    //     let m = Randr::new(None, Vec::new())
-                    //         .map_err(|e| errs.push(e.into()))?;
-                    //     Ok(AdjustmentMethod::Randr(m))
-                    // })
-                    // .or_else(|errs| -> Result<_, VecError<_>> {
-                    //     let m = Vidmode::new(None)
-                    //         .map_err(|e| errs.push(e.into()))?;
-                    //     Ok(AdjustmentMethod::Vidmode(m))
-                    // })
-                    .or_else(|errs| -> Result<_, VecError<_>> {
+                    .or_else(|_| -> Result<_, VecError<_>> {
                         let errs = VecError::default();
+                        let m = Randr::new(None, Vec::new())
+                            .map_err(|e| errs.push(e.into()))?;
+                        Ok(AdjustmentMethod::Randr(m))
+                    })
+                    .or_else(|errs| -> Result<_, VecError<_>> {
+                        let m = Vidmode::new(None)
+                            .map_err(|e| errs.push(e.into()))?;
+                        Ok(AdjustmentMethod::Vidmode(m))
+                    })
+                    .or_else(|errs| -> Result<_, VecError<_>> {
                         let m = Drm::new(None, Vec::new())
                             .map_err(|e| errs.push(e.into()))?;
                         Ok(AdjustmentMethod::Drm(m))
@@ -426,7 +425,7 @@ impl ConfigFile {
         let user_config = config_path
             .map(|p| match p.is_file() {
                 true => Ok(p),
-                false => Err(ConfigFileError::PathNotFile),
+                false => Err(ConfigFileError::PathNotFile(p.into())),
             })
             .transpose()?
             .or(local_config.as_deref())
@@ -436,12 +435,12 @@ impl ConfigFile {
         let mut buf = String::new();
         let mut read = |path: &Path| -> Result<(), ConfigFileError> {
             if path.is_file() {
-                File::open(path)
-                    .map_err(ConfigFileError::OpenFailed)?
-                    .read_to_string(&mut buf)
-                    .map_err(ConfigFileError::OpenFailed)?;
-                let cfg = toml::from_str(&buf)
-                    .map_err(ConfigFileError::DeserializeFailed)?;
+                (|| File::open(path)?.read_to_string(&mut buf))().map_err(
+                    |e| ConfigFileError::OpenFailed(e, path.into()),
+                )?;
+                let cfg = toml::from_str(&buf).map_err(|e| {
+                    ConfigFileError::DeserializeFailed(e, path.into())
+                })?;
                 config.merge(cfg);
                 Ok(())
             } else {

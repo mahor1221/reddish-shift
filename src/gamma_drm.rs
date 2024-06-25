@@ -22,7 +22,7 @@
 use crate::{
     calc_colorramp::GammaRamps,
     error::{
-        gamma::{DrmError, DrmErrorCrtc},
+        gamma::{CrtcError, DrmCrtcError, DrmError},
         AdjusterError, AdjusterErrorInner,
     },
     types::ColorSettings,
@@ -75,7 +75,9 @@ impl Card {
             options.read(true);
             options.write(true);
             Ok(Card(
-                options.open(path).map_err(DrmError::OpenDeviceFailed)?,
+                options
+                    .open(path)
+                    .map_err(|e| DrmError::OpenDeviceFailed(e, path.into()))?,
             ))
         }
         inner(path.as_ref())
@@ -119,7 +121,7 @@ impl Drm {
             .into_iter()
             .map(|h| Self::get_crtc(card, h))
             .collect_result()
-            .map_err(DrmError::Crtcs)
+            .map_err(DrmError::GetCrtcs)
     }
 
     fn validate_crtc(
@@ -140,45 +142,52 @@ impl Drm {
     fn get_crtc(
         card: &Card,
         handle: CrtcHandle,
-    ) -> Result<Crtc, DrmErrorCrtc> {
-        let info = card
-            .get_crtc(handle)
-            .map_err(DrmErrorCrtc::GetRampSizeFailed)?;
-        let ramp_size = info.gamma_length();
-        if ramp_size <= 1 {
-            Err(DrmErrorCrtc::InvalidRampSize(ramp_size))?
-        }
+    ) -> Result<Crtc, CrtcError<u32, DrmCrtcError>> {
+        let f = || -> Result<Crtc, DrmCrtcError> {
+            let info = card
+                .get_crtc(handle)
+                .map_err(DrmCrtcError::GetRampSizeFailed)?;
+            let ramp_size = info.gamma_length();
+            if ramp_size <= 1 {
+                Err(DrmCrtcError::InvalidRampSize(ramp_size))?
+            }
 
-        let (mut r, mut g, mut b) = (Vec::new(), Vec::new(), Vec::new());
-        // FIX: Error: Bad address (os error 14)
-        // drm_ffi::mode::get_gamma(
-        //     card.as_fd(),
-        //     handle.into(),
-        //     ramp_size as usize,
-        //     &mut r,
-        //     &mut g,
-        //     &mut b,
-        // )?;
-        //
-        // The C function drmModeCrtcGetGamma works on my system
-        // Test here: https://github.com/mahor1221/redshift
-        // build and run: ./redshift -m drm:card=<your card> -x
-        //
-        // everything is similar to the C function, why it doesn't work
-        // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.c#L1000
-        // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
-        //
-        // FIX: Error: Invalid argument (os error 22)
-        card.get_gamma(handle, &mut r, &mut g, &mut b)
-            .map_err(DrmErrorCrtc::GetRampFailed)?;
-        let saved_ramps = GammaRamps([r, g, b]);
-        // _("DRM could not read gamma ramps on CRTC %i on\n"
-        // "graphics card %i, ignoring device.\n"),
+            let (mut r, mut g, mut b) = (Vec::new(), Vec::new(), Vec::new());
+            // FIX: Error: Bad address (os error 14)
+            // drm_ffi::mode::get_gamma(
+            //     card.as_fd(),
+            //     handle.into(),
+            //     ramp_size as usize,
+            //     &mut r,
+            //     &mut g,
+            //     &mut b,
+            // )?;
+            //
+            // The C function drmModeCrtcGetGamma works on my system
+            // Test here: https://github.com/mahor1221/redshift
+            // build and run: ./redshift -m drm:card=<your card> -x
+            //
+            // everything is similar to the C function, why it doesn't work
+            // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.c#L1000
+            // https://gitlab.freedesktop.org/mesa/drm/-/blob/main/include/drm/drm.h#L1155
+            //
+            // FIX: Error: Invalid argument (os error 22)
+            card.get_gamma(handle, &mut r, &mut g, &mut b)
+                .map_err(DrmCrtcError::GetRampFailed)?;
+            let saved_ramps = GammaRamps([r, g, b]);
+            // _("DRM could not read gamma ramps on CRTC %i on\n"
+            // "graphics card %i, ignoring device.\n"),
 
-        Ok(Crtc {
-            handle,
-            ramp_size,
-            saved_ramps,
+            Ok(Crtc {
+                handle,
+                ramp_size,
+                saved_ramps,
+            })
+        };
+
+        f().map_err(|err| CrtcError {
+            id: handle.into(),
+            err,
         })
     }
 

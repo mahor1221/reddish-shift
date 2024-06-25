@@ -60,7 +60,7 @@ use crate::{
     config::{Config, ConfigBuilder, FADE_STEPS},
     error::{AdjusterError, ProviderError},
     types::{ColorSettings, Elevation, Mode, Period, PeriodInfo},
-    types_display::{BODY, ERR, HEADER},
+    types_display::{BODY, HEADER},
 };
 use anstream::AutoStream;
 use chrono::{DateTime, SubsecRound, TimeDelta};
@@ -102,7 +102,7 @@ fn main() {
 
         run(&c, &rx)
     })()
-    .unwrap_or_else(|e| error!("{ERR}Error{ERR:#}: {e}"))
+    .unwrap_or_else(|e| error!("{e}"))
 }
 
 fn run(c: &Config, sig: &Receiver<()>) -> Result<(), ReddishError> {

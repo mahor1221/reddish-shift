@@ -148,7 +148,7 @@ pub struct ColorSettingsArgs {
     /// in more red light.
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Temperature::from_str)]
-    #[arg(value_name = formatcp!("{MIN_TEMPERATURE}-{MAX_TEMPERATURE}"))]
+    #[arg(value_name = formatcp!("FROM {MIN_TEMPERATURE} TO {MAX_TEMPERATURE}"))]
     pub temperature: Option<Temperature>,
 
     /// Additional gamma correction to apply [default: 1.0]
@@ -158,13 +158,13 @@ pub struct ColorSettingsArgs {
     ///       0.8:0.9:0.9 (R=0.8, G=0.9, B=0.9)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Gamma::from_str)]
-    #[arg(value_name = "0.1-1.0")]
+    #[arg(value_name = "FROM 0.1 TO 10")]
     pub gamma: Option<Gamma>,
 
     /// Screen brightness to apply [default: 1.0]
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Brightness::from_str)]
-    #[arg(value_name = "0.1-1.0")]
+    #[arg(value_name = "FROM 0.1 TO 1.0")]
     pub brightness: Option<Brightness>,
 }
 
@@ -180,7 +180,7 @@ pub struct CmdArgs {
     ///       6500-4500 (day=6500, night=4500)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = TemperatureRange::from_str)]
-    #[arg(value_name = formatcp!("{MIN_TEMPERATURE}-{MAX_TEMPERATURE}"))]
+    #[arg(value_name = formatcp!("FROM {MIN_TEMPERATURE} TO {MAX_TEMPERATURE}"))]
     pub temperature: Option<TemperatureRange>,
 
     /// Additional gamma correction to apply for day and night [default: 1.0]
@@ -190,7 +190,7 @@ pub struct CmdArgs {
     ///       1.0 - 0.8:0.9:0.9 (day=1.0, night=(R=0.8, G=0.9, B=0.9))
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = GammaRange::from_str)]
-    #[arg(value_name = "0.1-1.0")]
+    #[arg(value_name = "FROM 0.1 TO 10")]
     pub gamma: Option<GammaRange>,
 
     /// Screen brightness to apply for day and night [default: 1.0]
@@ -201,7 +201,7 @@ pub struct CmdArgs {
     ///       1.0-0.8 (day=1.0, night=0.8)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = BrightnessRange::from_str)]
-    #[arg(value_name = "0.1-1.0")]
+    #[arg(value_name = "FROM 0.1 TO 1.0")]
     pub brightness: Option<BrightnessRange>,
 
     /// Transition scheme [default: 3:-6]
