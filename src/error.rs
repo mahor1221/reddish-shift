@@ -9,8 +9,8 @@ use std::{
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub struct VecError<E>(pub Vec<E>);
-impl<E: Display> Display for VecError<E> {
+pub struct VecError<E: Error>(pub Vec<E>);
+impl<E: Error> Display for VecError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for i in &self.0 {
             writeln!(f, "{i}")?;
@@ -18,6 +18,25 @@ impl<E: Display> Display for VecError<E> {
         Ok(())
     }
 }
+
+impl<E: Error> Default for VecError<E> {
+    fn default() -> Self {
+        Self(vec![])
+    }
+}
+
+impl<E: Error> VecError<E> {
+    pub fn push(mut self, e: E) -> Self {
+        self.0.push(e);
+        self
+    }
+
+    pub fn into_push<F: Into<E>>(self, f: F) -> Self {
+        self.push(f.into())
+    }
+}
+
+//
 
 #[derive(Debug, Error)]
 #[error("{0}")]
@@ -61,14 +80,13 @@ type AdjusterErrorInnerRandr = Coprod!(
 );
 
 pub mod config {
-    use gamma::{AdjustmentMethodError, DrmError, RandrError, VidmodeError};
-
     use super::*;
+    use gamma::{AdjustmentMethodError, DrmError, RandrError, VidmodeError};
 
     #[derive(Debug, Error)]
     pub enum ConfigError {
-        #[error("WIP")]
-        Wip,
+        #[error("None of the available methods worked:\n{0}")]
+        NoAvailableMethod(VecError<AdjustmentMethodError>),
         #[error("{0}")]
         Method(#[from] AdjustmentMethodError),
         #[error("{0}")]
@@ -118,6 +136,7 @@ pub mod gamma {
         #[error("{0}")]
         Drm(#[from] DrmError),
     }
+
     //
 
     #[derive(Debug, Error)]
@@ -126,9 +145,9 @@ pub mod gamma {
         ConnectFailed(#[from] x11rb::errors::ConnectError),
         #[error("{0}")]
         GetVersionFailed(X11Error),
+        // eprintln!("X request failed: XF86VidModeGetGammaRampSize");
         #[error("{0}")]
         GetRampSizeFailed(X11Error),
-        // eprintln!("X request failed: XF86VidModeGetGammaRampSize");
         #[error("Gamma ramp size too small: {0}")]
         InvalidRampSize(u16),
         #[error("{0}")]
@@ -169,7 +188,7 @@ pub mod gamma {
 
     #[derive(Debug, Error)]
     pub enum DrmError {
-        #[error("Failed to open DRM device: %s")]
+        #[error("Failed to open DRM device:\n{0}")]
         OpenDeviceFailed(io::Error),
         #[error("{0}")]
         GetResourcesFailed(io::Error),

@@ -18,21 +18,22 @@
 
 use crate::{
     cli::{
-        CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, InfoLevel,
-        ModeArgs, Verbosity,
+        CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, ModeArgs, Verbosity,
     },
     error::{
         config::{ConfigError, ConfigFileError},
         parse::DayNightErrorType,
+        VecError,
     },
     types::{
         AdjustmentMethodType, BrightnessRange, ColorSettings, DayNight,
         GammaRange, LocationProviderType, Mode, TemperatureRange,
         TransitionScheme,
     },
+    types_display::WARN,
+    utils::IsDefault,
     AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode,
 };
-// use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
 use clap::Parser;
@@ -43,6 +44,7 @@ use std::{
     str::FromStr, time::Duration,
 };
 use toml::Value;
+use tracing::warn;
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 // Length of fade in numbers of fade's sleep durations
@@ -62,8 +64,6 @@ pub const RANDR_MAJOR_VERSION: u32 = 1;
 #[derive(Debug)]
 pub struct Config {
     pub mode: Mode,
-    pub verbosity: Verbosity<InfoLevel>,
-    pub color: ColorChoice,
 
     pub day: ColorSettings,
     pub night: ColorSettings,
@@ -81,8 +81,6 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigBuilder {
     mode: Mode,
-    verbosity: Verbosity<InfoLevel>,
-    color: ColorChoice,
 
     day: ColorSettings,
     night: ColorSettings,
@@ -94,7 +92,6 @@ pub struct ConfigBuilder {
 
     location: LocationProviderType,
     method: Option<AdjustmentMethodType>,
-    time: fn() -> DateTime<Local>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -119,10 +116,13 @@ struct Either<U: TryInto<T>, T> {
 }
 
 impl ConfigBuilder {
-    pub fn new() -> Result<Self, ConfigError> {
+    pub fn new(
+        logging_init: impl FnOnce(Verbosity, ColorChoice),
+    ) -> Result<Self, ConfigError> {
         let cli_args = CliArgs::parse();
-        let mut cfg = Self::default();
+        logging_init(cli_args.verbosity, cli_args.color.unwrap_or_default());
 
+        let mut cfg = Self::default();
         if let Some(path) = Self::config_path_from_mode(&cli_args.mode) {
             let config_file = ConfigFile::new(path)?;
             cfg.merge_with_config_file(config_file);
@@ -132,12 +132,9 @@ impl ConfigBuilder {
         Ok(cfg)
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn build(self) -> Result<Config, ConfigError> {
         let Self {
             mode,
-            verbosity,
-            color,
             day,
             night,
             reset_ramps,
@@ -147,63 +144,99 @@ impl ConfigBuilder {
             sleep_duration_short,
             location,
             method,
-            time,
         } = self;
 
-        // try all methods until one that works is found.
-        // Gamma adjustment not needed for print mode
-        //     // Try all methods, use the first that works.
-        //     // b"Trying next method...\n\0" as *const u8 as *const c_char,
-        //     // b"Using method `%s'.\n\0" as *const u8 as *const c_char,
-        //     // Failure if no methods were successful at this point.
-        //     // b"No more methods to try.\n\0" as *const u8 as *const c_char,
+        Ok(Config {
+            location: Self::get_location_provider(location, mode, &scheme),
+            method: Self::get_adjustment_method(method, mode)?,
+            time: Local::now,
+            mode,
+            day,
+            night,
+            reset_ramps,
+            scheme,
+            disable_fade,
+            sleep_duration_short,
+            sleep_duration,
+        })
+    }
 
-        let method = match mode {
-            Mode::Print => AdjustmentMethodType::Dummy,
-            _ => method.ok_or(ConfigError::Wip)?,
-        };
-
-        let method = match method {
-            AdjustmentMethodType::Dummy => {
-                AdjustmentMethod::Dummy(Default::default())
-            }
-            AdjustmentMethodType::Drm { card_num, crtcs } => {
-                AdjustmentMethod::Drm(Drm::new(card_num, crtcs)?)
-            }
-            AdjustmentMethodType::Randr { screen_num, crtcs } => {
-                AdjustmentMethod::Randr(Randr::new(screen_num, crtcs)?)
-            }
-            AdjustmentMethodType::Vidmode { screen_num } => {
-                AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?)
-            }
-        };
-
-        let location = match location {
+    fn get_location_provider(
+        kind: LocationProviderType,
+        mode: Mode,
+        scheme: &TransitionScheme,
+    ) -> LocationProvider {
+        match kind {
             LocationProviderType::Manual(l) => {
+                if let (
+                    Mode::Daemon | Mode::Oneshot,
+                    TransitionScheme::Elev(_),
+                    true,
+                ) = (mode, scheme, l.is_default())
+                {
+                    warn!(
+                        "{WARN}Warning{WARN:#}: Using default location ({l})"
+                    );
+                }
                 LocationProvider::Manual(Manual::new(l))
             }
             LocationProviderType::Geoclue2 => {
                 LocationProvider::Geoclue2(Default::default())
             }
-        };
+        }
+    }
 
-        let c = Config {
-            mode,
-            color,
-            verbosity,
-            day,
-            night,
-            reset_ramps,
-            scheme,
-            disable_fade,
-            sleep_duration_short,
-            sleep_duration,
-            location,
-            method,
-            time,
-        };
+    #[allow(clippy::too_many_lines)]
+    fn get_adjustment_method(
+        kind: Option<AdjustmentMethodType>,
+        mode: Mode,
+    ) -> Result<AdjustmentMethod, ConfigError> {
+        match (mode, kind) {
+            (Mode::Print, _) => {
+                Ok(AdjustmentMethod::Dummy(Default::default()))
+            }
 
-        Ok(c)
+            (_, Some(m)) => match m {
+                AdjustmentMethodType::Dummy => {
+                    let s = "Using dummy method! Display will not be affected";
+                    warn!("{WARN}Warning{WARN:#}: {s}");
+                    Ok(AdjustmentMethod::Dummy(Default::default()))
+                }
+                AdjustmentMethodType::Drm { card_num, crtcs } => {
+                    Ok(AdjustmentMethod::Drm(Drm::new(card_num, crtcs)?))
+                }
+                AdjustmentMethodType::Randr { screen_num, crtcs } => {
+                    Ok(AdjustmentMethod::Randr(Randr::new(screen_num, crtcs)?))
+                }
+                AdjustmentMethodType::Vidmode { screen_num } => {
+                    Ok(AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?))
+                }
+            },
+
+            (_, None) => {
+                let s = "Trying all methods until one that works is found";
+                warn!("{WARN}Warning{WARN:#}: {s}");
+                Err(())
+                    // .or_else(|_| -> Result<_, VecError<_>> {
+                    //     let errs = VecError::default();
+                    //     let m = Randr::new(None, Vec::new())
+                    //         .map_err(|e| errs.push(e.into()))?;
+                    //     Ok(AdjustmentMethod::Randr(m))
+                    // })
+                    // .or_else(|errs| -> Result<_, VecError<_>> {
+                    //     let m = Vidmode::new(None)
+                    //         .map_err(|e| errs.push(e.into()))?;
+                    //     Ok(AdjustmentMethod::Vidmode(m))
+                    // })
+                    .or_else(|errs| -> Result<_, VecError<_>> {
+                        let errs = VecError::default();
+                        let m = Drm::new(None, Vec::new())
+                            .map_err(|e| errs.push(e.into()))?;
+                        Ok(AdjustmentMethod::Drm(m))
+                    })
+                    .map_err(ConfigError::NoAvailableMethod)
+            }
+        }
     }
 
     fn config_path_from_mode(mode: &ModeArgs) -> Option<Option<&Path>> {
@@ -238,13 +271,9 @@ impl ConfigBuilder {
     fn merge_with_cli_args(&mut self, cli_args: CliArgs) {
         let CliArgs {
             mode,
-            verbosity,
-            color,
+            verbosity: _,
+            color: _,
         } = cli_args;
-        self.verbosity = verbosity;
-        if let Some(t) = color {
-            self.color = t;
-        }
 
         match mode {
             ModeArgs::Daemon {
@@ -479,8 +508,6 @@ impl Default for ConfigBuilder {
             day: ColorSettings::default_day(),
             night: ColorSettings::default_night(),
             mode: Default::default(),
-            verbosity: Default::default(),
-            color: Default::default(),
             reset_ramps: Default::default(),
             scheme: Default::default(),
             disable_fade: Default::default(),
@@ -490,7 +517,6 @@ impl Default for ConfigBuilder {
             sleep_duration: Duration::from_millis(DEFAULT_SLEEP_DURATION),
             method: Default::default(),
             location: Default::default(),
-            time: Local::now,
         }
     }
 }

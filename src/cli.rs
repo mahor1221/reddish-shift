@@ -274,7 +274,7 @@ pub trait DefaultLevel {
     fn default() -> Option<Level>;
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct InfoLevel;
 impl DefaultLevel for InfoLevel {
     fn default() -> Option<Level> {
@@ -282,7 +282,7 @@ impl DefaultLevel for InfoLevel {
     }
 }
 
-#[derive(Args, Debug, Clone, Default)]
+#[derive(Args, Debug, Clone, Copy, Default)]
 pub struct Verbosity<L: DefaultLevel = InfoLevel> {
     /// Increase verbosity
     // #[arg(short, long, action = clap::ArgAction::Count)]

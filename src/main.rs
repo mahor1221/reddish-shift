@@ -54,16 +54,13 @@ pub use gamma_vidmode::Vidmode;
 use itertools::Itertools;
 pub use location_manual::Manual;
 use types::Location;
-use utils::IsDefault;
 
 use crate::{
     cli::ClapColorChoiceExt,
     config::{Config, ConfigBuilder, FADE_STEPS},
     error::{AdjusterError, ProviderError},
-    types::{
-        ColorSettings, Elevation, Mode, Period, PeriodInfo, TransitionScheme,
-    },
-    types_display::{BODY, HEADER, WARN},
+    types::{ColorSettings, Elevation, Mode, Period, PeriodInfo},
+    types_display::{BODY, ERR, HEADER},
 };
 use anstream::AutoStream;
 use chrono::{DateTime, SubsecRound, TimeDelta};
@@ -72,60 +69,40 @@ use std::{
     io,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
 };
-use tracing::{info, warn, Level};
+use tracing::{error, info, Level};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
-fn main() -> Result<(), ReddishError> {
-    let c = ConfigBuilder::new()?.build()?;
-    logging_init(&c);
+fn main() {
+    (|| -> Result<(), ReddishError> {
+        let c = ConfigBuilder::new(|verbosity, color| {
+            let choice = color.to_choice();
+            let stdout = move || AutoStream::new(io::stdout(), choice).lock();
+            let stderr = move || AutoStream::new(io::stderr(), choice).lock();
+            let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
 
-    if let (
-        Mode::Daemon | Mode::Oneshot,
-        TransitionScheme::Elev(_),
-        LocationProvider::Manual(l),
-    ) = (&c.mode, &c.scheme, &c.location)
-    {
-        let loc = l.get()?;
-        if loc.is_default() {
-            warn!("{WARN}Warning{WARN:#}: Using default location ({loc})");
-        }
-    }
+            tracing_subscriber::fmt()
+                .with_writer(stdio)
+                .with_max_level(verbosity.level_filter())
+                .without_time()
+                .with_level(false)
+                .with_target(false)
+                .init();
+        })?
+        .build()?;
 
-    if let (
-        Mode::Daemon | Mode::Oneshot | Mode::Set | Mode::Reset,
-        AdjustmentMethod::Dummy(_),
-    ) = (c.mode, &c.method)
-    {
-        let s = "Using dummy method! Display will not be affected";
-        warn!("{WARN}Warning{WARN:#}: {s}");
-    }
+        let (tx, rx) = mpsc::channel();
+        ctrlc::set_handler(move || {
+            #[allow(clippy::expect_used)]
+            tx.send(()).expect("Could not send signal on channel")
+        })
+        .or_else(|e| match c.mode {
+            Mode::Oneshot | Mode::Set | Mode::Reset | Mode::Print => Ok(()),
+            Mode::Daemon => Err(e),
+        })?;
 
-    let (tx, rx) = mpsc::channel();
-    ctrlc::set_handler(move || {
-        #[allow(clippy::expect_used)]
-        tx.send(()).expect("Could not send signal on channel")
-    })
-    .or_else(|e| match c.mode {
-        Mode::Oneshot | Mode::Set | Mode::Reset | Mode::Print => Ok(()),
-        Mode::Daemon => Err(e),
-    })?;
-
-    run(&c, &rx)
-}
-
-fn logging_init(c: &Config) {
-    let choice = c.color.to_choice();
-    let stdout = move || AutoStream::new(io::stdout(), choice).lock();
-    let stderr = move || AutoStream::new(io::stderr(), choice).lock();
-    let stdio = stderr.with_max_level(Level::WARN).or_else(stdout);
-
-    tracing_subscriber::fmt()
-        .with_writer(stdio)
-        .with_max_level(c.verbosity.level_filter())
-        .without_time()
-        .with_level(false)
-        .with_target(false)
-        .init();
+        run(&c, &rx)
+    })()
+    .unwrap_or_else(|e| error!("{ERR}Error{ERR:#}: {e}"))
 }
 
 fn run(c: &Config, sig: &Receiver<()>) -> Result<(), ReddishError> {
@@ -345,14 +322,16 @@ impl Default for FadeStatus {
     }
 }
 
+//
+
 #[derive(Debug, PartialEq)]
-enum LocationProvider {
+pub enum LocationProvider {
     Manual(Manual),
     Geoclue2(Geoclue2),
 }
 
 #[derive(Debug)]
-enum AdjustmentMethod {
+pub enum AdjustmentMethod {
     Dummy(Dummy),
     Randr(Randr),
     Drm(Drm),
@@ -360,7 +339,7 @@ enum AdjustmentMethod {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Geoclue2;
+pub struct Geoclue2;
 
 impl Provider for Geoclue2 {
     // Listen and handle location updates

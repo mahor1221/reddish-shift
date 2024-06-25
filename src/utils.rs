@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use frunk::Generic;
 use itertools::Itertools;
 
@@ -59,10 +61,10 @@ impl<T, E> InjectMapErr<T, E> for Result<T, E> {
     }
 }
 
-pub trait CollectResult<T, E> {
+pub trait CollectResult<T, E: Error> {
     fn collect_result(self) -> Result<Vec<T>, VecError<E>>;
 }
-impl<I, T, E> CollectResult<T, E> for I
+impl<I, T, E: Error> CollectResult<T, E> for I
 where
     I: Itertools<Item = Result<T, E>>,
 {

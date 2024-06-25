@@ -32,6 +32,9 @@ use tracing::info;
 pub const WARN: Style = Style::new()
     .bold()
     .fg_color(Some(Color::Ansi(AnsiColor::Yellow)));
+pub const ERR: Style = Style::new()
+    .bold()
+    .fg_color(Some(Color::Ansi(AnsiColor::Red)));
 pub const HEADER: Style = Style::new().bold().underline();
 pub const BODY: Style = Style::new().bold();
 
@@ -142,6 +145,28 @@ impl Display for PeriodInfo {
     }
 }
 
+impl Display for AdjustmentMethod {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            AdjustmentMethod::Dummy(_) => "dummy",
+            AdjustmentMethod::Randr(_) => "randr",
+            AdjustmentMethod::Drm(_) => "drm",
+            AdjustmentMethod::Vidmode(_) => "vidmode",
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl Display for LocationProvider {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            LocationProvider::Manual(_) => "manual",
+            LocationProvider::Geoclue2(_) => "geoclue2",
+        };
+        write!(f, "{s}")
+    }
+}
+
 impl Display for Config {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -153,30 +178,20 @@ impl Display for Config {
             method,
             reset_ramps,
             disable_fade,
-            sleep_duration_short: _,
-            sleep_duration: _,
+            sleep_duration_short,
+            sleep_duration,
             mode: _,
-            verbosity: _,
-            color: _,
             time: _,
         } = self;
 
-        let l = match location {
-            LocationProvider::Manual(_) => "manual",
-            LocationProvider::Geoclue2(_) => "geoclue2",
-        };
-        writeln!(f, "{BODY}Location provider{BODY:#}: {l}")?;
-
-        let m = match method {
-            AdjustmentMethod::Dummy(_) => "dummy",
-            AdjustmentMethod::Randr(_) => "randr",
-            AdjustmentMethod::Drm(_) => "drm",
-            AdjustmentMethod::Vidmode(_) => "vidmode",
-        };
-        writeln!(f, "{BODY}Adjustment method{BODY:#}: {m}")?;
-
+        writeln!(f, "{BODY}Adjustment method{BODY:#}: {method}")?;
+        writeln!(f, "{BODY}Location provider{BODY:#}: {location}")?;
         writeln!(f, "{BODY}Reset ramps{BODY:#}: {reset_ramps}")?;
         writeln!(f, "{BODY}Disable fade{BODY:#}: {disable_fade}")?;
+        let s = sleep_duration.as_millis();
+        writeln!(f, "{BODY}Sleep duration{BODY:#}: {s}")?;
+        let s = sleep_duration_short.as_millis();
+        writeln!(f, "{BODY}Sleep duration short{BODY:#}: {s}")?;
 
         writeln!(f, "{HEADER}Daytime{HEADER:#}:")?;
         match scheme {
