@@ -127,8 +127,8 @@ pub enum ModeArgs {
         /// Location [default: 0:0]
         ///
         /// Either set latitude and longitude manually or select a location provider.
-        /// Negative values represent west and south, respectively. location providers:
-        /// geoclue2 (currently not available)
+        /// Negative values represent west and south, respectively.
+        /// location providers: geoclue2 (currently not available)
         /// e.g.: 51.48:0.0 (Greenwich)
         ///       geoclue2
         #[arg(verbatim_doc_comment)]
@@ -223,8 +223,8 @@ pub struct CmdArgs {
     ///
     /// It is not needed when using manual time ranges for transition scheme Either
     /// set latitude and longitude manually or select a location provider. Negative
-    /// values represent west and south, respectively. location providers: geoclue2
-    /// (currently not available)
+    /// values represent west and south, respectively.
+    /// location providers: geoclue2 (currently not available)
     /// e.g.: 51.48:0.0 (Greenwich)
     ///       geoclue2
     #[arg(verbatim_doc_comment)]

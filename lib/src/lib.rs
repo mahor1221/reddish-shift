@@ -20,13 +20,14 @@
 
 // TODO: add tldr page: https://github.com/tldr-pages/tldr
 // TODO: add setting screen brightness, a percentage of the current brightness
-//       See: https://github.com/qualiaa/redshift-hooks
+//       see: https://github.com/qualiaa/redshift-hooks
 // TODO: ? benchmark: https://github.com/nvzqz/divan
 // TODO: Fix large fade steps
 // TODO: ? Box large errors
-// TODO: Win support & Choco package
+// TODO: Windows support & Choco package
 // TODO: move coproduct.rs to a fork of frunk after Error got stable in core
-//       https://github.com/rust-lang/rust/issues/103765
+//       see: https://github.com/rust-lang/rust/issues/103765
+// TODO: add unit tests
 
 mod calc_colorramp;
 mod calc_solar;
