@@ -189,9 +189,9 @@ impl Display for Config {
         writeln!(f, "{BODY}Reset ramps{BODY:#}: {reset_ramps}")?;
         writeln!(f, "{BODY}Disable fade{BODY:#}: {disable_fade}")?;
         let s = sleep_duration.as_millis();
-        writeln!(f, "{BODY}Sleep duration{BODY:#}: {s}")?;
+        writeln!(f, "{BODY}Sleep duration{BODY:#}: {s}ms")?;
         let s = sleep_duration_short.as_millis();
-        writeln!(f, "{BODY}Sleep duration short{BODY:#}: {s}")?;
+        writeln!(f, "{BODY}Sleep duration short{BODY:#}: {s}ms")?;
 
         writeln!(f, "{HEADER}Daytime{HEADER:#}:")?;
         match scheme {
