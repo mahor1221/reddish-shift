@@ -1,27 +1,31 @@
-name: CI
+name: CICD
 
 on:
   pull_request:
   push:
     branches:
     - main
+  release:
+    types: [created]
+  # create:
+  #   tags:
+  #   - 'v[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  CARGO_TERM_COLOR: always
+  # RUSTDOCFLAGS: -D warnings
+  RUSTFLAGS: -D warnings
 
 jobs:
   run-checks:
     name: Run checks
     runs-on: ubuntu-latest
-
-    env:
-      CARGO_TERM_COLOR: always
-      RUSTFLAGS: -D warnings
-
     permissions:
       # required for ppremk/lfs-warning
       pull-requests: read
       # required for LouisBrunner/checks-action
       checks: write
       contents: read
-
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -67,17 +71,6 @@ jobs:
         if: success()
         id: cargo-doc
         run: cargo doc --profile=ci
-
-      - name: Generate code coverage
-        if: github.ref == 'refs/heads/main'
-        run: |
-          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
-      - name: Upload coverage reports to Codecov
-        if: github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v4
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
 
       # create check runs for pull requests
 
@@ -144,3 +137,95 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: Check documents
           conclusion: ${{ steps.cargo-doc.outcome }}
+
+      # Generate and upload assets
+
+      - name: Generate code coverage
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+      - name: Upload coverage reports to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Generate assets for release
+        if: github.event_name == 'release'
+        run: cargo build --profile=ci
+      - name: Upload Generated assets for release
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          if-no-files-found: error
+          path: |
+            target/ci/reddish-shift.bash
+            target/ci/reddish-shift.fish
+            target/ci/_reddish-shift
+            target/ci/_reddish-shift.ps1
+
+
+
+
+  create-release:
+    name: Create release
+    if: github.event_name == 'release'
+    needs: run-checks
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          branch: main
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-release:
+    name: Build release
+    needs: create-release
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    env:
+      UNIX_ASSETS: reddish-shift.bash,reddish-shift.fish,_reddish-shift
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
+          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
+
+          # - target: aarch64-apple-darwin
+          #   os: macos-latest
+          # - target: x86_64-apple-darwin
+          #   os: macos-latest
+          # - target: universal-apple-darwin
+          #   os: macos-latest
+
+          # - target: aarch64-pc-windows-msvc
+          #   os: windows-latest
+          #   assets: _reddish-shift.ps1
+          # - target: x86_64-pc-windows-msvc
+          #   os: windows-latest
+          #   assets: _reddish-shift.ps1
+
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: assets
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: reddish-shift
+          target: ${{ matrix.target }}
+          checksum: sha256
+          include: |
+            LICENSE,README.md,config.toml,
+            ${{ matrix.assets || env.UNIX_ASSETS }}
+          token: ${{ secrets.GITHUB_TOKEN }}
