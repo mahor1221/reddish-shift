@@ -31,7 +31,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny,typos
+          tool: typos,cargo-deny,cargo-tarpaulin
 
       - name: Check spelling
         if: success() || failure()
@@ -67,6 +67,17 @@ jobs:
         if: success()
         id: cargo-doc
         run: cargo doc --profile=ci
+
+      - name: Generate code coverage
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+      - name: Upload coverage reports to Codecov
+        if: github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       # create check runs for pull requests
 

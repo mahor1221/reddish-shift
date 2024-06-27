@@ -6,8 +6,9 @@ license = "GPL-3.0-or-later"
 description = "Set color temperature of display according to time of day"
 readme = "README.md"
 repository = "https://github.com/mahor1221/reddish-shift"
-# homepage = ""
-# documentation = ""
+homepage = "https://github.com/mahor1221/reddish-shift"
+keywords = ["eye-strain", "gamma", "brightness", "sunrise", "sunset"]
+categories = ["command-line-utilities"]
 
 [workspace]
 members = ["bin", "lib"]
