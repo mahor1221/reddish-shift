@@ -3,7 +3,7 @@ use anyhow::Result;
 use clap::ValueEnum;
 use clap_complete::{generate_to, Shell};
 use reddish_shift::cli_args_command;
-use std::{env, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<()> {
     // generate auto completion scripts
@@ -16,10 +16,9 @@ fn main() -> Result<()> {
         generate_to(shell, &mut cmd, NAME, &out)?;
     }
 
-    for file in std::fs::read_dir(&out)? {
+    for file in fs::read_dir(&out)? {
         let f = file?.path();
-        std::fs::rename(&f, target.join(f.file_name().unwrap()))?;
+        fs::rename(&f, target.join(f.file_name().unwrap()))?;
     }
-
     Ok(())
 }

@@ -38,7 +38,12 @@ const VERSION: &str = {
     const GIT_DESCRIBE: &str = env!("VERGEN_GIT_DESCRIBE");
     const GIT_COMMIT_DATE: &str = env!("VERGEN_GIT_COMMIT_DATE");
 
-    formatcp!("{PKG_VERSION} ({GIT_DESCRIBE} {GIT_COMMIT_DATE})")
+    #[allow(clippy::const_is_empty)]
+    if GIT_DESCRIBE.is_empty() {
+        formatcp!("{PKG_VERSION}")
+    } else {
+        formatcp!("{PKG_VERSION} ({GIT_DESCRIBE} {GIT_COMMIT_DATE})")
+    }
 };
 
 const LONG_VERSION: &str = {
