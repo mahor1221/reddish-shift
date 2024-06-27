@@ -1,18 +1,20 @@
 [package]
 name = "reddish-shift"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
-description.workspace = true
-readme.workspace = true
-repository.workspace = true
-#homepage.workspace = true
-#documentation.workspace = true
+version = "0.0.0"
+edition = "2021"
+authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
+license = "GPL-3.0-or-later"
+description = "Set color temperature of display according to time of day"
+readme = "../../README.md"
+repository = "https://github.com/mahor1221/reddish-shift"
+homepage = "https://github.com/mahor1221/reddish-shift"
+keywords = ["eye-strain", "gamma", "brightness", "sunrise", "sunset"]
+categories = ["command-line-utilities"]
 build = "build.rs"
 
-[lints]
-workspace = true
+[lib]
+name = "reddish_shift"
+path = "src/lib.rs"
 
 [dependencies]
 thiserror = "1.0.61"
@@ -51,3 +53,6 @@ vergen = { version = "8.3", features = ["cargo", "git", "gitcl", "rustc"] }
 [dev-dependencies]
 insta = "1.39.0"
 anyhow = "1.0.86"
+
+[lints]
+workspace = true

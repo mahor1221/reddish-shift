@@ -6,6 +6,7 @@ use reddish_shift::cli_args_command;
 use std::{env, path::PathBuf};
 
 fn main() -> Result<()> {
+    // generate auto completion scripts
     const NAME: &str = "reddish-shift";
     let out = env::var_os("OUT_DIR").unwrap();
     let target = PathBuf::from(&out).ancestors().nth(3).unwrap().to_owned();
