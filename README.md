@@ -1,7 +1,6 @@
 [![CICD](https://img.shields.io/github/actions/workflow/status/mahor1221/reddish-shift/cicd.yaml?style=for-the-badge&logo=githubactions)](https://github.com/mahor1221/reddish-shift/actions)
 [![COVERAGE](https://img.shields.io/codecov/c/github/mahor1221/reddish-shift?style=for-the-badge&logo=codecov)](https://codecov.io/gh/mahor1221/reddish-shift)
 [![CRATES.IO](https://img.shields.io/crates/v/reddish-shift.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/reddish-shift)
-[![REPOSITORIES](https://img.shields.io/repology/repositories/reddish-shift?style=for-the-badge)](https://repology.org/project/reddish-shift)
 
 # Reddish-shift
 A port of [Redshift](https://github.com/jonls/redshift).
