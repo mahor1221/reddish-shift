@@ -225,7 +225,5 @@ jobs:
           bin: reddish-shift
           target: ${{ matrix.target }}
           checksum: sha256
-          include: |
-            LICENSE,README.md,config.toml,
-            ${{ matrix.assets || env.UNIX_ASSETS }}
+          include: LICENSE,README.md,config.toml,${{ matrix.assets || env.UNIX_ASSETS }}
           token: ${{ secrets.GITHUB_TOKEN }}
