@@ -1,12 +1,14 @@
-[![CICD](https://img.shields.io/github/actions/workflow/status/mahor1221/reddish-shift/cicd.yaml?style=for-the-badge&logo=githubactions)](https://github.com/mahor1221/reddish-shift/actions)
-[![COVERAGE](https://img.shields.io/codecov/c/github/mahor1221/reddish-shift?style=for-the-badge&logo=codecov)](https://codecov.io/gh/mahor1221/reddish-shift)
-[![CRATES.IO](https://img.shields.io/crates/v/reddish-shift.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/reddish-shift)
+[![Build](https://img.shields.io/github/actions/workflow/status/mahor1221/reddish-shift/cicd.yaml?logo=github)](https://github.com/mahor1221/reddish-shift/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/mahor1221/reddish-shift?logo=codecov)](https://codecov.io/gh/mahor1221/reddish-shift)
+[![Crates.io](https://img.shields.io/crates/v/reddish-shift.svg?logo=rust)](https://crates.io/crates/reddish-shift)
+[![Discord](https://img.shields.io/discord/1256423815588610079.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/E6uKg67f)
 
-# Reddish-shift
+
+# Reddish Shift
 A port of [Redshift](https://github.com/jonls/redshift).
 Translated line by line with the help of [C2Rust](https://github.com/immunant/c2rust).
 
-Reddish-shift adjusts the color temperature of your screen according to your
+Reddish Shift adjusts the color temperature of your screen according to your
 surroundings. This may help your eyes hurt less if you are working in front of
 the screen at night.
 
