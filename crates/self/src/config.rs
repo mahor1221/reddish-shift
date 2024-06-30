@@ -32,7 +32,7 @@ use crate::{
     },
     types_display::WARN,
     utils::IsDefault,
-    AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode,
+    AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode, Win32Gdi,
 };
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
@@ -210,6 +210,9 @@ impl ConfigBuilder {
                 }
                 AdjustmentMethodType::Vidmode { screen_num } => {
                     Ok(AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?))
+                }
+                AdjustmentMethodType::Win32Gdi => {
+                    Ok(AdjustmentMethod::Win32Gdi(Win32Gdi::new()?))
                 }
             },
 

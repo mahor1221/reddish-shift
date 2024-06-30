@@ -39,6 +39,7 @@ mod gamma_drm;
 mod gamma_dummy;
 mod gamma_randr;
 mod gamma_vidmode;
+mod gamma_win32gdi;
 mod location_manual;
 mod types;
 mod types_display;
@@ -51,6 +52,7 @@ pub use gamma_drm::Drm;
 pub use gamma_dummy::Dummy;
 pub use gamma_randr::Randr;
 pub use gamma_vidmode::Vidmode;
+pub use gamma_win32gdi::Win32Gdi;
 use itertools::Itertools;
 pub use location_manual::Manual;
 use types::Location;
@@ -336,6 +338,7 @@ pub enum AdjustmentMethod {
     Randr(Randr),
     Drm(Drm),
     Vidmode(Vidmode),
+    Win32Gdi(Win32Gdi),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -368,6 +371,7 @@ impl Adjuster for AdjustmentMethod {
             Self::Randr(t) => t.restore(),
             Self::Drm(t) => t.restore(),
             Self::Vidmode(t) => t.restore(),
+            Self::Win32Gdi(t) => t.restore(),
         }
     }
 
@@ -381,6 +385,7 @@ impl Adjuster for AdjustmentMethod {
             Self::Randr(t) => t.set(reset_ramps, cs),
             Self::Drm(t) => t.set(reset_ramps, cs),
             Self::Vidmode(t) => t.set(reset_ramps, cs),
+            Self::Win32Gdi(t) => t.set(reset_ramps, cs),
         }
 
         // TODO: MacOS support

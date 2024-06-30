@@ -152,6 +152,7 @@ impl Display for AdjustmentMethod {
             AdjustmentMethod::Randr(_) => "randr",
             AdjustmentMethod::Drm(_) => "drm",
             AdjustmentMethod::Vidmode(_) => "vidmode",
+            AdjustmentMethod::Win32Gdi(_) => "win32gdi",
         };
         write!(f, "{s}")
     }

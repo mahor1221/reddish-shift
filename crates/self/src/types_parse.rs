@@ -285,6 +285,7 @@ impl FromStr for AdjustmentMethodType {
                         Err(AdjustmentMethodTypeError::CrtcOnVidmode)?
                     }
                 }
+                AdjustmentMethodType::Win32Gdi => {}
             };
             Ok(k)
         };

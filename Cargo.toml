@@ -1,9 +1,10 @@
 [workspace]
 members = ["crates/*"]
+default-members = ["crates/self"]
 resolver = "2"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "warn"
 [workspace.lints.rustdoc]
 private-doc-tests = "warn"
 unescaped-backticks = "warn"

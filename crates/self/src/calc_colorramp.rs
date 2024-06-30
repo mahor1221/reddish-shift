@@ -24,6 +24,10 @@ use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct GammaRamps(pub [Vec<u16>; 3]);
+
+#[derive(Debug, Clone)]
+pub struct GammaRampsWin32<const SIZE: usize>(pub [[u16; SIZE]; 3]);
+
 #[derive(Debug, Clone)]
 pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
@@ -37,6 +41,32 @@ impl GammaRamps {
             .map(|i| (i as f64 / ramp_size as f64 * a) as u16)
             .collect::<Vec<_>>();
         Self([v.clone(), v.clone(), v])
+    }
+
+    pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
+        let white_point = approximate_white_point(setting);
+        let a = (u16::MAX as u32 + 1) as f64;
+        let f = |y: u16, c: usize| -> u16 {
+            let r = y as f64 / a * *setting.brght * white_point[c];
+            let r = r.powf(1.0 / setting.gamma[c]) * a;
+            r as u16
+        };
+
+        for i in 0..self[0].len() {
+            self[0][i] = f(self[0][i], 0);
+            self[1][i] = f(self[1][i], 1);
+            self[2][i] = f(self[2][i], 2);
+        }
+    }
+}
+
+impl<const SIZE: usize> GammaRampsWin32<SIZE> {
+    pub fn new() -> Self {
+        // Initialize gamma ramps to pure state
+        // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
+        let a = (u16::MAX as u32 + 1) as f64;
+        let ramp = [0; SIZE].map(|r| (a / SIZE as f64 * a) as u16);
+        Self([ramp; 3])
     }
 
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
@@ -104,8 +134,19 @@ impl Deref for GammaRampsFloat {
         &self.0
     }
 }
+impl<const SIZE: usize> Deref for GammaRampsWin32<SIZE> {
+    type Target = [[u16; SIZE]; 3];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl DerefMut for GammaRamps {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<const SIZE: usize> DerefMut for GammaRampsWin32<SIZE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

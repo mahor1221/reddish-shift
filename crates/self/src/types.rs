@@ -147,6 +147,7 @@ pub enum AdjustmentMethodType {
     Vidmode {
         screen_num: Option<usize>,
     },
+    Win32Gdi,
 }
 
 #[derive(Debug, Clone, Copy)]

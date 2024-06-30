@@ -18,6 +18,7 @@
 
 use crate::{types_display::ERR, Coprod};
 use config::ConfigError;
+use gamma::Win32GdiError;
 use itertools::Itertools;
 use std::{
     error::Error,
@@ -105,6 +106,8 @@ pub enum AdjusterErrorInner {
     Randr(#[from] RandrError),
     #[error("drm:\n{0}")]
     Drm(#[from] VecError<io::Error>),
+    #[error("win32gdi:\n{0}")]
+    Win32Gdi(#[from] Win32GdiError),
 }
 
 type X11Error =
@@ -133,11 +136,11 @@ pub mod config {
     pub enum ConfigFileError {
         #[error("given path is not a file ({0})")]
         PathNotFile(PathBuf),
-        #[error("could not find configuration file. Use the -c flag.")]
+        #[error("unable to find configuration file. Use the -c flag.")]
         ConfigDirNotFound,
-        #[error("could not read file ({1}):\n{0}")]
+        #[error("unable to read file ({1}):\n{0}")]
         OpenFailed(io::Error, PathBuf),
-        #[error("could not deserialize file ({1}):\n{0}")]
+        #[error("unable to deserialize file ({1}):\n{0}")]
         DeserializeFailed(toml::de::Error, PathBuf),
     }
 
@@ -158,6 +161,12 @@ pub mod config {
             Self::MethodInit(AdjustmentMethodError::Vidmode(e))
         }
     }
+
+    impl From<Win32GdiError> for ConfigError {
+        fn from(e: Win32GdiError) -> Self {
+            Self::MethodInit(AdjustmentMethodError::Win32Gdi(e))
+        }
+    }
 }
 
 pub mod gamma {
@@ -173,6 +182,8 @@ pub mod gamma {
         Randr(#[from] RandrError),
         #[error("drm:\n{0}")]
         Drm(#[from] DrmError),
+        #[error("drm:\n{0}")]
+        Win32Gdi(#[from] Win32GdiError),
     }
 
     #[derive(Debug, Error)]
@@ -188,23 +199,25 @@ pub mod gamma {
     pub enum VidmodeError {
         #[error("connection failed:\n{0}")]
         ConnectFailed(#[from] x11rb::errors::ConnectError),
-        #[error("could not get version:\n{0}")]
+        #[error("unable to get version:\n{0}")]
         GetVersionFailed(X11Error),
-        #[error("could not get gamma ramp:\n{0}")]
+        #[error("unable to get gamma ramp:\n{0}")]
         GetRampFailed(X11Error),
-        #[error("could not get gamma ramp size:\n{0}")]
+        #[error("unable to get gamma ramp size:\n{0}")]
         GetRampSizeFailed(X11Error),
         #[error("gamma ramp size too small: {0}")]
         InvalidRampSize(u16),
     }
 
+    //
+
     #[derive(Debug, Error)]
     pub enum RandrError {
         #[error("connection failed:\n{0}")]
         ConnectFailed(#[from] x11rb::errors::ConnectError),
-        #[error("could not get version:\n{0}")]
+        #[error("unable to get version:\n{0}")]
         GetVersionFailed(X11Error),
-        #[error("could not get resources:\n{0}")]
+        #[error("unable to get resources:\n{0}")]
         GetResourcesFailed(X11Error),
         #[error("unsupported version ({major}.{minor})")]
         UnsupportedVersion { major: u32, minor: u32 },
@@ -212,7 +225,7 @@ pub mod gamma {
         NonUniqueCrtc,
         #[error("valid crtcs are: {0:?}")]
         InvalidCrtc(Vec<u32>),
-        #[error("could not send requests:\n{0}")]
+        #[error("unable to send requests:\n{0}")]
         SendRequestFailed(VecError<x11rb::errors::ConnectionError>),
         #[error("crtc:\n{0}")]
         GetCrtcs(#[from] VecError<CrtcError<u32, RandrCrtcError>>),
@@ -220,9 +233,9 @@ pub mod gamma {
 
     #[derive(Debug, Error)]
     pub enum RandrCrtcError {
-        #[error("could not get gamma ramp:\n{0}")]
+        #[error("unable to get gamma ramp:\n{0}")]
         GetRampFailed(x11rb::errors::ReplyError),
-        #[error("could not get gamma ramp size:\n{0}")]
+        #[error("unable to get gamma ramp size:\n{0}")]
         GetRampSizeFailed(x11rb::errors::ReplyError),
         #[error("gamma ramp size too small: {0}")]
         InvalidRampSize(u16),
@@ -234,7 +247,7 @@ pub mod gamma {
     pub enum DrmError {
         #[error("failed to open device ({1}):\n{0}")]
         OpenDeviceFailed(io::Error, PathBuf),
-        #[error("could not get resources:\n{0}")]
+        #[error("unable to get resources:\n{0}")]
         GetResourcesFailed(io::Error),
         #[error("crtc numbers must be non zero")]
         ZeroValueCrtc,
@@ -248,12 +261,26 @@ pub mod gamma {
 
     #[derive(Debug, Error)]
     pub enum DrmCrtcError {
-        #[error("could not get gamma ramp:\n{0}")]
+        #[error("unable to get gamma ramp:\n{0}")]
         GetRampFailed(io::Error),
-        #[error("could not get gamma ramp size:\n{0}")]
+        #[error("unable to get gamma ramp size:\n{0}")]
         GetRampSizeFailed(io::Error),
         #[error("gamma ramp size too small: {0}")]
         InvalidRampSize(u32),
+    }
+
+    //
+
+    #[derive(Debug, Error)]
+    pub enum Win32GdiError {
+        #[error("Unable to open device context")]
+        GetDCFailed,
+        #[error("Display device does not support gamma ramps")]
+        NotSupported,
+        #[error("unable to get gamma ramp")]
+        GetRampFailed,
+        #[error("unable to set gamma ramp")]
+        SetRampFailed,
     }
 }
 
