@@ -149,9 +149,13 @@ impl Display for AdjustmentMethod {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = match self {
             AdjustmentMethod::Dummy(_) => "dummy",
+            #[cfg(unix_without_macos)]
             AdjustmentMethod::Randr(_) => "randr",
+            #[cfg(unix_without_macos)]
             AdjustmentMethod::Drm(_) => "drm",
+            #[cfg(unix_without_macos)]
             AdjustmentMethod::Vidmode(_) => "vidmode",
+            #[cfg(windows)]
             AdjustmentMethod::Win32Gdi(_) => "win32gdi",
         };
         write!(f, "{s}")

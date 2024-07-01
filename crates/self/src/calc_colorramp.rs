@@ -22,11 +22,15 @@
 use crate::types::ColorSettings;
 use std::ops::{Deref, DerefMut};
 
+#[cfg(unix_without_macos)]
 #[derive(Debug, Clone)]
 pub struct GammaRamps(pub [Vec<u16>; 3]);
+
+#[cfg(unix_without_macos)]
 #[derive(Debug, Clone)]
 pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 pub struct GammaRampsWin32<const SIZE: usize>(pub Box<[[u16; SIZE]; 3]>);
 
@@ -50,6 +54,7 @@ macro_rules! colorramp_fill {
     };
 }
 
+#[cfg(unix_without_macos)]
 impl GammaRamps {
     // used in vidmode and randr
     pub fn new(ramp_size: u32) -> Self {
@@ -67,6 +72,7 @@ impl GammaRamps {
     }
 }
 
+#[cfg(windows)]
 impl<const SIZE: usize> GammaRampsWin32<SIZE> {
     pub fn new() -> Self {
         // Initialize gamma ramps to pure state
@@ -85,6 +91,7 @@ impl<const SIZE: usize> GammaRampsWin32<SIZE> {
     }
 }
 
+#[cfg(unix_without_macos)]
 impl GammaRampsFloat {
     #![allow(dead_code)]
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
@@ -121,18 +128,23 @@ fn interpolate_color(alpha: f64, c1: &[f64], c2: &[f64]) -> [f64; 3] {
 }
 
 // Read NOTE in src/config.rs
+#[cfg(unix_without_macos)]
 impl Deref for GammaRamps {
     type Target = [Vec<u16>; 3];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
+
+#[cfg(unix_without_macos)]
 impl Deref for GammaRampsFloat {
     type Target = [Vec<f64>; 3];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
+
+#[cfg(windows)]
 impl<const SIZE: usize> Deref for GammaRampsWin32<SIZE> {
     type Target = [[u16; SIZE]; 3];
     fn deref(&self) -> &Self::Target {
@@ -140,17 +152,22 @@ impl<const SIZE: usize> Deref for GammaRampsWin32<SIZE> {
     }
 }
 
+#[cfg(unix_without_macos)]
 impl DerefMut for GammaRamps {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-impl<const SIZE: usize> DerefMut for GammaRampsWin32<SIZE> {
+
+#[cfg(unix_without_macos)]
+impl DerefMut for GammaRampsFloat {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-impl DerefMut for GammaRampsFloat {
+
+#[cfg(windows)]
+impl<const SIZE: usize> DerefMut for GammaRampsWin32<SIZE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

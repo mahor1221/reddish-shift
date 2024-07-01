@@ -136,17 +136,25 @@ pub enum LocationProviderType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdjustmentMethodType {
     Dummy,
+
+    #[cfg(unix_without_macos)]
     Drm {
         card_num: Option<usize>,
         crtcs: Vec<u32>,
     },
+
+    #[cfg(unix_without_macos)]
     Randr {
         screen_num: Option<usize>,
         crtcs: Vec<u32>,
     },
+
+    #[cfg(unix_without_macos)]
     Vidmode {
         screen_num: Option<usize>,
     },
+
+    #[cfg(windows)]
     Win32Gdi,
 }
 

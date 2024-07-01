@@ -23,19 +23,6 @@ itertools = "0.13.0"
 frunk = "0.4.2"
 frunk_core = "0.4.2"
 
-chrono = "0.4.38"
-x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
-drm = "0.12.0"
-windows = { version = "0.57.0", features = [
-  "Win32_Graphics_Gdi",
-  "Win32_UI_ColorSystem",
-] }
-# required for location_geoclue2.rs
-#libc = "0.2"
-#gio-sys = "0.18.1"
-#glib-sys = "0.18.1"
-#gobject-sys = "0.18.0"
-
 # cli
 clap = { version = "4.5.7", features = ["derive"] }
 tracing = "0.1.40"
@@ -50,8 +37,21 @@ dirs = "5.0.1"
 serde = { version = "1.0.203", features = ["derive"] }
 toml = "0.8.14"
 
+chrono = "0.4.38"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.57.0", features = [
+  "Win32_Graphics_Gdi",
+  "Win32_UI_ColorSystem",
+] }
+
+[target.'cfg(unix)'.dependencies]
+x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
+drm = "0.12.0"
+
 [build-dependencies]
 anyhow = "1.0.86"
+cfg_aliases = "0.2.1"
 vergen = { version = "8.3.1", features = ["cargo", "git", "gitcl", "rustc"] }
 
 [dev-dependencies]

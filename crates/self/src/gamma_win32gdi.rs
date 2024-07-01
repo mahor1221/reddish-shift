@@ -38,7 +38,8 @@ const GAMMA_RAMP_SIZE: usize = 256;
 
 // https://learn.microsoft.com/en-us/windows/win32/winprog/windows-data-types
 type Word = u16;
-const HWND_0: HWND = HWND(0);
+// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdc
+const HWND_NULL: HWND = HWND(0);
 
 #[derive(Debug)]
 pub struct Win32Gdi {
@@ -49,7 +50,7 @@ impl Win32Gdi {
     pub fn new() -> Result<Self, Win32GdiError> {
         unsafe {
             // Open device context
-            let hdc = GetDC(HWND_0);
+            let hdc = GetDC(HWND_NULL);
             if hdc.is_invalid() {
                 Err(Win32GdiError::GetDCFailed)?;
             }
@@ -57,7 +58,7 @@ impl Win32Gdi {
             // Check support for gamma ramps
             let cmcap = GetDeviceCaps(hdc, COLORMGMTCAPS);
             if cmcap as i64 != COLORMGMTCAPS.0 as i64 {
-                ReleaseDC(HWND_0, hdc);
+                ReleaseDC(HWND_NULL, hdc);
                 Err(Win32GdiError::NotSupported)?;
             }
 
@@ -70,13 +71,13 @@ impl Win32Gdi {
 
                 let ptr = saved_ramps.as_mut_ptr() as *mut c_void;
                 if GetDeviceGammaRamp(hdc, ptr).0 == 0 {
-                    ReleaseDC(HWND_0, hdc);
+                    ReleaseDC(HWND_NULL, hdc);
                     Err(Win32GdiError::GetRampFailed)?;
                 }
                 GammaRampsWin32(Box::new(saved_ramps))
             };
 
-            ReleaseDC(HWND_0, hdc);
+            ReleaseDC(HWND_NULL, hdc);
             Ok(Self { saved_ramps })
         }
     }
@@ -87,7 +88,7 @@ impl Win32Gdi {
     ) -> Result<(), AdjusterErrorInner> {
         unsafe {
             // Open device context
-            let hdc = GetDC(HWND_0);
+            let hdc = GetDC(HWND_NULL);
             if hdc.is_invalid() {
                 Err(Win32GdiError::GetDCFailed)?;
             }
@@ -108,7 +109,7 @@ impl Win32Gdi {
                 Err(Win32GdiError::SetRampFailed)?
             }
 
-            ReleaseDC(HWND_0, hdc);
+            ReleaseDC(HWND_NULL, hdc);
             Ok(())
         }
     }

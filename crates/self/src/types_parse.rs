@@ -234,15 +234,19 @@ impl FromStr for AdjustmentMethodType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let kind = |s: &str| match s {
             "dummy" => Ok(Self::Dummy),
+            #[cfg(unix_without_macos)]
             "drm" => Ok(Self::Drm {
                 card_num: None,
                 crtcs: vec![],
             }),
+            #[cfg(unix_without_macos)]
             "vidmode" => Ok(Self::Vidmode { screen_num: None }),
+            #[cfg(unix_without_macos)]
             "randr" => Ok(Self::Randr {
                 screen_num: None,
                 crtcs: vec![],
             }),
+            #[cfg(windows)]
             "win32gdi" => Ok(Self::Win32Gdi),
             _ => Err(AdjustmentMethodTypeParamError::InvalidName(s.into())),
         };
@@ -272,20 +276,24 @@ impl FromStr for AdjustmentMethodType {
                 .into_generic::<(_, _, _)>();
             match &mut k {
                 AdjustmentMethodType::Dummy => {}
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Drm { card_num, crtcs } => {
                     *card_num = n;
                     *crtcs = c;
                 }
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Randr { screen_num, crtcs } => {
                     *screen_num = n;
                     *crtcs = c;
                 }
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Vidmode { screen_num } => {
                     *screen_num = n;
                     if !c.is_empty() {
                         Err(AdjustmentMethodTypeError::CrtcOnVidmode)?
                     }
                 }
+                #[cfg(windows)]
                 AdjustmentMethodType::Win32Gdi => {
                     if n.is_some() {
                         Err(AdjustmentMethodTypeError::ScreenOnWin32Gdi)?

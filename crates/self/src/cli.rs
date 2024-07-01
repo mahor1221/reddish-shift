@@ -250,6 +250,7 @@ pub struct CmdInnerArgs {
     ///          randr (X RANDR extension)
     ///          vidmode (X VidMode extension)
     ///          drm (Direct Rendering Manager)
+    ///          win32gdi (Windows graphics device interface)
     /// e.g.: vidmode             (apply to $DISPLAY)
     ///       vidmode:0           (apply to screen 0)
     ///       drm                 (apply to /dev/dri/card0)
@@ -258,6 +259,7 @@ pub struct CmdInnerArgs {
     ///       randr               (apply to $DISPLAY)
     ///       randr:0             (apply to screen 0)
     ///       randr$DISPLAY:62,63 (apply to $DISPLAY with crtcs 62 and 63)
+    ///       win32gdi            (apply to current display)
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = AdjustmentMethodType::from_str)]
     #[arg(

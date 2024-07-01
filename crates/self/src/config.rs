@@ -32,8 +32,10 @@ use crate::{
     },
     types_display::WARN,
     utils::IsDefault,
-    AdjustmentMethod, Drm, LocationProvider, Manual, Randr, Vidmode, Win32Gdi,
+    AdjustmentMethod, LocationProvider, Manual,
 };
+#[cfg(unix_without_macos)]
+use crate::{gamma_drm::Drm, gamma_randr::Randr, gamma_vidmode::Vidmode};
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
 use clap::Parser;
@@ -202,15 +204,19 @@ impl ConfigBuilder {
                     warn!("{WARN}warning:{WARN:#} {s}");
                     Ok(AdjustmentMethod::Dummy(Default::default()))
                 }
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Drm { card_num, crtcs } => {
                     Ok(AdjustmentMethod::Drm(Drm::new(card_num, crtcs)?))
                 }
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Randr { screen_num, crtcs } => {
                     Ok(AdjustmentMethod::Randr(Randr::new(screen_num, crtcs)?))
                 }
+                #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Vidmode { screen_num } => {
                     Ok(AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?))
                 }
+                #[cfg(windows)]
                 AdjustmentMethodType::Win32Gdi => {
                     Ok(AdjustmentMethod::Win32Gdi(Win32Gdi::new()?))
                 }

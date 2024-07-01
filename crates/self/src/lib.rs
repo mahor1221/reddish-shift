@@ -35,10 +35,15 @@ mod cli;
 mod config;
 mod coproduct;
 mod error;
+
+#[cfg(unix_without_macos)]
 mod gamma_drm;
 mod gamma_dummy;
+#[cfg(unix_without_macos)]
 mod gamma_randr;
+#[cfg(unix_without_macos)]
 mod gamma_vidmode;
+#[cfg(windows)]
 mod gamma_win32gdi;
 mod location_manual;
 mod types;
@@ -46,15 +51,15 @@ mod types_display;
 mod types_parse;
 mod utils;
 
+#[cfg(windows)]
+use crate::gamma_win32gdi;
+#[cfg(unix_without_macos)]
+use crate::{gamma_drm::Drm, gamma_randr::Randr, gamma_vidmode::Vidmode};
 pub use cli::cli_args_command;
 use error::ReddishError;
-pub use gamma_drm::Drm;
-pub use gamma_dummy::Dummy;
-pub use gamma_randr::Randr;
-pub use gamma_vidmode::Vidmode;
-pub use gamma_win32gdi::Win32Gdi;
+use gamma_dummy::Dummy;
 use itertools::Itertools;
-pub use location_manual::Manual;
+use location_manual::Manual;
 use types::Location;
 
 use crate::{
@@ -335,9 +340,13 @@ pub enum LocationProvider {
 #[derive(Debug)]
 pub enum AdjustmentMethod {
     Dummy(Dummy),
+    #[cfg(unix_without_macos)]
     Randr(Randr),
+    #[cfg(unix_without_macos)]
     Drm(Drm),
+    #[cfg(unix_without_macos)]
     Vidmode(Vidmode),
+    #[cfg(windows)]
     Win32Gdi(Win32Gdi),
 }
 
@@ -368,9 +377,13 @@ impl Adjuster for AdjustmentMethod {
     fn restore(&self) -> Result<(), AdjusterError> {
         match self {
             Self::Dummy(t) => t.restore(),
+            #[cfg(unix_without_macos)]
             Self::Randr(t) => t.restore(),
+            #[cfg(unix_without_macos)]
             Self::Drm(t) => t.restore(),
+            #[cfg(unix_without_macos)]
             Self::Vidmode(t) => t.restore(),
+            #[cfg(windows)]
             Self::Win32Gdi(t) => t.restore(),
         }
     }
@@ -382,9 +395,13 @@ impl Adjuster for AdjustmentMethod {
     ) -> Result<(), AdjusterError> {
         match self {
             Self::Dummy(t) => t.set(reset_ramps, cs),
+            #[cfg(unix_without_macos)]
             Self::Randr(t) => t.set(reset_ramps, cs),
+            #[cfg(unix_without_macos)]
             Self::Drm(t) => t.set(reset_ramps, cs),
+            #[cfg(unix_without_macos)]
             Self::Vidmode(t) => t.set(reset_ramps, cs),
+            #[cfg(windows)]
             Self::Win32Gdi(t) => t.set(reset_ramps, cs),
         }
 

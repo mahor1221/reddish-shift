@@ -18,6 +18,7 @@
 
 use crate::{types_display::ERR, Coprod};
 use config::ConfigError;
+#[cfg(windows)]
 use gamma::Win32GdiError;
 use itertools::Itertools;
 use std::{
@@ -100,19 +101,28 @@ pub enum AdjusterError {
 
 #[derive(Debug, Error)]
 pub enum AdjusterErrorInner {
+    #[cfg(unix_without_macos)]
     #[error("vidmode:\n{0}")]
     Vidmode(#[from] X11Error),
+
+    #[cfg(unix_without_macos)]
     #[error("randr:\n{0}")]
     Randr(#[from] RandrError),
+
+    #[cfg(unix_without_macos)]
     #[error("drm:\n{0}")]
     Drm(#[from] VecError<io::Error>),
+
+    #[cfg(windows)]
     #[error("win32gdi:\n{0}")]
     Win32Gdi(#[from] Win32GdiError),
 }
 
+#[cfg(unix_without_macos)]
 type X11Error =
     Coprod!(x11rb::errors::ConnectionError, x11rb::errors::ReplyError);
 
+#[cfg(unix_without_macos)]
 type RandrError = Coprod!(
     VecError<x11rb::errors::ConnectionError>,
     VecError<x11rb::errors::ReplyError>
@@ -144,24 +154,28 @@ pub mod config {
         DeserializeFailed(toml::de::Error, PathBuf),
     }
 
+    #[cfg(unix_without_macos)]
     impl From<DrmError> for ConfigError {
         fn from(e: DrmError) -> Self {
             Self::MethodInit(AdjustmentMethodError::Drm(e))
         }
     }
 
+    #[cfg(unix_without_macos)]
     impl From<RandrError> for ConfigError {
         fn from(e: RandrError) -> Self {
             Self::MethodInit(AdjustmentMethodError::Randr(e))
         }
     }
 
+    #[cfg(unix_without_macos)]
     impl From<VidmodeError> for ConfigError {
         fn from(e: VidmodeError) -> Self {
             Self::MethodInit(AdjustmentMethodError::Vidmode(e))
         }
     }
 
+    #[cfg(windows)]
     impl From<Win32GdiError> for ConfigError {
         fn from(e: Win32GdiError) -> Self {
             Self::MethodInit(AdjustmentMethodError::Win32Gdi(e))
@@ -176,12 +190,19 @@ pub mod gamma {
 
     #[derive(Debug, Error)]
     pub enum AdjustmentMethodError {
+        #[cfg(unix_without_macos)]
         #[error("vidmode:\n{0}")]
         Vidmode(#[from] VidmodeError),
+
+        #[cfg(unix_without_macos)]
         #[error("randr:\n{0}")]
         Randr(#[from] RandrError),
+
+        #[cfg(unix_without_macos)]
         #[error("drm:\n{0}")]
         Drm(#[from] DrmError),
+
+        #[cfg(windows)]
         #[error("drm:\n{0}")]
         Win32Gdi(#[from] Win32GdiError),
     }
@@ -195,6 +216,7 @@ pub mod gamma {
 
     //
 
+    #[cfg(unix_without_macos)]
     #[derive(Debug, Error)]
     pub enum VidmodeError {
         #[error("connection failed:\n{0}")]
@@ -211,6 +233,7 @@ pub mod gamma {
 
     //
 
+    #[cfg(unix_without_macos)]
     #[derive(Debug, Error)]
     pub enum RandrError {
         #[error("connection failed:\n{0}")]
@@ -231,6 +254,7 @@ pub mod gamma {
         GetCrtcs(#[from] VecError<CrtcError<u32, RandrCrtcError>>),
     }
 
+    #[cfg(unix_without_macos)]
     #[derive(Debug, Error)]
     pub enum RandrCrtcError {
         #[error("unable to get gamma ramp:\n{0}")]
@@ -243,6 +267,7 @@ pub mod gamma {
 
     //
 
+    #[cfg(unix_without_macos)]
     #[derive(Debug, Error)]
     pub enum DrmError {
         #[error("failed to open device ({1}):\n{0}")]
@@ -259,6 +284,7 @@ pub mod gamma {
         GetCrtcs(VecError<CrtcError<u32, DrmCrtcError>>),
     }
 
+    #[cfg(unix_without_macos)]
     #[derive(Debug, Error)]
     pub enum DrmCrtcError {
         #[error("unable to get gamma ramp:\n{0}")]
@@ -271,6 +297,7 @@ pub mod gamma {
 
     //
 
+    #[cfg(windows)]
     #[derive(Debug, Error)]
     pub enum Win32GdiError {
         #[error("Unable to open device context")]
@@ -535,12 +562,19 @@ pub mod parse {
     pub enum AdjustmentMethodTypeError {
         #[error("{0}")]
         Vec(#[from] VecError<AdjustmentMethodTypeParamError>),
+
+        #[cfg(unix_without_macos)]
         #[error("videmode does not support selecting crtcs")]
         CrtcOnVidmode,
+
+        #[cfg(windows)]
         #[error("win32gdi does not support selecting crtcs")]
         CrtcOnWin32Gdi,
+
+        #[cfg(windows)]
         #[error("win32gdi does not support selecting display device")]
         ScreenOnWin32Gdi,
+
         #[error("invalid format")]
         Fmt,
     }

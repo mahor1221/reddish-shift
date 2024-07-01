@@ -1,7 +1,18 @@
 use anyhow::Result;
+use cfg_aliases::cfg_aliases;
 use vergen::EmitBuilder;
 
 fn main() -> Result<()> {
+    cfg_aliases! {
+        macos: { target_os = "macos" },
+        linux : { target_os = "linux" },
+        freebsd: { target_os = "freebsd" },
+        openbsd: { target_os = "openbsd" },
+        netbsd: { target_os = "netbsd" },
+        dragonfly: { target_os = "dragonfly" },
+        unix_without_macos: { any(linux, freebsd, openbsd, netbsd, dragonfly) },
+    }
+
     EmitBuilder::builder()
         .rustc_semver()
         .rustc_host_triple()
@@ -19,5 +30,6 @@ fn main() -> Result<()> {
             println!("cargo::rustc-env=VERGEN_GIT_DESCRIBE=");
             println!("cargo::rustc-env=VERGEN_GIT_COMMIT_DATE=");
         });
+
     Ok(())
 }
