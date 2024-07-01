@@ -535,8 +535,12 @@ pub mod parse {
     pub enum AdjustmentMethodTypeError {
         #[error("{0}")]
         Vec(#[from] VecError<AdjustmentMethodTypeParamError>),
-        #[error("videmode does not support crtcs")]
+        #[error("videmode does not support selecting crtcs")]
         CrtcOnVidmode,
+        #[error("win32gdi does not support selecting crtcs")]
+        CrtcOnWin32Gdi,
+        #[error("win32gdi does not support selecting display device")]
+        ScreenOnWin32Gdi,
         #[error("invalid format")]
         Fmt,
     }

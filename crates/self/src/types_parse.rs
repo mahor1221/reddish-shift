@@ -243,6 +243,7 @@ impl FromStr for AdjustmentMethodType {
                 screen_num: None,
                 crtcs: vec![],
             }),
+            "win32gdi" => Ok(Self::Win32Gdi),
             _ => Err(AdjustmentMethodTypeParamError::InvalidName(s.into())),
         };
 
@@ -285,7 +286,14 @@ impl FromStr for AdjustmentMethodType {
                         Err(AdjustmentMethodTypeError::CrtcOnVidmode)?
                     }
                 }
-                AdjustmentMethodType::Win32Gdi => {}
+                AdjustmentMethodType::Win32Gdi => {
+                    if n.is_some() {
+                        Err(AdjustmentMethodTypeError::ScreenOnWin32Gdi)?
+                    }
+                    if !c.is_empty() {
+                        Err(AdjustmentMethodTypeError::CrtcOnWin32Gdi)?
+                    }
+                }
             };
             Ok(k)
         };

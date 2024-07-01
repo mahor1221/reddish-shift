@@ -24,12 +24,31 @@ use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct GammaRamps(pub [Vec<u16>; 3]);
-
-#[derive(Debug, Clone)]
-pub struct GammaRampsWin32<const SIZE: usize>(pub [[u16; SIZE]; 3]);
-
 #[derive(Debug, Clone)]
 pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
+
+#[derive(Debug, Clone)]
+pub struct GammaRampsWin32<const SIZE: usize>(pub Box<[[u16; SIZE]; 3]>);
+
+// A macro is used to prevent repetition. The same effect can be achieved with
+// Iterator traits, but this is just easier to read.
+macro_rules! colorramp_fill {
+    ($self:ident, $setting:ident) => {
+        let white_point = approximate_white_point($setting);
+        let a = (u16::MAX as u32 + 1) as f64;
+        let f = |y: u16, c: usize| -> u16 {
+            let r = y as f64 / a * *$setting.brght * white_point[c];
+            let r = r.powf(1.0 / $setting.gamma[c]) * a;
+            r as u16
+        };
+
+        for i in 0..$self[0].len() {
+            $self[0][i] = f($self[0][i], 0);
+            $self[1][i] = f($self[1][i], 1);
+            $self[2][i] = f($self[2][i], 2);
+        }
+    };
+}
 
 impl GammaRamps {
     // used in vidmode and randr
@@ -44,19 +63,7 @@ impl GammaRamps {
     }
 
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
-        let white_point = approximate_white_point(setting);
-        let a = (u16::MAX as u32 + 1) as f64;
-        let f = |y: u16, c: usize| -> u16 {
-            let r = y as f64 / a * *setting.brght * white_point[c];
-            let r = r.powf(1.0 / setting.gamma[c]) * a;
-            r as u16
-        };
-
-        for i in 0..self[0].len() {
-            self[0][i] = f(self[0][i], 0);
-            self[1][i] = f(self[1][i], 1);
-            self[2][i] = f(self[2][i], 2);
-        }
+        colorramp_fill!(self, setting);
     }
 }
 
@@ -65,24 +72,16 @@ impl<const SIZE: usize> GammaRampsWin32<SIZE> {
         // Initialize gamma ramps to pure state
         // if ramp_size == 1024 => ramps == [[0, 64, 128, 192, ..], ..]
         let a = (u16::MAX as u32 + 1) as f64;
-        let ramp = [0; SIZE].map(|r| (a / SIZE as f64 * a) as u16);
-        Self([ramp; 3])
+        let mut ramp = [0; SIZE];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..SIZE {
+            ramp[i] = (i as f64 / SIZE as f64 * a) as u16;
+        }
+        Self(Box::new([ramp; 3]))
     }
 
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
-        let white_point = approximate_white_point(setting);
-        let a = (u16::MAX as u32 + 1) as f64;
-        let f = |y: u16, c: usize| -> u16 {
-            let r = y as f64 / a * *setting.brght * white_point[c];
-            let r = r.powf(1.0 / setting.gamma[c]) * a;
-            r as u16
-        };
-
-        for i in 0..self[0].len() {
-            self[0][i] = f(self[0][i], 0);
-            self[1][i] = f(self[1][i], 1);
-            self[2][i] = f(self[2][i], 2);
-        }
+        colorramp_fill!(self, setting);
     }
 }
 
