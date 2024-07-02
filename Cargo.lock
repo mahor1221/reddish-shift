@@ -454,6 +454,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "generate"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "clap_mangen",
+ "reddish-shift",
+]
+
+[[package]]
 name = "gethostname"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -682,17 +693,6 @@ name = "pin-project-lite"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bda66fc9667c18cb2758a2ac84d1167245054bcf85d5d1aaa6923f45801bdd02"
-
-[[package]]
-name = "post-build"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "clap_complete",
- "clap_mangen",
- "reddish-shift",
-]
 
 [[package]]
 name = "powerfmt"

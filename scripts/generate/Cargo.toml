@@ -1,5 +1,6 @@
 [package]
-name = "post-build"
+name = "generate"
+description = "Generate shell completion scripts and man pages"
 version = "0.0.0"
 edition = "2021"
 authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
@@ -11,7 +12,7 @@ anyhow = "1.0"
 clap = { version = "*", features = ["string"] }
 clap_complete = "4.5.6"
 clap_mangen = "0.2.22"
-reddish-shift = { path = "../self/" }
+reddish-shift = { path = "../../" }
 
 [lints]
 workspace = true

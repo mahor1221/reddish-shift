@@ -72,7 +72,7 @@ cargo build --release
 
 To generate shell completion scrips and man pages to the `target/release` directory:
 ```bash
-cargo build --release --package generate
+cargo build --release -p generate
 ```
 
 
