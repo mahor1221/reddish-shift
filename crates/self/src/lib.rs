@@ -24,10 +24,11 @@
 // TODO: ? benchmark: https://github.com/nvzqz/divan
 // TODO: Fix large fade steps
 // TODO: ? Box large errors
-// TODO: move coproduct.rs to a fork of frunk after Error got stable in core
+// TODO: move coproduct.rs to a fork of frunk after Error got stabled in core
 //       see: https://github.com/rust-lang/rust/issues/103765
 // TODO: add unit tests
 // TODO: check if another instance is running
+// TODO: add test for man page
 
 mod calc_colorramp;
 mod calc_solar;

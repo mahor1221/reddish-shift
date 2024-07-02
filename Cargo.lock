@@ -235,6 +235,16 @@ version = "0.7.1"
 source = "git+https://github.com/mahor1221/clap.git?branch=patch#a1548190a5e747afa3cfe0cfde74e3353e395d5a"
 
 [[package]]
+name = "clap_mangen"
+version = "0.2.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50dde5bc0c853d6248de457e5eb6e5a674a54b93810a34ded88d882ca1fe2de"
+dependencies = [
+ "clap",
+ "roff",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -680,6 +690,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
+ "clap_mangen",
  "reddish-shift",
 ]
 
@@ -775,6 +786,12 @@ name = "regex-syntax"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
+
+[[package]]
+name = "roff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b833d8d034ea094b1ea68aa6d5c740e0d04bad9d16568d08ba6f76823a114316"
 
 [[package]]
 name = "rustc_version"

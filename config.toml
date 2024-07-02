@@ -39,26 +39,27 @@ gamma = "0.9:0.9:0.9 - 0.85:0.9:0.9"
 # It is not needed when using manual time ranges for transition scheme Either
 # set latitude and longitude manually or select a location provider. Negative
 # values represent west and south, respectively.
-# location providers: geoclue2 (currently not available)
 #location = "51.48:0.0" #(Greenwich)
-#location = "geoclue2"
+#location = "geoclue2"  #(Currently not available)
 
 
 # Adjustment method to use to apply color settings
 #
 # If not set, the first available method will be used
-# methods: dummy (does not affect the display)
-#          randr (X RANDR extension)
-#          vidmode (X VidMode extension)
-#          drm (Direct Rendering Manager)
+#method = dummy                 #(does not affect the display)
+# XVidMode extension
 #method = "vidmode"             #(apply to $DISPLAY)
 #method = "vidmode:0"           #(apply to screen 0)
-#method = "drm"                 #(apply to /dev/dri/card0)
-#method = "drm:1"               #(apply to /dev/dri/card1)
-#method = "drm:0:80"            #(apply to /dev/dri/card0 with crtc 80)
+# XRANDR extension
 #method = "randr"               #(apply to $DISPLAY)
 #method = "randr:0"             #(apply to screen 0)
 #method = "randr$DISPLAY:62,63" #(apply to $DISPLAY with crtcs 62 and 63)
+# Direct Rendering Manager
+#method = "drm"                 #(apply to /dev/dri/card0)
+#method = "drm:1"               #(apply to /dev/dri/card1)
+#method = "drm:0:80"            #(apply to /dev/dri/card0 with crtc 80)
+# Windows graphics device interface:
+#method = "win32gdi"            #(apply to current display)
 
 
 # Reset existing gamma ramps before applying new color settings
