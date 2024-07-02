@@ -222,5 +222,5 @@ jobs:
         with:
           bin: reddish-shift
           target: ${{ matrix.target }}
-          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets || completion,man1 }}
+          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets || 'completion,man1' }}
           token: ${{ secrets.GITHUB_TOKEN }}
