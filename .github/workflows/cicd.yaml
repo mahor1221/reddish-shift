@@ -160,20 +160,6 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/create-gh-release-action@v1
-        with:
-          branch: main
-          changelog: CHANGELOG.md
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  build-release:
-    name: Build release
-    needs: create-release
-    permissions:
-      contents: write
-    timeout-minutes: 20
     env:
       LINUX_ASSETS: >-
         target/ci/completion,
@@ -184,17 +170,40 @@ jobs:
         target/ci/man1
       WINDOWS_ASSETS: >-
         target/ci/completion/_reddish-shift.ps1
+    outputs:
+      linux-assets: ${{ steps.env.outputs.linux-assets }}
+      macos-assets: ${{ steps.env.outputs.macos-assets }}
+      windows-assets: ${{ steps.env.outputs.windows-assets }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          branch: main
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - id: env
+        run: |
+          echo "linux-assets=${{ env.LINUX_ASSETS }}" >> $GITHUB_OUTPUT
+          echo "macos-assets=${{ env.MACOS_ASSETS }}" >> $GITHUB_OUTPUT
+          echo "windows-assets=${{ env.WINDOWS_ASSETS }}" >> $GITHUB_OUTPUT
+
+  build-release:
+    name: Build release
+    needs: create-release
+    permissions:
+      contents: write
+    timeout-minutes: 20
     strategy:
       matrix:
         include:
           - target: aarch64-unknown-linux-gnu
-            assets: ${{ env.LINUX_ASSETS }}
+            assets: ${{ needs.create-release.outputs.linux-assets }}
           - target: aarch64-unknown-linux-musl
-            assets: ${{ env.LINUX_ASSETS }}
+            assets: ${{ needs.create-release.outputs.linux-assets }}
           - target: x86_64-unknown-linux-gnu
-            assets: ${{ env.LINUX_ASSETS }}
+            assets: ${{ needs.create-release.outputs.linux-assets }}
           - target: x86_64-unknown-linux-musl
-            assets: ${{ env.LINUX_ASSETS }}
+            assets: ${{ needs.create-release.outputs.linux-assets }}
 
           # - target: aarch64-apple-darwin
           #   os: macos-latest
