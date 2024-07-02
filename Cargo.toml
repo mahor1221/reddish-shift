@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Mahor Foruzesh <mahor1221@gmail.com>"]
 license = "GPL-3.0-or-later"
 description = "Set color temperature of display according to time of day"
-readme = "../../README.md"
+readme = "README.md"
 repository = "https://github.com/mahor1221/reddish-shift"
 homepage = "https://github.com/mahor1221/reddish-shift"
 keywords = ["eye-strain", "gamma", "brightness", "sunrise", "sunset"]
@@ -86,6 +86,9 @@ unnested-or-patterns = "warn"
 unwrap-in-result = "warn"
 unwrap-used = "warn"
 use-debug = "warn"
+
+[lints]
+workspace = true
 
 [profile.release]
 lto = true

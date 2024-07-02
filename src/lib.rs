@@ -29,6 +29,7 @@
 // TODO: add unit tests
 // TODO: check if another instance is running
 // TODO: add test for man page
+// TODO: fix all document warnings
 
 mod calc_colorramp;
 mod calc_solar;

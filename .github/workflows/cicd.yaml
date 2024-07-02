@@ -151,19 +151,6 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Generate assets for release
-        if: github.event_name == 'release'
-        run: cargo build --profile=ci
-      - name: Upload Generated assets for release
-        if: github.event_name == 'release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: assets
-          if-no-files-found: error
-          path: |
-            target/ci/completion
-            target/ci/man1
-
 
 
   create-release:
@@ -187,13 +174,27 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 20
+    env:
+      LINUX_ASSETS: >-
+        target/ci/completion,
+        target/ci/man1,
+        assets/systemd/reddish-shift.service
+      MACOS_ASSETS: >-
+        target/ci/completion,
+        target/ci/man1
+      WINDOWS_ASSETS: >-
+        target/ci/completion/_reddish-shift.ps1
     strategy:
       matrix:
         include:
           - target: aarch64-unknown-linux-gnu
+            assets: ${{ env.LINUX_ASSETS }}
           - target: aarch64-unknown-linux-musl
+            assets: ${{ env.LINUX_ASSETS }}
           - target: x86_64-unknown-linux-gnu
+            assets: ${{ env.LINUX_ASSETS }}
           - target: x86_64-unknown-linux-musl
+            assets: ${{ env.LINUX_ASSETS }}
 
           # - target: aarch64-apple-darwin
           #   os: macos-latest
@@ -212,15 +213,14 @@ jobs:
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: assets
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --profile=ci -p generate
       - if: matrix.os != 'windows-latest'
-        run: rm completion/_reddish-shift.ps1
+        run: rm target/ci/completion/_reddish-shift.ps1
 
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: reddish-shift
           target: ${{ matrix.target }}
-          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets || 'completion,man1' }}
+          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets }}
           token: ${{ secrets.GITHUB_TOKEN }}
