@@ -1,7 +1,7 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/mahor1221/reddish-shift/cicd.yaml?logo=github)](https://github.com/mahor1221/reddish-shift/actions)
 [![Coverage](https://img.shields.io/codecov/c/github/mahor1221/reddish-shift?logo=codecov)](https://codecov.io/gh/mahor1221/reddish-shift)
 [![Crates.io](https://img.shields.io/crates/v/reddish-shift.svg?logo=rust)](https://crates.io/crates/reddish-shift)
-[![Discord](https://img.shields.io/discord/1256423815588610079.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/E6uKg67f)
+[![Support](https://img.shields.io/badge/support-7289da.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/E6uKg67f)
 
 
 # Reddish Shift
@@ -62,6 +62,18 @@ the following location depending on the platform:
   * macOS: `$HOME/Library/Application Support/reddish-shift/config.toml`
   * Windows: `%AppData%\reddish-shift\config.toml`
 
+
+
+## Building
+To build the program:
+```bash
+cargo build --release
+```
+
+To generate shell completion scrips and man pages to the `target/release` directory:
+```bash
+cargo build --release --package generate
+```
 
 
 ## RoadMap
