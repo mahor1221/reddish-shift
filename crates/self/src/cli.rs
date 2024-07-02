@@ -374,7 +374,7 @@ impl ClapColorChoiceExt for ClapColorChoice {
     }
 }
 
-// used for generation of auto completion scripts and man pages
+// used for generation of shell completion scripts and man pages
 
 pub fn cli_args_command() -> Command {
     CliArgs::command()

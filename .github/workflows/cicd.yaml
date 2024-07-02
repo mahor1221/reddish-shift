@@ -161,11 +161,8 @@ jobs:
           name: assets
           if-no-files-found: error
           path: |
-            target/ci/reddish-shift.bash
-            target/ci/reddish-shift.fish
-            target/ci/_reddish-shift
-            target/ci/_reddish-shift.ps1
-
+            target/ci/completion
+            target/ci/man1
 
 
 
@@ -190,8 +187,6 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 20
-    env:
-      UNIX_ASSETS: reddish-shift.bash,reddish-shift.fish,_reddish-shift
     strategy:
       matrix:
         include:
@@ -209,10 +204,10 @@ jobs:
 
           # - target: aarch64-pc-windows-msvc
           #   os: windows-latest
-          #   assets: _reddish-shift.ps1
+          #   assets: completion/_reddish-shift.ps1
           # - target: x86_64-pc-windows-msvc
           #   os: windows-latest
-          #   assets: _reddish-shift.ps1
+          #   assets: completion/_reddish-shift.ps1
 
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     steps:
@@ -220,9 +215,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: assets
+      - if: matrix.os != 'windows-latest'
+        run: rm completion/_reddish-shift.ps1
+
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: reddish-shift
           target: ${{ matrix.target }}
-          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets || env.UNIX_ASSETS }}
+          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets || completion,man1 }}
           token: ${{ secrets.GITHUB_TOKEN }}
