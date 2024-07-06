@@ -4,7 +4,6 @@ use vergen::EmitBuilder;
 
 fn main() -> Result<()> {
     cfg_aliases! {
-        macos: { target_os = "macos" },
         linux : { target_os = "linux" },
         freebsd: { target_os = "freebsd" },
         openbsd: { target_os = "openbsd" },

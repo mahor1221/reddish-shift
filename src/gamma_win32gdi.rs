@@ -20,6 +20,7 @@
 
 #![allow(unsafe_code)]
 #![allow(clippy::undocumented_unsafe_blocks)]
+
 use crate::{
     calc_colorramp::GammaRampsWin32,
     error::{gamma::Win32GdiError, AdjusterError, AdjusterErrorInner},

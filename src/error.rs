@@ -18,8 +18,6 @@
 
 use crate::{types_display::ERR, Coprod};
 use config::ConfigError;
-#[cfg(windows)]
-use gamma::Win32GdiError;
 use itertools::Itertools;
 use std::{
     error::Error,
@@ -50,10 +48,6 @@ impl<E: Error> VecError<E> {
     pub fn push(mut self, e: E) -> Self {
         self.0.push(e);
         self
-    }
-
-    pub fn into_push<F: Into<E>>(self, f: F) -> Self {
-        self.push(f.into())
     }
 }
 
@@ -130,7 +124,11 @@ type RandrError = Coprod!(
 
 pub mod config {
     use super::*;
-    use gamma::{AdjustmentMethodError, DrmError, RandrError, VidmodeError};
+    use gamma::AdjustmentMethodError;
+    #[cfg(windows)]
+    use gamma::Win32GdiError;
+    #[cfg(unix_without_macos)]
+    use gamma::{DrmError, RandrError, VidmodeError};
 
     #[derive(Debug, Error)]
     pub enum ConfigError {
@@ -184,9 +182,9 @@ pub mod config {
 }
 
 pub mod gamma {
-    use std::path::PathBuf;
-
     use super::*;
+    #[cfg(unix_without_macos)]
+    use std::path::PathBuf;
 
     #[derive(Debug, Error)]
     pub enum AdjustmentMethodError {
@@ -562,18 +560,12 @@ pub mod parse {
     pub enum AdjustmentMethodTypeError {
         #[error("{0}")]
         Vec(#[from] VecError<AdjustmentMethodTypeParamError>),
-
-        #[cfg(unix_without_macos)]
-        #[error("videmode does not support selecting crtcs")]
-        CrtcOnVidmode,
+        #[error("selecting crtcs is not supported")]
+        SelectingCrtcNotSupported,
 
         #[cfg(windows)]
-        #[error("win32gdi does not support selecting crtcs")]
-        CrtcOnWin32Gdi,
-
-        #[cfg(windows)]
-        #[error("win32gdi does not support selecting display device")]
-        ScreenOnWin32Gdi,
+        #[error("selecting display is not supported")]
+        SelectingDisplayNotSupported,
 
         #[error("invalid format")]
         Fmt,

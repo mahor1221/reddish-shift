@@ -253,12 +253,12 @@ impl FromStr for AdjustmentMethodType {
 
         let num = |o: Option<&str>| match o {
             None => Ok(None),
-            Some(s) => Ok(Some(s.parse().map_err(|e| {
+            Some(s) => Ok(Some(s.parse::<usize>().map_err(|e| {
                 AdjustmentMethodTypeParamError::Display(e, s.into())
             })?)),
         };
         let crtcs = |o: Option<&str>| match o {
-            None => Ok(Vec::new()),
+            None => Ok(Vec::<u32>::new()),
             Some(s) => Ok(s
                 .split(',')
                 .map(|id| {
@@ -276,6 +276,7 @@ impl FromStr for AdjustmentMethodType {
                 .into_generic::<(_, _, _)>();
             match &mut k {
                 AdjustmentMethodType::Dummy => {}
+
                 #[cfg(unix_without_macos)]
                 AdjustmentMethodType::Drm { card_num, crtcs } => {
                     *card_num = n;
@@ -290,19 +291,21 @@ impl FromStr for AdjustmentMethodType {
                 AdjustmentMethodType::Vidmode { screen_num } => {
                     *screen_num = n;
                     if !c.is_empty() {
-                        Err(AdjustmentMethodTypeError::CrtcOnVidmode)?
+                        Err(AdjustmentMethodTypeError::SelectingCrtcNotSupported)?
                     }
                 }
+
                 #[cfg(windows)]
                 AdjustmentMethodType::Win32Gdi => {
                     if n.is_some() {
-                        Err(AdjustmentMethodTypeError::ScreenOnWin32Gdi)?
+                        Err(AdjustmentMethodTypeError::SelectingDisplayNotSupported)?
                     }
                     if !c.is_empty() {
-                        Err(AdjustmentMethodTypeError::CrtcOnWin32Gdi)?
+                        Err(AdjustmentMethodTypeError::SelectingCrtcNotSupported)?
                     }
                 }
             };
+
             Ok(k)
         };
 

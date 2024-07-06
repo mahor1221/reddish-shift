@@ -26,7 +26,7 @@ use std::ops::{Deref, DerefMut};
 #[derive(Debug, Clone)]
 pub struct GammaRamps(pub [Vec<u16>; 3]);
 
-#[cfg(unix_without_macos)]
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 
@@ -35,7 +35,8 @@ pub struct GammaRampsFloat(pub [Vec<f64>; 3]);
 pub struct GammaRampsWin32<const SIZE: usize>(pub Box<[[u16; SIZE]; 3]>);
 
 // A macro is used to prevent repetition. The same effect can be achieved with
-// Iterator traits, but this is just easier to read.
+// Iterator traits, but this is easier to read.
+#[cfg(any(unix_without_macos, windows))]
 macro_rules! colorramp_fill {
     ($self:ident, $setting:ident) => {
         let white_point = approximate_white_point($setting);
@@ -91,7 +92,6 @@ impl<const SIZE: usize> GammaRampsWin32<SIZE> {
     }
 }
 
-#[cfg(unix_without_macos)]
 impl GammaRampsFloat {
     #![allow(dead_code)]
     pub fn colorramp_fill(&mut self, setting: &ColorSettings) {
@@ -136,7 +136,6 @@ impl Deref for GammaRamps {
     }
 }
 
-#[cfg(unix_without_macos)]
 impl Deref for GammaRampsFloat {
     type Target = [Vec<f64>; 3];
     fn deref(&self) -> &Self::Target {
@@ -159,7 +158,6 @@ impl DerefMut for GammaRamps {
     }
 }
 
-#[cfg(unix_without_macos)]
 impl DerefMut for GammaRampsFloat {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0

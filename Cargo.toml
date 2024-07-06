@@ -42,15 +42,16 @@ toml = "0.8.14"
 
 chrono = "0.4.38"
 
+
+[target.'cfg(unix)'.dependencies]
+x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
+drm = "0.12.0"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.57.0", features = [
   "Win32_Graphics_Gdi",
   "Win32_UI_ColorSystem",
 ] }
-
-[target.'cfg(unix)'.dependencies]
-x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
-drm = "0.12.0"
 
 [dev-dependencies]
 insta = "1.39.0"
