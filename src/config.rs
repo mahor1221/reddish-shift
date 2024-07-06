@@ -16,6 +16,11 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#[cfg(windows)]
+use crate::gamma_win32gdi::Win32Gdi;
+#[cfg(unix_without_macos)]
+use crate::{gamma_drm::Drm, gamma_randr::Randr, gamma_vidmode::Vidmode};
+
 use crate::{
     cli::{
         CliArgs, CmdArgs, CmdInnerArgs, ColorSettingsArgs, ModeArgs, Verbosity,
@@ -34,8 +39,6 @@ use crate::{
     utils::IsDefault,
     AdjustmentMethod, LocationProvider, Manual,
 };
-#[cfg(unix_without_macos)]
-use crate::{gamma_drm::Drm, gamma_randr::Randr, gamma_vidmode::Vidmode};
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
 use clap::Parser;
@@ -216,6 +219,7 @@ impl ConfigBuilder {
                 AdjustmentMethodType::Vidmode { screen_num } => {
                     Ok(AdjustmentMethod::Vidmode(Vidmode::new(screen_num)?))
                 }
+
                 #[cfg(windows)]
                 AdjustmentMethodType::Win32Gdi => {
                     Ok(AdjustmentMethod::Win32Gdi(Win32Gdi::new()?))
@@ -225,9 +229,11 @@ impl ConfigBuilder {
             (_, None) => {
                 let s = "trying all methods until one that works is found";
                 warn!("{WARN}warning:{WARN:#} {s}");
-                Err(())
-                    .or_else(|_| -> Result<_, VecError<_>> {
-                        let errs = VecError::default();
+                let r = Err::<AdjustmentMethod, _>(VecError::default());
+
+                #[cfg(unix_without_macos)]
+                let r = r
+                    .or_else(|errs| -> Result<_, VecError<_>> {
                         let m = Randr::new(None, Vec::new())
                             .map_err(|e| errs.push(e.into()))?;
                         Ok(AdjustmentMethod::Randr(m))
@@ -241,8 +247,16 @@ impl ConfigBuilder {
                         let m = Drm::new(None, Vec::new())
                             .map_err(|e| errs.push(e.into()))?;
                         Ok(AdjustmentMethod::Drm(m))
-                    })
-                    .map_err(ConfigError::NoAvailableMethod)
+                    });
+
+                #[cfg(windows)]
+                let r = r.or_else(|_| -> Result<_, VecError<_>> {
+                    let m =
+                        Win32Gdi::new()?.map_err(|e| errs.push(e.into()))?;
+                    Ok(AdjustmentMethod::Win32Gdi(m))
+                });
+
+                r.map_err(ConfigError::NoAvailableMethod)
             }
         }
     }
