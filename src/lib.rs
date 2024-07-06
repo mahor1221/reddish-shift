@@ -40,13 +40,15 @@ mod error;
 
 #[cfg(unix_without_macos)]
 mod gamma_drm;
-mod gamma_dummy;
 #[cfg(unix_without_macos)]
 mod gamma_randr;
 #[cfg(unix_without_macos)]
 mod gamma_vidmode;
+
 #[cfg(windows)]
 mod gamma_win32gdi;
+
+mod gamma_dummy;
 mod location_manual;
 mod types;
 mod types_display;
@@ -214,9 +216,7 @@ impl<'a, 'b> DaemonMode<'a, 'b> {
             //     hooks_signal_period_change(prev_period, period);
             // }
 
-            if Some(&self.interp) != self.prev_interp.as_ref() {
-                c.method.set(c.reset_ramps, &self.interp)?;
-            }
+            c.method.set(c.reset_ramps, &self.interp)?;
 
             self.prev_period = Some(self.period);
             self.prev_info = Some(self.info.clone());
