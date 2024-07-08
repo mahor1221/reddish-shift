@@ -7,9 +7,6 @@ on:
     - main
   release:
     types: [created]
-  # create:
-  #   tags:
-  #   - 'v[0-9]+.[0-9]+.[0-9]+'
 
 env:
   PKG_NAME: reddish-shift
@@ -71,7 +68,7 @@ jobs:
       - name: Check documents
         if: success()
         id: cargo-doc
-        run: cargo doc --profile=ci
+        run: cargo doc --profile=ci --no-deps --document-private-items
 
       # create check runs for pull requests
 

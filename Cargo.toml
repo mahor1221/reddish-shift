@@ -8,6 +8,7 @@ description = "Set color temperature of display according to time of day"
 readme = "README.md"
 repository = "https://github.com/mahor1221/reddish-shift"
 homepage = "https://github.com/mahor1221/reddish-shift"
+documentation = "https://github.com/mahor1221/reddish-shift"
 keywords = ["eye-strain", "gamma", "brightness", "sunrise", "sunset"]
 categories = ["command-line-utilities"]
 build = "build.rs"
