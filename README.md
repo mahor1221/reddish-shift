@@ -36,6 +36,7 @@ paru -S reddish-shift-git
 </details>
 
 
+
 ## Usage
 For a quick start, run:
 ```bash
@@ -65,15 +66,11 @@ the following location depending on the platform:
 
 
 ## Building
-To build the program:
-```bash
-cargo build --release
-```
+Run `cargo build --release --all` to build these files:
+- `target/release/reddish-shift`: the main program
+- `target/release/man1/`: man pages
+- `target/release/completion/`: various shell completion scrips
 
-To generate shell completion scrips and man pages to the `target/release` directory:
-```bash
-cargo build --release -p generate
-```
 
 
 ## RoadMap

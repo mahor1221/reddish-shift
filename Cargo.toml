@@ -42,7 +42,6 @@ toml = "0.8.14"
 
 chrono = "0.4.38"
 
-
 [target.'cfg(unix)'.dependencies]
 x11rb = { version = "0.13.1", features = ["xf86vidmode", "randr"] }
 drm = "0.12.0"
@@ -106,3 +105,60 @@ debug = 1
 [patch.crates-io]
 # See https://github.com/clap-rs/clap/issues/5550
 clap = { git = "https://github.com/mahor1221/clap.git", branch = "patch" }
+
+[package.metadata.deb]
+license-file = ["LICENSE", "0"]
+depends = "$auto"
+section = "utilities"
+assets = [
+  [
+    "target/release/reddish-shift",
+    "usr/bin/",
+    "755",
+  ],
+  [
+    "LICENSE",
+    "usr/share/licenses/reddish-shift/",
+    "644",
+  ],
+  [
+    "README.md",
+    "usr/share/doc/reddish-shift/",
+    "644",
+  ],
+  [
+    "CHANGELOG.md",
+    "usr/share/doc/reddish-shift/",
+    "644",
+  ],
+  [
+    "config.toml",
+    "usr/share/doc/reddish-shift/",
+    "644",
+  ],
+  [
+    "target/release/completion/_reddish-shift",
+    "usr/share/zsh/site-functions/",
+    "644",
+  ],
+  [
+    "target/release/completion/reddish-shift.bash",
+    "usr/share/bash-completion/completions/reddish-shift",
+    "644",
+  ],
+  [
+    "target/release/completion/reddish-shift.fish",
+    "usr/share/fish/completions/",
+    "644",
+  ],
+  [
+    "target/release/completion/reddish-shift.elv",
+    "usr/share/elvish/lib/",
+    "644",
+  ],
+  [
+    "target/release/man1/*",
+    "usr/share/man/man1/",
+    "644",
+  ],
+]

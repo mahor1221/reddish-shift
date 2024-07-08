@@ -360,8 +360,7 @@ impl Provider for Geoclue2 {
     // fn fd() -> c_int;
 
     fn get(&self) -> Result<Location, ProviderError> {
-        // b"Waiting for current location to become available...\n\0" as *const u8
-        // Wait for location provider
+        // Redshift: "Waiting for current location to become available..."
         Err(ProviderError)
     }
 }
@@ -405,15 +404,16 @@ impl Adjuster for AdjustmentMethod {
             Self::Vidmode(t) => t.set(reset_ramps, cs),
             #[cfg(windows)]
             Self::Win32Gdi(t) => t.set(reset_ramps, cs),
+            // #[cfg(macos)]
+            // Self::Quartz(t) => {
+            //     // Redshift: In Quartz (macOS) the gamma adjustments will
+            //     // automatically revert when the process exits Therefore,
+            //     // we have to loop until CTRL-C is received
+            //     if strcmp(options.method.name, "quartz") == 0 {
+            //         println!("Press ctrl-c to stop...");
+            //         pause();
+            //     }
+            // }
         }
-
-        // TODO: MacOS support
-        // // In Quartz (macOS) the gamma adjustments will
-        // // automatically revert when the process exits
-        // // Therefore, we have to loop until CTRL-C is received
-        // if strcmp(options.method.name, "quartz") == 0 {
-        //     // b"Press ctrl-c to stop...\n" as *const u8 as *const c_char,
-        //     pause();
-        // }
     }
 }

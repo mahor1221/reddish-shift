@@ -12,6 +12,7 @@ on:
   #   - 'v[0-9]+.[0-9]+.[0-9]+'
 
 env:
+  PKG_NAME: reddish-shift
   CARGO_TERM_COLOR: always
   # RUSTDOCFLAGS: -D warnings
   RUSTFLAGS: -D warnings
@@ -158,22 +159,19 @@ jobs:
     if: github.event_name == 'release'
     needs: run-checks
     permissions:
+      # required for taiki-e/create-gh-release-action
       contents: write
     runs-on: ubuntu-latest
-    env:
-      LINUX_ASSETS: >-
+    outputs:
+      linux-assets: >-
         target/ci/completion,
         target/ci/man1,
-        assets/systemd/reddish-shift.service
-      MACOS_ASSETS: >-
+        assets/systemd/${{ env.PKG_NAME }}.service
+      macos-assets: >-
         target/ci/completion,
         target/ci/man1
-      WINDOWS_ASSETS: >-
-        target/ci/completion/_reddish-shift.ps1
-    outputs:
-      linux-assets: ${{ steps.env.outputs.linux-assets }}
-      macos-assets: ${{ steps.env.outputs.macos-assets }}
-      windows-assets: ${{ steps.env.outputs.windows-assets }}
+      windows-assets: >-
+        target/ci/completion/_${{ env.PKG_NAME }}.ps1
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
@@ -181,11 +179,6 @@ jobs:
           branch: main
           changelog: CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
-      - id: env
-        run: |
-          echo "linux-assets=${{ env.LINUX_ASSETS }}" >> $GITHUB_OUTPUT
-          echo "macos-assets=${{ env.MACOS_ASSETS }}" >> $GITHUB_OUTPUT
-          echo "windows-assets=${{ env.WINDOWS_ASSETS }}" >> $GITHUB_OUTPUT
 
   build-release:
     name: Build release
@@ -205,6 +198,13 @@ jobs:
           - target: x86_64-unknown-linux-musl
             assets: ${{ needs.create-release.outputs.linux-assets }}
 
+          - target: aarch64-pc-windows-msvc
+            assets: ${{ needs.create-release.outputs.windows-assets }}
+            os: windows-latest
+          - target: x86_64-pc-windows-msvc
+            assets: ${{ needs.create-release.outputs.windows-assets }}
+            os: windows-latest
+
           # - target: aarch64-apple-darwin
           #   os: macos-latest
           # - target: x86_64-apple-darwin
@@ -212,24 +212,36 @@ jobs:
           # - target: universal-apple-darwin
           #   os: macos-latest
 
-          # - target: aarch64-pc-windows-msvc
-          #   os: windows-latest
-          #   assets: completion/_reddish-shift.ps1
-          # - target: x86_64-pc-windows-msvc
-          #   os: windows-latest
-          #   assets: completion/_reddish-shift.ps1
-
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --profile=ci -p generate
       - if: matrix.os != 'windows-latest'
-        run: rm target/ci/completion/_reddish-shift.ps1
+        run: rm target/ci/completion/_$PKG_NAME.ps1
+
+      - if: matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      - if: matrix.os != 'ubuntu-latest'
+        id: deb
+        run: echo path= >> $GITHUB_OUTPUT
+      - if: matrix.os == 'ubuntu-latest'
+        id: deb
+        run: |
+          cargo deb -- --frozen --release
+          arch="$(a=${{ matrix.target }} && echo "${a%%-*}")"
+          name="$PKG_NAME-$GITHUB_REF_NAME-$arch.deb"
+          mv target/debian/*.deb "target/debian/$name"
+          echo path="target/debian/$name" >> $GITHUB_OUTPUT
 
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: reddish-shift
+          bin: ${{ env.PKG_NAME }}
           target: ${{ matrix.target }}
+          archive: $bin-$tag-$target
           include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets }}
+          asset: ${{ steps.deb.outputs.path }}
+          checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}
