@@ -215,18 +215,22 @@ jobs:
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --profile=ci -p generate
+
+      # Generate assets
+      - run: cargo build --release -p generate
       - if: matrix.os != 'windows-latest'
         run: rm target/ci/completion/_$PKG_NAME.ps1
 
+      # Build debian package
       - if: matrix.os == 'ubuntu-latest'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
-      - if: matrix.os != 'ubuntu-latest'
-        id: deb
-        run: echo path= >> $GITHUB_OUTPUT
       - if: matrix.os == 'ubuntu-latest'
         id: deb
         run: |
@@ -236,6 +240,7 @@ jobs:
           mv target/debian/*.deb "target/debian/$name"
           echo path="target/debian/$name" >> $GITHUB_OUTPUT
 
+      # Build and upload
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: ${{ env.PKG_NAME }}
