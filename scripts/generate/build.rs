@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 use anyhow::Result;
-use clap::ValueEnum;
 use clap_complete::{generate_to, Shell};
 use clap_mangen::Man;
 use reddish_shift::cli_args_command;
@@ -13,10 +12,12 @@ fn main() -> Result<()> {
     let mut cmd = cli_args_command();
 
     // generate shell completion scripts
+    use Shell::*;
     let path = target.join("completion");
+    fs::remove_dir_all(&path).unwrap_or_default();
     fs::create_dir(&path)?;
-    for &shell in Shell::value_variants() {
-        generate_to(shell, &mut cmd, NAME, &out)?;
+    for sh in [Bash, Elvish, Fish, Zsh, PowerShell] {
+        generate_to(sh, &mut cmd, NAME, &out)?;
     }
 
     for file in fs::read_dir(&out)? {
@@ -26,6 +27,7 @@ fn main() -> Result<()> {
 
     // generate man pages
     let path = target.join("man1");
+    fs::remove_dir_all(&path).unwrap_or_default();
     fs::create_dir(&path)?;
     let mut buffer: Vec<u8> = Default::default();
     for subcmd in cmd.get_subcommands() {

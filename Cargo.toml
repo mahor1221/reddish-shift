@@ -162,4 +162,9 @@ assets = [
     "usr/share/man/man1/",
     "644",
   ],
+  [
+    "assets/systemd/reddish-shift.service",
+    "/usr/lib/systemd/user/",
+    "644",
+  ],
 ]

@@ -1,0 +1,149 @@
+name: Release
+run-name: "release: ${{ github.ref_name }}"
+
+on:
+  create:
+    tags:
+    - 'v[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  PKG_NAME: reddish-shift
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  # RUSTDOCFLAGS: -D warnings
+
+jobs:
+  pre-release:
+    name: Pre-release
+    if: github.event_name == 'create'
+    timeout-minutes: 5
+    permissions:
+      # required for taiki-e/create-gh-release-action
+      contents: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Generate assets for release
+        run: cargo build --profile=ci --locked -p generate
+      - name: Upload the assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          if-no-files-found: error
+          path: |
+            target/ci/completion
+            target/ci/man1
+
+      - name: Generate code coverage reports
+        if: github.event_name == 'create'
+        run: |
+          cargo tarpaulin --profile=ci --locked \
+            --all-features --workspace --timeout 120 --out xml
+      - name: Upload the reports to Codecov
+        if: github.event_name == 'create'
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Create release
+        uses: taiki-e/create-gh-release-action@v1
+        with:
+          draft: true
+          branch: main
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Release
+    needs: pre-release
+    timeout-minutes: 20
+    permissions:
+      # required for taiki-e/upload-rust-binary-action
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          # - { os: macos-latest, target: aarch64-apple-darwin }
+          # - { os: macos-latest, target: x86_64-apple-darwin }
+          # - { os: macos-latest, target: universal-apple-darwin }
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cross
+
+      - name: Install prerequisites
+        shell: bash
+        run: |
+          case ${{ matrix.target }} in
+            aarch64-unknown-linux-gnu)
+              sudo apt-get -y update
+              sudo apt-get -y install gcc-aarch64-linux-gnu;;
+          esac
+
+      - name: Download the assets
+        uses: actions/download-artifact@v4
+        with:
+          name: assets
+      - if: matrix.os != 'windows-latest'
+        run: rm completion/_${{ env.PKG_NAME }}.ps1
+      - name: Set assets
+        id: assets
+        shell: bash
+        env:
+          WINDOWS: completion
+          MACOS: completion,man1
+          LINUX: >-
+            completion,
+            man1,
+            assets/systemd/${{ env.PKG_NAME }}.service
+        run: |
+          case ${{ matrix.os }} in
+            ubuntu-latest) echo "assets=$LINUX" >> $GITHUB_OUTPUT;;
+            windows-latest) echo "assets=$WINDOWS" >> $GITHUB_OUTPUT;;
+            macos-latest) echo "assets=$MACOS" >> $GITHUB_OUTPUT;;
+          esac
+
+      - name: Build debian package
+        if: |
+          matrix.target == 'aarch64-unknown-linux-gnu' ||
+          matrix.target == 'x86_64-unknown-linux-gnu'
+        id: deb
+        run: |
+          cross build --release --target ${{ matrix.target }}
+          cargo deb --no-build --target ${{ matrix.target }}
+          dir="target/${{ matrix.target }}/debian"
+          arch="$(a=${{ matrix.target }} && echo "${a%%-*}")"
+          name="$PKG_NAME-$GITHUB_REF_NAME-$arch.deb"
+          mv "$dir"/*.deb "$dir/$name"
+          echo path="$dir/$name" >> $GITHUB_OUTPUT
+
+      - name: Build and upload
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: ${{ env.PKG_NAME }}
+          target: ${{ matrix.target }}
+          archive: $bin-$tag-$target
+          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets }}
+          asset: ${{ steps.deb.outputs.path }}
+          checksum: sha256
+          token: ${{ secrets.GITHUB_TOKEN }}

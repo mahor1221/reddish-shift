@@ -9,6 +9,9 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.1.2] - 2024-07-08
+* Unreleased
+
 ## [0.1.1] - 2024-06-27
 * Fix AUR and Crates.io builds
 
