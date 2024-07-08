@@ -244,4 +244,5 @@ jobs:
           include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets }}
           asset: ${{ steps.deb.outputs.path }}
           checksum: sha256
+          ref: refs/tags/${{  github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
