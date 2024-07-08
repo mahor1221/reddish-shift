@@ -140,10 +140,15 @@ jobs:
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: ${{ env.PKG_NAME }}
-          target: ${{ matrix.target }}
-          archive: $bin-$tag-$target
-          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ matrix.assets }}
-          asset: ${{ steps.deb.outputs.path }}
-          checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}
+          checksum: sha256
+          target: ${{ matrix.target }}
+          bin: ${{ env.PKG_NAME }}
+          archive: $bin-$tag-$target
+          asset: ${{ steps.deb.outputs.path }}
+          include: >-
+            LICENSE,
+            README.md,
+            CHANGELOG.md,
+            config.toml,
+            ${{ steps.assets.outputs.assets }}
