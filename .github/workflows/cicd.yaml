@@ -36,7 +36,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
-          tool: typos,cargo-deny,cargo-tarpaulin
+          tool: typos,cargo-deny
 
       - name: Check spelling
         if: success() || failure()
@@ -139,21 +139,6 @@ jobs:
           name: Check documents
           conclusion: ${{ steps.cargo-doc.outcome }}
 
-      # Generate and upload assets
-
-      - name: Generate code coverage
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
-      - name: Upload coverage reports to Codecov
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v4
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-
-
   create-release:
     name: Create release
     if: github.event_name == 'release'
@@ -220,18 +205,26 @@ jobs:
           cache-all-crates: true
           cache-on-failure: true
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin,cargo-deb
 
-      # Generate assets
-      - run: cargo build --release -p generate
+      - name: Generate code coverage reports
+        run: |
+          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+      - name: Upload code coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Generate assets
+        run: cargo build --release -p generate
       - if: matrix.os != 'windows-latest'
         run: rm target/ci/completion/_$PKG_NAME.ps1
 
-      # Build debian package
-      - if: matrix.os == 'ubuntu-latest'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deb
-      - if: matrix.os == 'ubuntu-latest'
+      - name: Build debian package
+        if: matrix.os == 'ubuntu-latest'
         id: deb
         run: |
           cargo deb -- --frozen --release
@@ -240,9 +233,10 @@ jobs:
           mv target/debian/*.deb "target/debian/$name"
           echo path="target/debian/$name" >> $GITHUB_OUTPUT
 
-      # Build and upload
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - name: Build and upload
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
+          draft: true
           bin: ${{ env.PKG_NAME }}
           target: ${{ matrix.target }}
           archive: $bin-$tag-$target
