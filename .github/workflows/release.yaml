@@ -113,10 +113,7 @@ jobs:
         env:
           WINDOWS: completion
           MACOS: completion,man1
-          LINUX: >-
-            completion,
-            man1,
-            assets/systemd/${{ env.PKG_NAME }}.service
+          LINUX: completion,man1,assets/systemd/${{ env.PKG_NAME }}.service
         run: |
           case ${{ matrix.os }} in
             ubuntu-latest) echo "assets=$LINUX" >> $GITHUB_OUTPUT;;
