@@ -87,7 +87,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
+      - if: matrix.os != 'windows-latest'
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb,cross
 
@@ -129,7 +130,7 @@ jobs:
           matrix.target == 'x86_64-unknown-linux-gnu'
         id: deb
         run: |
-          cross build --release --target ${{ matrix.target }}
+          cross build --release --target ${{ matrix.target }} --all
           cargo deb --no-build --target ${{ matrix.target }}
           dir="target/${{ matrix.target }}/debian"
           arch="$(a=${{ matrix.target }} && echo "${a%%-*}")"
@@ -140,15 +141,10 @@ jobs:
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checksum: sha256
           target: ${{ matrix.target }}
           bin: ${{ env.PKG_NAME }}
           archive: $bin-$tag-$target
+          include: LICENSE,README.md,CHANGELOG.md,config.toml,${{ steps.assets.outputs.assets }}
           asset: ${{ steps.deb.outputs.path }}
-          include: >-
-            LICENSE,
-            README.md,
-            CHANGELOG.md,
-            config.toml,
-            ${{ steps.assets.outputs.assets }}
+          checksum: sha256
+          token: ${{ secrets.GITHUB_TOKEN }}
