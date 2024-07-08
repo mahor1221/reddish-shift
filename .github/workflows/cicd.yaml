@@ -164,6 +164,7 @@ jobs:
         with:
           branch: main
           changelog: CHANGELOG.md
+          ref: refs/tags/${{  github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
   build-release:
