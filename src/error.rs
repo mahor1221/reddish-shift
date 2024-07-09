@@ -18,6 +18,8 @@
 
 use crate::{types_display::ERR, Coprod};
 use config::ConfigError;
+#[cfg(windows)]
+use gamma::Win32GdiError;
 use itertools::Itertools;
 use std::{
     error::Error,

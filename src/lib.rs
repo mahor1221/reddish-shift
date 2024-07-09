@@ -56,7 +56,7 @@ mod types_parse;
 mod utils;
 
 #[cfg(windows)]
-use crate::gamma_win32gdi;
+use crate::gamma_win32gdi::Win32Gdi;
 #[cfg(unix_without_macos)]
 use crate::{gamma_drm::Drm, gamma_randr::Randr, gamma_vidmode::Vidmode};
 pub use cli::cli_args_command;

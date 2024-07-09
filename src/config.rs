@@ -250,9 +250,9 @@ impl ConfigBuilder {
                     });
 
                 #[cfg(windows)]
-                let r = r.or_else(|_| -> Result<_, VecError<_>> {
+                let r = r.or_else(|errs| -> Result<_, VecError<_>> {
                     let m =
-                        Win32Gdi::new()?.map_err(|e| errs.push(e.into()))?;
+                        Win32Gdi::new().map_err(|e| errs.push(e.into()))?;
                     Ok(AdjustmentMethod::Win32Gdi(m))
                 });
 

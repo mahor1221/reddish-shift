@@ -63,7 +63,7 @@ jobs:
   release:
     name: Release
     needs: pre-release
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       # required for taiki-e/upload-rust-binary-action
       contents: write

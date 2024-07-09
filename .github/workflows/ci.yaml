@@ -14,6 +14,7 @@ env:
 jobs:
   check:
     name: Check
+    timeout-minutes: 2
     permissions:
       # required for ppremk/lfs-warning
       pull-requests: read
