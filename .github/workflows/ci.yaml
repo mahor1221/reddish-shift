@@ -115,11 +115,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-      # cache cross docker images
-      - if: startsWith(matrix.target, 'aarch64-unknown-linux-')
-        uses: ScribeMD/docker-cache@0.5.0
-        with:
-          key: docker-${{ matrix.target }}
 
       - name: Check build
         if: success() || failure()
