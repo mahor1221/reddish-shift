@@ -89,7 +89,7 @@ jobs:
 
   check-target:
     name: Check target
-    timeout-minutes: 2
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -116,7 +116,8 @@ jobs:
         with:
           tool: cross
       # cache cross docker images
-      - uses: ScribeMD/docker-cache@0.5.0
+      - if: startsWith(matrix.target, 'aarch64-unknown-linux-')
+        uses: ScribeMD/docker-cache@0.5.0
         with:
           key: docker-${{ matrix.target }}
 
