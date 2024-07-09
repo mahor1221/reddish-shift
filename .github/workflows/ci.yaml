@@ -111,7 +111,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - if: matrix.cmd == 'cross')
+      - if: matrix.cmd == 'cross'
         uses: taiki-e/install-action@v2
         with:
           tool: cross
