@@ -94,10 +94,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cmd: cross }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, cmd: cross }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, cmd: cargo }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cmd: cargo }
           # - { os: windows-latest, target: aarch64-pc-windows-msvc }
           # - { os: windows-latest, target: x86_64-pc-windows-msvc }
 
@@ -111,7 +111,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - if: startsWith(matrix.target, 'aarch64-unknown-linux-')
+      - if: matrix.cmd == 'cross')
         uses: taiki-e/install-action@v2
         with:
           tool: cross
@@ -119,28 +119,22 @@ jobs:
       - name: Check build
         if: success() || failure()
         id: cargo-check
-        run: cargo check --profile=ci --locked --target ${{ matrix.target }}
+        run: ${{ matrix.cmd }} check --profile=ci --locked --target ${{ matrix.target }}
 
       - name: Check lints
         if: success() || failure()
         id: cargo-clippy
-        run: cargo clippy --profile=ci --locked --target ${{ matrix.target }}
+        run: ${{ matrix.cmd }} clippy --profile=ci --locked --target ${{ matrix.target }}
 
       - name: Check tests
         if: success()
         id: cargo-test
-        run: |
-          case ${{ matrix.target }} in
-            aarch64-unknown-linux-*)
-              cross test --profile=ci --locked --target ${{ matrix.target }};;
-            *)
-              cargo test --profile=ci --locked --target ${{ matrix.target }};;
-          esac
+        run:  ${{ matrix.cmd }} test --profile=ci --locked --target ${{ matrix.target }}
 
       - name: Check documents
         if: success()
         id: cargo-doc
-        run: cargo doc --profile=ci --locked --target ${{ matrix.target }} --no-deps
+        run: ${{ matrix.cmd }} doc --profile=ci --locked --target ${{ matrix.target }} --no-deps
 
       # create check runs for pull requests
 
