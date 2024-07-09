@@ -76,6 +76,7 @@ impl<T, E> InjectErr<T, E> for Result<T, E> {
 }
 
 /// Shortcut for inject_err().map_err(..) on Result types
+#[cfg(unix_without_macos)]
 pub trait InjectMapErr<T, E> {
     fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>
     where
@@ -83,6 +84,8 @@ pub trait InjectMapErr<T, E> {
         F1: CoprodInjector<E, Index>,
         O: FnOnce(F1) -> F2;
 }
+
+#[cfg(unix_without_macos)]
 impl<T, E> InjectMapErr<T, E> for Result<T, E> {
     #[inline(always)]
     fn inject_map_err<F1, F2, O, Index>(self, f: O) -> Result<T, F2>

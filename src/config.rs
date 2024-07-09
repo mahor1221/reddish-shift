@@ -42,6 +42,7 @@ use crate::{
 use chrono::{DateTime, Local};
 use clap::ColorChoice;
 use clap::Parser;
+#[cfg(unix)]
 use const_format::formatcp;
 use serde::{de, Deserialize, Deserializer};
 use std::{
@@ -58,7 +59,9 @@ pub const FADE_STEPS: u8 = 40;
 pub const DEFAULT_SLEEP_DURATION: u64 = 5000;
 pub const DEFAULT_SLEEP_DURATION_SHORT: u64 = 100;
 
+#[cfg(unix_without_macos)]
 pub const RANDR_MINOR_VERSION_MIN: u32 = 3;
+#[cfg(unix_without_macos)]
 pub const RANDR_MAJOR_VERSION: u32 = 1;
 
 /// Merge of cli arguments and config files from highest priority to lowest:

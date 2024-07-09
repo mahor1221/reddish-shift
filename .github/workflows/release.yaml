@@ -13,8 +13,8 @@ env:
   # RUSTDOCFLAGS: -D warnings
 
 jobs:
-  pre-release:
-    name: Pre-release
+  release:
+    name: Release
     if: github.event_name == 'create'
     timeout-minutes: 5
     permissions:
@@ -60,9 +60,9 @@ jobs:
           changelog: CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  release:
-    name: Release
-    needs: pre-release
+  release-target:
+    name: Release target
+    needs: release
     timeout-minutes: 10
     permissions:
       # required for taiki-e/upload-rust-binary-action

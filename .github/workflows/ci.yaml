@@ -49,28 +49,6 @@ jobs:
         id: cargo-fmt
         run: cargo fmt --all -- --check
 
-      - name: Check build
-        if: success() || failure()
-        id: cargo-check
-        run: cargo check --profile=ci --locked
-
-      - name: Check lints
-        if: success() || failure()
-        id: cargo-clippy
-        run: cargo clippy --profile=ci --locked
-
-      - name: Check tests
-        if: success()
-        id: cargo-test
-        run: cargo test --profile=ci --locked
-
-      - name: Check documents
-        if: success()
-        id: cargo-doc
-        run: cargo doc --profile=ci --locked --no-deps
-
-      # create check runs for pull requests
-
       - name: Check file size
         if: (success() || failure()) && github.event_name == 'pull_request'
         id: lfs
@@ -78,6 +56,8 @@ jobs:
         with:
           filesizelimit: 256000
           sendComment: false
+
+      # create check runs for pull requests
 
       - uses: LouisBrunner/checks-action@v2.0.0
         if: (success() || failure()) && github.event_name == 'pull_request'
@@ -107,30 +87,77 @@ jobs:
           name: Check formatting
           conclusion: ${{ steps.cargo-fmt.outcome }}
 
+  check-target:
+    name: Check target
+    timeout-minutes: 2
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          # - { os: windows-latest, target: aarch64-pc-windows-msvc }
+          # - { os: windows-latest, target: x86_64-pc-windows-msvc }
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Check build
+        if: success() || failure()
+        id: cargo-check
+        run: cargo check --profile=ci --locked --target ${{ matrix.target }}
+
+      - name: Check lints
+        if: success() || failure()
+        id: cargo-clippy
+        run: cargo clippy --profile=ci --locked --target ${{ matrix.target }}
+
+      - name: Check tests
+        if: success()
+        id: cargo-test
+        run: cargo test --profile=ci --locked --target ${{ matrix.target }}
+
+      - name: Check documents
+        if: success()
+        id: cargo-doc
+        run: cargo doc --profile=ci --locked --target ${{ matrix.target }} --no-deps
+
+      # create check runs for pull requests
+
       - uses: LouisBrunner/checks-action@v2.0.0
         if: (success() || failure()) && github.event_name == 'pull_request'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: Check build
+          name: Check build ${{ matrix.target }}
           conclusion: ${{ steps.cargo-check.outcome }}
 
       - uses: LouisBrunner/checks-action@v2.0.0
         if: (success() || failure()) && github.event_name == 'pull_request'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: Check lints
+          name: Check lints ${{ matrix.target }}
           conclusion: ${{ steps.cargo-clippy.outcome }}
 
       - uses: LouisBrunner/checks-action@v2.0.0
         if: (success() || failure()) && github.event_name == 'pull_request'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: Check tests
+          name: Check tests ${{ matrix.target }}
           conclusion: ${{ steps.cargo-test.outcome }}
 
       - uses: LouisBrunner/checks-action@v2.0.0
         if: (success() || failure()) && github.event_name == 'pull_request'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: Check documents
+          name: Check documents ${{ matrix.target }}
           conclusion: ${{ steps.cargo-doc.outcome }}
