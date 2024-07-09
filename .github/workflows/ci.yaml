@@ -111,20 +111,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
       - if: startsWith(matrix.target, 'aarch64-unknown-linux-')
         uses: taiki-e/install-action@v2
         with:
           tool: cross
-
-      # - name: Install prerequisites
-      #   shell: bash
-      #   run: |
-      #     case ${{ matrix.target }} in
-      #       aarch64-unknown-linux-gnu)
-      #         sudo apt-get -y update
-      #         sudo apt-get -y install gcc-aarch64-linux-gnu;;
-      #     esac
 
       - name: Check build
         if: success() || failure()

@@ -92,15 +92,6 @@ jobs:
         with:
           tool: cargo-deb,cross
 
-      - name: Install prerequisites
-        shell: bash
-        run: |
-          case ${{ matrix.target }} in
-            aarch64-unknown-linux-gnu)
-              sudo apt-get -y update
-              sudo apt-get -y install gcc-aarch64-linux-gnu;;
-          esac
-
       - name: Download the assets
         uses: actions/download-artifact@v4
         with:
