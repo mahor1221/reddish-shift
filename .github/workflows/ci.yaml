@@ -112,6 +112,15 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install prerequisites
+        shell: bash
+        run: |
+          case ${{ matrix.target }} in
+            aarch64-unknown-linux-*)
+              sudo apt-get -y update
+              sudo apt-get -y install gcc-aarch64-linux-gnu;;
+          esac
+
       - name: Check build
         if: success() || failure()
         id: cargo-check
