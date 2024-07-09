@@ -112,7 +112,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - if: startsWith(matrix.os, 'aarch64-')
+      - if: startsWith(matrix.target, 'aarch64-unknown-linux-')
         uses: taiki-e/install-action@v2
         with:
           tool: cross
