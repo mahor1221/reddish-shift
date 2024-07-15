@@ -13,10 +13,6 @@ keywords = ["eye-strain", "gamma", "brightness", "sunrise", "sunset"]
 categories = ["command-line-utilities"]
 build = "build.rs"
 
-[lib]
-name = "reddish_shift"
-path = "src/lib.rs"
-
 [workspace]
 members = ["scripts/generate"]
 

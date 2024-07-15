@@ -86,6 +86,7 @@ Run `cargo build --release --all` to build these files:
 * [ ] Real screen brightness control (experimental)
 * Supporting macOS is not planned currently. Contributions are welcomed.
 * [ ] Unit testing
+* [ ] Automatic Conversion from Redshift's config file to `reddish-shift/config.toml`
 
 
 
