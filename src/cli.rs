@@ -138,6 +138,7 @@ pub enum ModeArgs {
         #[arg(verbatim_doc_comment)]
         #[arg(long, short, value_parser = LocationProviderType::from_str)]
         #[arg(value_name = "LATITUDE:LONGITUDE | PROVIDER")]
+        #[arg(allow_hyphen_values = true)]
         location: LocationProviderType,
     },
 }
@@ -221,6 +222,7 @@ pub struct CmdArgs {
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = TransitionScheme::from_str)]
     #[arg(value_name = "TIME-TIME - TIME-TIME | TIME-TIME | DEGREE:DEGREE")]
+    #[arg(allow_hyphen_values = true)]
     pub scheme: Option<TransitionScheme>,
 
     /// Location, used for computation of current solar elevation [default: 0:0]
@@ -233,6 +235,7 @@ pub struct CmdArgs {
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = LocationProviderType::from_str)]
     #[arg(value_name = "LATITUDE:LONGITUDE | PROVIDER")]
+    #[arg(allow_hyphen_values = true)]
     pub location: Option<LocationProviderType>,
 
     #[command(flatten)]

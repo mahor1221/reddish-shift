@@ -46,7 +46,7 @@ gamma = "0.9:0.9:0.9 - 0.85:0.9:0.9"
 # Adjustment method to use to apply color settings
 #
 # If not set, the first available method will be used
-#method = dummy                 #(does not affect the display)
+#method = "dummy"               #(does not affect the display)
 # XVidMode extension
 #method = "vidmode"             #(apply to $DISPLAY)
 #method = "vidmode:0"           #(apply to screen 0)
