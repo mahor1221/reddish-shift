@@ -40,19 +40,40 @@ pub const BODY: Style = Style::new().bold();
 
 impl Display for Temperature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}K", **self)
+        write!(f, "{}", **self)
+    }
+}
+
+struct TemperatureDisplay<'a>(&'a Temperature);
+impl Display for TemperatureDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}K", **self.0)
     }
 }
 
 impl Display for Brightness {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}%", **self as u8 * 100)
+        write!(f, "{}", **self)
+    }
+}
+
+struct BrightnessDisplay<'a>(&'a Brightness);
+impl Display for BrightnessDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}%", **self.0 as u8 * 100)
     }
 }
 
 impl Display for Gamma {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:.2}, {:.2}, {:.2}", self[0], self[1], self[2])
+        write!(f, "{:.2}:{:.2}:{:.2}", self[0], self[1], self[2])
+    }
+}
+
+struct GammaDisplay<'a>(&'a Gamma);
+impl Display for GammaDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.2}, {:.2}, {:.2}", self.0[0], self.0[1], self.0[2])
     }
 }
 
@@ -103,13 +124,29 @@ impl Display for Location {
 
 //
 
+struct ColorSettingsDisplay<'a> {
+    temp: TemperatureDisplay<'a>,
+    gamma: GammaDisplay<'a>,
+    brght: BrightnessDisplay<'a>,
+}
+
+impl<'a> From<&'a ColorSettings> for ColorSettingsDisplay<'a> {
+    fn from(cs: &'a ColorSettings) -> Self {
+        let ColorSettings { temp, gamma, brght } = cs;
+        let temp = TemperatureDisplay(temp);
+        let gamma = GammaDisplay(gamma);
+        let brght = BrightnessDisplay(brght);
+        Self { temp, gamma, brght }
+    }
+}
+
 impl Display for ColorSettings {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let ColorSettings { temp, gamma, brght } = self;
+        let ColorSettingsDisplay { temp, gamma, brght } = self.into();
         write!(
             f,
-            "    {BODY}Temperature{BODY:#}: {temp}
-    {BODY}Brightness{BODY:#}: {brght}
+            "    {BODY}Temperature{BODY:#}: {temp}K
+    {BODY}Brightness{BODY:#}: {brght}%
     {BODY}Gamma{BODY:#}: {gamma}"
         )
     }
@@ -263,19 +300,20 @@ impl DaemonMode<'_, '_> {
             _ => {}
         }
 
-        let ColorSettings { temp, gamma, brght } = &self.interp;
+        let ColorSettingsDisplay { temp, gamma, brght } =
+            (&self.interp).into();
         if self.fade == FadeStatus::Completed || self.prev_interp.is_none() {
-            if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-                info!("    {BODY}Temperature{BODY:#}: {temp}");
+            if Some(temp.0) != self.prev_interp.as_ref().map(|c| &c.temp) {
+                info!("    {BODY}Temperature{BODY:#}: {temp}K");
             }
-            if Some(gamma) != self.prev_interp.as_ref().map(|c| &c.gamma) {
+            if Some(gamma.0) != self.prev_interp.as_ref().map(|c| &c.gamma) {
                 info!("    {BODY}Gamma{BODY:#}: {gamma}");
             }
-            if Some(brght) != self.prev_interp.as_ref().map(|c| &c.brght) {
-                info!("    {BODY}Brightness{BODY:#}: {brght}");
+            if Some(brght.0) != self.prev_interp.as_ref().map(|c| &c.brght) {
+                info!("    {BODY}Brightness{BODY:#}: {brght}%");
             }
-        } else if Some(temp) != self.prev_interp.as_ref().map(|c| &c.temp) {
-            info!("    {BODY}Temperature{BODY:#}: {temp}");
+        } else if Some(temp.0) != self.prev_interp.as_ref().map(|c| &c.temp) {
+            info!("    {BODY}Temperature{BODY:#}: {temp}K");
         }
     }
 }

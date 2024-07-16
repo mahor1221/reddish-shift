@@ -144,7 +144,6 @@ pub enum ModeArgs {
 }
 
 #[derive(Debug, Args)]
-#[group(required = true, multiple = true)]
 pub struct ColorSettingsArgs {
     /// Color temperature to apply [default: 6500]
     ///
@@ -155,7 +154,8 @@ pub struct ColorSettingsArgs {
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Temperature::from_str)]
     #[arg(value_name = formatcp!("FROM {MIN_TEMPERATURE} TO {MAX_TEMPERATURE}"))]
-    pub temperature: Option<Temperature>,
+    #[arg(default_value_t)]
+    pub temperature: Temperature,
 
     /// Additional gamma correction to apply [default: 1.0]
     ///
@@ -165,13 +165,15 @@ pub struct ColorSettingsArgs {
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Gamma::from_str)]
     #[arg(value_name = "FROM 0.1 TO 10")]
-    pub gamma: Option<Gamma>,
+    #[arg(default_value_t)]
+    pub gamma: Gamma,
 
     /// Screen brightness to apply [default: 1.0]
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = Brightness::from_str)]
     #[arg(value_name = "FROM 0.1 TO 1.0")]
-    pub brightness: Option<Brightness>,
+    #[arg(default_value_t)]
+    pub brightness: Brightness,
 }
 
 #[derive(Debug, Args)]

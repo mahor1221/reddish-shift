@@ -548,22 +548,17 @@ impl Default for ConfigBuilder {
 
 impl From<ColorSettingsArgs> for ColorSettings {
     fn from(t: ColorSettingsArgs) -> Self {
-        let mut color_settings = Self::default();
         let ColorSettingsArgs {
             temperature,
             gamma,
             brightness,
         } = t;
-        if let Some(t) = temperature {
-            color_settings.temp = t;
+
+        Self {
+            temp: temperature,
+            gamma,
+            brght: brightness,
         }
-        if let Some(t) = brightness {
-            color_settings.brght = t;
-        }
-        if let Some(t) = gamma {
-            color_settings.gamma = t;
-        }
-        color_settings
     }
 }
 
