@@ -115,7 +115,7 @@ jobs:
         id: assets
         shell: bash
         env:
-          WINDOWS: completion
+          WINDOWS: completion/_${{ env.PKG_NAME }}.ps1
           MACOS: completion,man1
           LINUX: completion,man1,assets/systemd/${{ env.PKG_NAME }}.service
         run: |
