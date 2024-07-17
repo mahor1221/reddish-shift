@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ## [0.1.2] - 2024-07-17
-* Fix: Allow negative values in --location and --scheme arguments
+* Fix: Allow negative values in --location and --scheme arguments ([#1](https://github.com/mahor1221/reddish-shift/issues/1))
 * Fix: Apply gamma ramps without checking if it's changed in daemon mode
   to restore the desired ramps faster when an external program changes them. See
   'Why does the redness effect occasionally switch off for a few seconds?' in
