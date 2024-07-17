@@ -194,8 +194,8 @@ pub struct CmdArgs {
     /// Additional gamma correction to apply for day and night [default: 1.0]
     ///
     /// Either set it for all colors, or each color channel individually. e.g.:
-    ///   - 0.9               (day=night=0.9)
-    ///   - 1.0 - 0.8:0.9:0.9 (day=1.0, night=(R=0.8, G=0.9, B=0.9))
+    ///     0.9               (day=night=0.9)
+    ///     1.0 - 0.8:0.9:0.9 (day=1.0, night=(R=0.8, G=0.9, B=0.9))
     #[arg(verbatim_doc_comment)]
     #[arg(long, short, value_parser = GammaRange::from_str)]
     #[arg(value_name = "FROM 0.1 TO 10")]

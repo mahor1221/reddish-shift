@@ -1,11 +1,11 @@
 [Unit]
 Description=Reddish Shift display colour temperature adjustment
 Documentation=man:reddish-shift(1)
-After=graphical-session.target
+After=display-manager.service
 
 [Service]
 ExecStart=/usr/bin/reddish-shift daemon
 Restart=always
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target
